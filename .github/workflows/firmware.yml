@@ -1,4 +1,4 @@
-# The FM-1 firmware (firmware/, on fm1-base), built with JieLi's toolchain by the shared fm1-build workflow:
+# The FM-1 firmware (app/, on fm1-base), built with JieLi's toolchain by the shared fm1-build workflow:
 # every push that touches it gives an installable .fwsc (the run's "packages" artifact); a v* tag publishes a
 # release with it.
 name: firmware
@@ -6,7 +6,7 @@ name: firmware
 on:
   push:
     branches: [main]
-    paths: ['firmware/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml']
+    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml']
     tags: ['v*']
   workflow_dispatch:
 
@@ -21,12 +21,47 @@ jobs:
       build: |
         git submodule update --init --recursive
         if [ "$GITHUB_REF_TYPE" = tag ]; then
-          python3 fm1/base/tools/build.py firmware --release "${GITHUB_REF_NAME#v}"
+          python3 fm1/base/tools/build.py app --release "${GITHUB_REF_NAME#v}"
         else
-          python3 fm1/base/tools/build.py firmware
+          python3 fm1/base/tools/build.py app
         fi
-      packages: firmware/build/*.fwsc
+      packages: app/build/*.fwsc
       test: |
-        python3 fm1/base/tools/build.py firmware --host
-        firmware/build/host/sq80test_host firmware/tests/basic.txt firmware/build/host
+        python3 fm1/base/tools/build.py app --host
+        app/build/host/sq80test_host app/tests/basic.txt app/build/host
       tests-block: false
+
+  # a tag also publishes the site on GitHub Pages: the web installer (with the attested package), the emulator
+  site:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install Pillow
+      - uses: mymindstorm/setup-emsdk@v14
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: pkg
+      - name: Emulator and site
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          python3 fm1/base/tools/build.py app --web --release "$V"
+          python3 fm1/base/tools/make_site.py app "$(find pkg -name "*.fwsc" | head -1)" "$V" app/build/site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/build/site
+      - id: deploy
+        uses: actions/deploy-pages@v4

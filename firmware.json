@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "id": "sq80test",
+  "name": "sq80-fm1",
+  "author": "Leonardo Lopez Chavira",
+  "license": "MIT",
+  "tagline": "an Ensoniq SQ-80 voice engine test for the FM-1",
+  "description": "A test firmware: the sq80-fm1 engine (an Ensoniq SQ-80 voice: three wavetable oscillators, a 4-pole filter, four envelopes, three LFOs, 8 voices) playing four test sounds on built-in synthetic waves, with the audio CPU load on screen.",
+  "tags": ["synth"],
+  "install": "https://leonardolopezchavira.github.io/sq80-fm1/install/",
+  "site": "https://leonardolopezchavira.github.io/sq80-fm1/",
+  "source": "https://github.com/leonardolopezchavira/sq80-fm1",
+  "screenshot": "docs/img/sq80-test.png",
+  "hardware": {
+    "models": ["FM-1"],
+    "flash": ["856014", "B36014"],
+    "features": ["bluetooth-midi", "usb-audio-in", "usb-audio-out", "velocity", "pressure", "screen-reader"]
+  },
+  "credits": "Built on fm1-base (MPL-2.0)."
+}

@@ -15,3 +15,6 @@ credits = "Built on fm1-base (MPL-2.0)."
 author = "Leonardo Lopez Chavira"
 description = "A test firmware: the sq80-fm1 engine (an Ensoniq SQ-80 voice: three wavetable oscillators, a 4-pole filter, four envelopes, three LFOs, 8 voices) playing four test sounds on built-in synthetic waves, with the audio CPU load on screen."
 tags = ["synth"]
+install = "https://leonardolopezchavira.github.io/sq80-fm1/install/"
+site = "https://leonardolopezchavira.github.io/sq80-fm1/"
+screenshot = "docs/img/sq80-test.png"

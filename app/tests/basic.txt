@@ -1,5 +1,5 @@
-# SQ-80 TEST in the host simulator: python3 fm1/base/tools/build.py firmware --host, then
-#   firmware/build/host/SQ80TEST_host firmware/tests/basic.txt firmware/build/host
+# SQ-80 TEST in the host simulator: python3 fm1/base/tools/build.py app --host, then
+#   app/build/host/SQ80TEST_host app/tests/basic.txt app/build/host
 wait 600
 shot boot.png
 expect patch 0

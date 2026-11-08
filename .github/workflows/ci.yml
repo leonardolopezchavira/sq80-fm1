@@ -27,9 +27,9 @@ jobs:
         run: python3 -m pip install Pillow
       - name: SQ-80 TEST in fm1-base's host simulator
         run: |
-          python3 fm1/base/tools/build.py firmware --host
-          firmware/build/host/sq80test_host firmware/tests/basic.txt firmware/build/host
+          python3 fm1/base/tools/build.py app --host
+          app/build/host/sq80test_host app/tests/basic.txt app/build/host
       - uses: actions/upload-artifact@v4
         with:
           name: simulator-screens
-          path: firmware/build/host/*.png
+          path: app/build/host/*.png
