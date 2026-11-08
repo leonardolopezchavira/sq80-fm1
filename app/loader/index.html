@@ -125,16 +125,52 @@ function send(cmd, body = [], ms = 4000) {
   });
 }
 
+// the FM-1 is found by asking: every port pair gets this app's hello, and the one that answers is it (port names
+// differ from one computer and firmware to another: "SQ-80 FM-1", "USB-MIDI", "Felucca"...)
+function outputFor(m, input) {
+  const outs = [...m.outputs.values()].filter((o) => o.state !== "disconnected");
+  const bare = (s) => (s || "").replace(/\s+\d+$/, "");
+  const same = outs.filter((o) => bare(o.name) === bare(input.name));
+  return outs.find((o) => o.name === input.name) || (same.length === 1 ? same[0] : null) ||
+    (outs.length === 1 ? outs[0] : null);
+}
+function ask(input, output) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { input.onmidimessage = null; resolve(null); }, 800);
+    input.onmidimessage = (e) => {
+      const d = e.data;
+      if (d.length >= 9 && d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x53 && d[3] === 0x51 && d[4] === 0x7F &&
+          d[5] === 0x01) { clearTimeout(t); input.onmidimessage = null; resolve(Array.from(d)); }
+    };
+    try { output.send([0xF0, ...HEAD, 0x01, 0xF7]); } catch (err) { clearTimeout(t); resolve(null); }
+  });
+}
 $("connect").onclick = async () => {
   try {
     if (!navigator.requestMIDIAccess) throw new Error("this browser has no Web MIDI: use Chrome or Edge");
-    const m = await navigator.requestMIDIAccess({sysex: true});
-    const pick = (ports) => [...ports.values()].find((p) => /SQ-80|FM-1/i.test(p.name));
-    out = pick(m.outputs); inp = pick(m.inputs);
-    if (!out || !inp) throw new Error("no FM-1 found: is it connected by USB and running SQ-80?");
+    let m;
+    try { m = await navigator.requestMIDIAccess({sysex: true}); }
+    catch (err) { throw new Error("the browser did not allow MIDI with SysEx: allow it (the icon at the right of " +
+                                  "the address bar, or Site settings > MIDI devices) and try again"); }
+    say("cstat", "Looking for the FM-1…");
+    const inputs = [...m.inputs.values()].filter((p) => p.state !== "disconnected");
+    let found = null;
+    for (let pass = 0; pass < 2 && !found; pass++)
+      for (const i of inputs) {
+        const o = outputFor(m, i);
+        if (!o) continue;
+        try { await i.open(); await o.open(); } catch (err) { continue; }
+        const a = await ask(i, o);
+        if (a) { found = {i, o, a}; break; }
+      }
+    if (!found) {
+      const names = inputs.map((p) => p.name).join(", ") || "none";
+      throw new Error(`no FM-1 running SQ-80 answered. MIDI ports seen: ${names}. Is it on SQ-80 0.3 or later, ` +
+                      "connected by USB, and not in use by another page or app?");
+    }
+    out = found.o; inp = found.i;
     inp.onmidimessage = onMessage;
-    const a = await send(0x01);
-    say("cstat", `Connected to ${out.name}. ${a[7] ? "It has a ROM pack." : "It has no ROM pack yet."}`, "ok");
+    say("cstat", `Connected (${out.name}). ${found.a[7] ? "It has a ROM pack." : "It has no ROM pack yet."}`, "ok");
     $("romsend").disabled = !$("romfile").files.length;
     $("banksend").disabled = !programs.length;
   } catch (err) { say("cstat", err.message, "bad"); out = inp = null; }
