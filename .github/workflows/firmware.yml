@@ -1,6 +1,6 @@
 # The FM-1 firmware (app/, on fm1-base), built with JieLi's toolchain by the shared fm1-build workflow:
-# every push that touches it gives an installable .fwsc (the run's "packages" artifact); a v* tag publishes a
-# release with it.
+# every push that touches it builds release app/VERSION (the run's "packages" artifact) and publishes the site on
+# GitHub Pages: the web installer, the emulator, the package. A v* tag also makes a GitHub release.
 name: firmware
 
 on:
@@ -20,21 +20,17 @@ jobs:
     with:
       build: |
         git submodule update --init --recursive
-        if [ "$GITHUB_REF_TYPE" = tag ]; then
-          python3 fm1/base/tools/build.py app --release "${GITHUB_REF_NAME#v}"
-        else
-          python3 fm1/base/tools/build.py app
-        fi
+        python3 fm1/base/tools/build.py app --release "$(cat app/VERSION)"
       packages: app/build/*.fwsc
       test: |
         python3 fm1/base/tools/build.py app --host
         app/build/host/sq80test_host app/tests/basic.txt app/build/host
       tests-block: false
 
-  # a tag also publishes the site on GitHub Pages: the web installer (with the attested package), the emulator
+  # the site on GitHub Pages (Settings > Pages > Source: GitHub Actions): the web installer with the attested
+  # package, the emulator
   site:
     needs: build
-    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       pages: write
@@ -57,7 +53,7 @@ jobs:
           path: pkg
       - name: Emulator and site
         run: |
-          V="${GITHUB_REF_NAME#v}"
+          V="$(cat app/VERSION)"
           python3 fm1/base/tools/build.py app --web --release "$V"
           python3 fm1/base/tools/make_site.py app "$(find pkg -name "*.fwsc" | head -1)" "$V" app/build/site
       - uses: actions/upload-pages-artifact@v3
