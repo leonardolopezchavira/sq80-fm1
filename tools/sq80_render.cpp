@@ -13,9 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "sq80/patch.h"
-#include "sq80/rompack.h"
-#include "sq80/synth.h"
+#include "sq80/sq80.h"
 
 static std::vector<uint8_t> readFile(const char* path) {
     std::ifstream f(path, std::ios::binary);
@@ -46,16 +44,17 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::vector<uint8_t> pack = readFile(argv[1]);
-    sq80::RomPack rom;
-    if (!rom.load(pack.data(), pack.size())) { std::fprintf(stderr, "%s: not a ROM pack\n", argv[1]); return 1; }
+    sq80_rompack rom;
+    if (!sq80_rompack_load(&rom, pack.data(), pack.size())) { std::fprintf(stderr, "%s: not a ROM pack\n", argv[1]); return 1; }
 
     std::vector<uint8_t> syx = readFile(argv[2]);
     const int want = std::atoi(argv[3]);
-    sq80::SysexReader reader(syx.data(), syx.size());
+    sq80_sysex_reader reader;
+    sq80_sysex_begin(&reader, syx.data(), syx.size());
     uint8_t prog[102];
     int index = 0;
     bool found = false;
-    while (reader.next(prog))
+    while (sq80_sysex_next(&reader, prog))
         if (index++ == want) { found = true; break; }
     if (!found) { std::fprintf(stderr, "program %d not found (%d in file)\n", want, index); return 1; }
 
@@ -71,18 +70,19 @@ int main(int argc, char** argv) {
         else if (pos == 2) { seconds = std::strtof(argv[i], nullptr); ++pos; }
     }
 
-    sq80::Patch patch;
-    sq80::decodePatch(prog, patch);
-    sq80::Synth synth(&rom, sr);
-    synth.setPatch(patch);
+    sq80_patch patch;
+    sq80_decode_patch(prog, &patch);
+    static sq80_synth synth;
+    sq80_init(&synth, &rom, sr);
+    sq80_set_patch(&synth, &patch);
     const int total = static_cast<int>(sr * (seconds + 1.5f));
     const int noteOffAt = static_cast<int>(sr * seconds);
     std::vector<float> l(total), r(total);
-    synth.noteOn(key, vel);
+    sq80_note_on(&synth, key, vel);
     for (int pos2 = 0; pos2 < total; pos2 += 64) {
-        if (pos2 <= noteOffAt && noteOffAt < pos2 + 64) synth.noteOff(key);
+        if (pos2 <= noteOffAt && noteOffAt < pos2 + 64) sq80_note_off(&synth, key);
         const int n = std::min(64, total - pos2);
-        synth.render(&l[pos2], &r[pos2], n);
+        sq80_render(&synth, &l[pos2], &r[pos2], n);
     }
     writeWav(argv[4], l, r, static_cast<int>(sr));
     if (raw) {

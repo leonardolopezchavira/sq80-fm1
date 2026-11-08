@@ -59,7 +59,7 @@ SQ-80 would be. What was measured is in [docs/measurements.md](docs/measurements
 
 ## Layout
 
-- `src/sq80/`: the engine (portable C++17, float, no OS calls, no allocation while rendering)
+- `src/sq80/`: the engine (portable C99, single-precision float, no OS calls, no allocation), the same source for the desktop tools and the FM-1
 - `tools/`: ROM pack builder, desktop renderer, patch codec, oracle comparisons
 - `tests/`: unit tests with a synthetic ROM pack
 - `docs/`: formats and measurements
