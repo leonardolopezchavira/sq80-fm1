@@ -1,14 +1,16 @@
 /* SPDX-License-Identifier: MIT
- * SQ-80 TEST: the sq80 engine on the FM-1, with a small built-in synthetic wave set (no Ensoniq data).
- * It answers two questions on the hardware: does the engine run, and how much of the CPU does it take. */
+ * SQ-80: the sq80 engine on the FM-1, playing the player's own SQ-80 ROM pack and programs from flash
+ * (app.c says how they get there). */
 #pragma once
 #include <stdint.h>
 #include "plat.h"
 
-#define APP_NAME "SQ-80 TEST"
+#define APP_NAME "SQ-80"
 #define APP_SPLASH_RGB RGB(90, 200, 160)
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 #define APP_TOUCH                        /* velocity from the keys (lib/touch.h) */
+#define APP_SYSEX                        /* the loader's frames, and ESQ-1 single-program dumps */
+int app_sysex(const uint8_t *p, uint32_t n);
 
 enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
 #define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xDE000u}

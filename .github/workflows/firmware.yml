@@ -24,7 +24,9 @@ jobs:
       packages: app/build/*.fwsc
       test: |
         python3 fm1/base/tools/build.py app --host
-        app/build/host/sq80test_host app/tests/basic.txt app/build/host
+        app/build/host/sq80_host app/tests/basic.txt app/build/host
+        python3 tools/fm1_loader.py sim-script app/build/host/loader.txt
+        app/build/host/sq80_host app/build/host/loader.txt app/build/host
       tests-block: false
 
   # the site on GitHub Pages (Settings > Pages > Source: GitHub Actions): the web installer with the attested
@@ -56,6 +58,7 @@ jobs:
           V="$(cat app/VERSION)"
           python3 fm1/base/tools/build.py app --web --release "$V"
           python3 fm1/base/tools/make_site.py app "$(find pkg -name "*.fwsc" | head -1)" "$V" app/build/site
+          mkdir -p app/build/site/load && cp app/loader/index.html app/build/site/load/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app/build/site

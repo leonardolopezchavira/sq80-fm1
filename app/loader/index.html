@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the FM-1: the loader. Sends your ROM pack and your program banks to the FM-1 over USB MIDI
+     (Web MIDI with SysEx: Chrome or Edge). Nothing leaves your computer except to the FM-1.
+     The protocol: app/app.c ("the loader"); tools/fm1_loader.py is the same in Python. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Load · SQ-80 for the FM-1</title>
+<style>
+  :root { --bg: #111312; --panel: #1b1e1d; --line: #2c312f; --fg: #e9ece9; --dim: #8b938f; --hi: #5ac8a0;
+          --bad: #e6463c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .02em; }
+  .sub { color: var(--dim); margin: 0 0 28px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px;
+            margin-bottom: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 10px; }
+  p { margin: 0 0 10px; }
+  button { font: inherit; background: var(--hi); color: #0b1310; border: 0; border-radius: 6px; padding: 8px 16px;
+           font-weight: 600; cursor: pointer; }
+  button:disabled { background: var(--line); color: var(--dim); cursor: default; }
+  input[type=file] { font: inherit; color: var(--fg); max-width: 100%; margin: 4px 0 10px; }
+  select { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+           padding: 6px 8px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .status { margin-top: 10px; min-height: 1.5em; color: var(--dim); }
+  .ok { color: var(--hi); } .bad { color: var(--bad); }
+  progress { width: 100%; height: 8px; accent-color: var(--hi); margin-top: 8px; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  ol { padding-left: 20px; margin: 0; } li { margin-bottom: 4px; }
+  .names { color: var(--dim); font-family: ui-monospace, monospace; font-size: 13px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SQ-80 loader</h1>
+  <p class="sub">Puts your SQ-80 waves and programs on an FM-1 running SQ-80. Chrome or Edge, with the FM-1 connected
+    by USB.</p>
+
+  <section>
+    <h2>1 · Connect</h2>
+    <p>Close other pages and apps that use the FM-1's MIDI first.</p>
+    <div class="row"><button id="connect">Connect to the FM-1</button></div>
+    <div class="status" id="cstat"></div>
+  </section>
+
+  <section>
+    <h2>2 · ROM pack</h2>
+    <p>Your <code>.rompack</code> file, made from your own SQ-80 ROM dumps by <code>tools/make_rompack.py</code>.
+      It holds all 75 waves (about 264 KB) and takes a minute or so. The FM-1 is silent while it loads.</p>
+    <input type="file" id="romfile" accept=".rompack">
+    <div class="row"><button id="romsend" disabled>Load the ROM pack</button></div>
+    <progress id="romprog" value="0" max="1" hidden></progress>
+    <div class="status" id="romstat"></div>
+  </section>
+
+  <section>
+    <h2>3 · Programs</h2>
+    <p>An ESQ-1 or SQ-80 SysEx file (<code>.syx</code>): a 40-program bank, or single programs (the first 40 are
+      taken). It goes into one of the FM-1's four banks, replacing what was there.</p>
+    <input type="file" id="syxfile" accept=".syx,.SYX">
+    <div class="names" id="names"></div>
+    <div class="row" style="margin-top:10px">
+      <label>Bank <select id="slot"><option value="0">1</option><option value="1">2</option>
+        <option value="2">3</option><option value="3">4</option></select></label>
+      <button id="banksend" disabled>Load the programs</button>
+    </div>
+    <progress id="bankprog" value="0" max="1" hidden></progress>
+    <div class="status" id="bankstat"></div>
+  </section>
+
+  <section>
+    <h2>On the FM-1</h2>
+    <ol>
+      <li><b>SELECT</b> picks the bank (T is the built-in test sounds), <b>PRESET</b> the program.</li>
+      <li><b>K1–K4</b> change cutoff, resonance, attack and release; <b>HOME</b> puts them back.</li>
+      <li><b>SAVE</b> keeps the bank, program and octave for the next power-on.</li>
+    </ol>
+  </section>
+</main>
+<script>
+"use strict";
+const HEAD = [0x7D, 0x53, 0x51];
+let out = null, inp = null, waiting = null;
+const $ = (id) => document.getElementById(id);
+const say = (el, text, cls) => { $(el).textContent = text; $(el).className = "status" + (cls ? " " + cls : ""); };
+
+function u7(v, n) { const a = []; for (let i = 0; i < n; i++) a.push(Math.floor(v / 2 ** (7 * i)) & 0x7F); return a; }
+function pack7(d) {
+  const o = [];
+  for (let i = 0; i < d.length; i += 7) {
+    const c = d.subarray(i, i + 7);
+    let hi = 0;
+    c.forEach((b, k) => { hi |= ((b >> 7) & 1) << k; });
+    o.push(hi);
+    c.forEach((b) => o.push(b & 0x7F));
+  }
+  return o;
+}
+const CRC_T = (() => { const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t; })();
+function crc32(d) { let c = 0xFFFFFFFF; for (const b of d) c = CRC_T[(c ^ b) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+
+function onMessage(e) {
+  const d = e.data;
+  if (d.length >= 8 && d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x53 && d[3] === 0x51 && d[4] === 0x7F && waiting
+      && d[5] === waiting.cmd) {
+    const w = waiting; waiting = null; clearTimeout(w.timer); w.resolve(Array.from(d));
+  }
+}
+const STATUS = {1: "the FM-1 did not understand a frame", 2: "writing the flash failed",
+                3: "the check after loading failed (the file or the transfer is damaged)", 4: "the FM-1 lost the load"};
+function send(cmd, body = [], ms = 4000) {
+  return new Promise((resolve, reject) => {
+    waiting = {cmd, resolve, timer: setTimeout(() => { waiting = null; reject(new Error("no answer from the FM-1")); }, ms)};
+    out.send([0xF0, ...HEAD, cmd, ...body, 0xF7]);
+  }).then((a) => {
+    if (cmd !== 0x01 && a[6] !== 0) throw new Error(STATUS[a[6]] || "error " + a[6]);
+    return a;
+  });
+}
+
+$("connect").onclick = async () => {
+  try {
+    if (!navigator.requestMIDIAccess) throw new Error("this browser has no Web MIDI: use Chrome or Edge");
+    const m = await navigator.requestMIDIAccess({sysex: true});
+    const pick = (ports) => [...ports.values()].find((p) => /SQ-80|FM-1/i.test(p.name));
+    out = pick(m.outputs); inp = pick(m.inputs);
+    if (!out || !inp) throw new Error("no FM-1 found: is it connected by USB and running SQ-80?");
+    inp.onmidimessage = onMessage;
+    const a = await send(0x01);
+    say("cstat", `Connected to ${out.name}. ${a[7] ? "It has a ROM pack." : "It has no ROM pack yet."}`, "ok");
+    $("romsend").disabled = !$("romfile").files.length;
+    $("banksend").disabled = !programs.length;
+  } catch (err) { say("cstat", err.message, "bad"); out = inp = null; }
+};
+
+$("romfile").onchange = () => { $("romsend").disabled = !out || !$("romfile").files.length; say("romstat", ""); };
+$("romsend").onclick = async () => {
+  const f = $("romfile").files[0];
+  const pack = new Uint8Array(await f.arrayBuffer());
+  const magic = String.fromCharCode(...pack.subarray(0, 8));
+  if (magic !== "SQ80PACK") { say("romstat", "That is not a ROM pack (it does not start with SQ80PACK).", "bad"); return; }
+  $("romsend").disabled = true; $("romprog").hidden = false;
+  try {
+    await send(0x10, u7(pack.length, 4), 8000);
+    const CH = 448;
+    for (let off = 0; off < pack.length; off += CH) {
+      await send(0x11, [...u7(off, 4), ...pack7(pack.subarray(off, off + CH))], 4000);
+      $("romprog").value = off / pack.length;
+      say("romstat", `Loading… ${Math.round(100 * off / pack.length)}%`);
+    }
+    await send(0x12, u7(crc32(pack), 5), 15000);
+    $("romprog").value = 1;
+    say("romstat", "The ROM pack is loaded and checked. The FM-1 plays your SQ-80 waves now.", "ok");
+  } catch (err) { say("romstat", "Stopped: " + err.message + ". Try again; until then the FM-1 plays its test waves.", "bad"); }
+  $("romsend").disabled = false;
+};
+
+let programs = [];
+function programsFrom(d) {   // ESQ-1 / SQ-80 dumps: F0 0F 02 ch 01 (one) or 02 (40), each program 204 nibbles
+  const progs = [];
+  for (let i = 0; i + 5 <= d.length; i++) {
+    if (d[i] !== 0xF0 || d[i + 1] !== 0x0F || d[i + 2] !== 0x02 || (d[i + 4] !== 0x01 && d[i + 4] !== 0x02)) continue;
+    const n = d[i + 4] === 0x01 ? 1 : 40;
+    let p = i + 5;
+    for (let k = 0; k < n && p + 204 <= d.length; k++, p += 204) {
+      const prog = new Uint8Array(102);
+      for (let j = 0; j < 102; j++) prog[j] = (d[p + 2 * j] & 15) | ((d[p + 2 * j + 1] & 15) << 4);
+      progs.push(prog);
+    }
+    i = p - 1;
+  }
+  return progs.slice(0, 40);
+}
+const nameOf = (p) => String.fromCharCode(...p.subarray(0, 6)).replace(/[^\x20-\x7E]/g, " ").trimEnd();
+$("syxfile").onchange = async () => {
+  const f = $("syxfile").files[0];
+  programs = f ? programsFrom(new Uint8Array(await f.arrayBuffer())) : [];
+  $("names").textContent = programs.length ? `${programs.length} programs: ` + programs.map(nameOf).join(" · ") : "";
+  say("bankstat", f && !programs.length ? "No ESQ-1 / SQ-80 programs in that file." : "", f && !programs.length ? "bad" : "");
+  $("banksend").disabled = !out || !programs.length;
+};
+$("banksend").onclick = async () => {
+  const slot = +$("slot").value;
+  $("banksend").disabled = true; $("bankprog").hidden = false;
+  try {
+    await send(0x20, [slot], 4000);
+    for (let i = 0; i < programs.length; i++) {
+      const nib = []; programs[i].forEach((b) => nib.push(b & 15, b >> 4));
+      await send(0x21, [slot, i, ...nib]);
+      $("bankprog").value = (i + 1) / programs.length;
+    }
+    await send(0x22, [slot, programs.length]);
+    say("bankstat", `Bank ${slot + 1} holds ${programs.length} programs now. SELECT on the FM-1 picks it.`, "ok");
+  } catch (err) { say("bankstat", "Stopped: " + err.message + ".", "bad"); }
+  $("banksend").disabled = false;
+};
+</script>
+</body>
+</html>

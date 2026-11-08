@@ -56,50 +56,59 @@ void sq80_rompack_name(const sq80_rompack *pack, int wave, char out[7]) {
 
 /* ------------------------------------------------------------------------- test pack */
 
-static void wr32(uint8_t *p, uint32_t v) {
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+static uint8_t tp_sine(int i) {   /* the 1024-byte sine, a Bhaskara approximation (no libm) */
+    int q = i & 511, x = q <= 256 ? q : 512 - q;
+    /* sin(pi*x/512) ~ 16 x (512 - x) / (5*512^2 - 4 x (512 - x)) */
+    int32_t num = 16 * x * (512 - x), den = 5 * 512 * 512 - 4 * x * (512 - x);
+    int v = (int)(126 * num / den);
+    return (uint8_t)(128 + (i < 512 ? v : -v));
+}
+
+static uint8_t tp_rom(int i) {   /* the test pack's 8 KiB wave ROM */
+    if (i < 0x400) return tp_sine(i);
+    if (i < 0x600) return (uint8_t)(1 + (i - 0x400) * 254 / 511);
+    if (i < 0x800) return (uint8_t)(i - 0x600 < 256 ? 228 : 28);
+    if (i < 0x1000) return 0;
+    if (i < 0x1fff) {   /* the decaying one-shot */
+        int k = i - 0x1000, amp = 120 - k * 120 / 4095, v = tp_sine((k * 16) & 1023) - 128;
+        int s = 128 + v * amp / 126;
+        return (uint8_t)(s < 1 ? 1 : s);
+    }
+    return 0;   /* 0x1fff: the one-shot's terminator */
+}
+
+static uint8_t tp_byte(uint32_t i) {   /* byte i of the test pack */
+    /* raw waves: [page, wave select (bank 7-6, size 5-3, resolution 2-0), tune semitones, tune 1/256] */
+    static const uint8_t raws[16] = {
+        0x00, (2 << 3) | 1, 0, 0,   /* 0: 1024-byte sine, pages 0..3 */
+        0x04, (1 << 3) | 1, 0, 0,   /* 1: 512-byte saw, pages 4..5 */
+        0x06, (1 << 3) | 1, 0, 0,   /* 2: 512-byte square, pages 6..7 */
+        0x10, (4 << 3) | 4, 0, 0};  /* 3: 4096-byte decaying one-shot, pages 16..31 */
+    static const uint8_t head[32] = {'S', 'Q', '8', '0', 'P', 'A', 'C', 'K', 1, 0, 0, 0, 32, 0, 0, 0,
+                                     SQ80_WAVES, 0, 0, 0, 4, 0, 0, 0, 0x00, 0x20, 0, 0, 0, 0, 0, 0};
+    const uint32_t names = 32, zones = names + 6 * SQ80_WAVES, raw = zones + 16 * SQ80_WAVES, rom = 32 + 1680;
+    if (i < names) return head[i];
+    if (i < zones) {
+        uint32_t w = (i - names) / 6, c = (i - names) % 6;
+        return (uint8_t)(c < 4 ? (uint32_t)(uint8_t)"TEST"[c] : (uint32_t)'0' + (c == 4 ? w / 10 : w % 10));
+    }
+    if (i < raw) {
+        uint32_t w = (i - zones) / 16;
+        return (uint8_t)(w == 0 ? 1 : (w == 3 || w == 4) ? 2 : w >= 54 ? 3 : 0);
+    }
+    if (i < raw + 16) return raws[i - raw];
+    if (i < rom) return 0;
+    if (i < SQ80_TEST_PACK_SIZE) return tp_rom((int)(i - rom));
+    return 0;
+}
+
+void sq80_test_pack_part(uint8_t *buf, size_t off, size_t n) {
+    size_t i;
+    for (i = 0; i < n; ++i) buf[i] = tp_byte((uint32_t)(off + i));
 }
 
 size_t sq80_test_pack(uint8_t *buf) {
-    /* raw waves: [page, wave select (bank 7-6, size 5-3, resolution 2-0), tune semitones, tune 1/256] */
-    static const uint8_t raws[4][4] = {
-        {0x00, (2 << 3) | 1, 0, 0},   /* 0: 1024-byte sine, pages 0..3 */
-        {0x04, (1 << 3) | 1, 0, 0},   /* 1: 512-byte saw, pages 4..5 */
-        {0x06, (1 << 3) | 1, 0, 0},   /* 2: 512-byte square, pages 6..7 */
-        {0x10, (4 << 3) | 4, 0, 0}};  /* 3: 4096-byte decaying one-shot, pages 16..31 */
-    uint8_t *names = buf + 32, *zones = names + 6 * SQ80_WAVES, *raw = zones + 16 * SQ80_WAVES;
-    uint8_t *rom = buf + 32 + 1680;   /* where sq80_rompack_load finds it: the directory padded to 16 */
-    int w, z, i;
-    sq80_zero(buf, SQ80_TEST_PACK_SIZE);
-    sq80_copy(buf, "SQ80PACK", 8);
-    wr32(buf + 8, 1); wr32(buf + 12, 32); wr32(buf + 16, SQ80_WAVES); wr32(buf + 20, 4); wr32(buf + 24, 8192);
-    for (w = 0; w < SQ80_WAVES; ++w) {
-        uint8_t r = (uint8_t)(w == 0 ? 1 : (w == 3 || w == 4) ? 2 : w >= 54 ? 3 : 0);
-        names[6 * w] = 'T';
-        names[6 * w + 1] = 'E';
-        names[6 * w + 2] = 'S';
-        names[6 * w + 3] = 'T';
-        names[6 * w + 4] = (char)('0' + w / 10);
-        names[6 * w + 5] = (char)('0' + w % 10);
-        for (z = 0; z < SQ80_ZONES; ++z) zones[16 * w + z] = r;
-    }
-    sq80_copy(raw, raws, sizeof raws);
-    /* sine and one-shot from a quarter-wave table by symmetry, without libm: a Bhaskara approximation */
-    for (i = 0; i < 1024; ++i) {
-        int q = i & 511, x = q <= 256 ? q : 512 - q;   /* 0..256 over a half period */
-        /* sin(pi*x/512) ~ 16 x (512 - x) / (5*512^2 - 4 x (512 - x)) */
-        int32_t num = 16 * x * (512 - x), den = 5 * 512 * 512 - 4 * x * (512 - x);
-        int v = (int)(126 * num / den);
-        rom[i] = (uint8_t)(128 + (i < 512 ? v : -v));
-    }
-    for (i = 0; i < 512; ++i) rom[0x400 + i] = (uint8_t)(1 + i * 254 / 511);
-    for (i = 0; i < 512; ++i) rom[0x600 + i] = (uint8_t)(i < 256 ? 228 : 28);
-    for (i = 0; i < 4095; ++i) {
-        int amp = 120 - i * 120 / 4095, v = rom[(i * 16) & 1023] - 128;
-        int s = 128 + v * amp / 126;
-        rom[0x1000 + i] = (uint8_t)(s < 1 ? 1 : s);
-    }
-    rom[0x1fff] = 0;   /* the one-shot's terminator */
+    sq80_test_pack_part(buf, 0, SQ80_TEST_PACK_SIZE);
     return SQ80_TEST_PACK_SIZE;
 }
 

@@ -47,6 +47,8 @@ void sq80_rompack_name(const sq80_rompack *pack, int wave, char out[7]);
  * decaying tone that stops, every other wave the sine. Returns the pack's size. */
 #define SQ80_TEST_PACK_SIZE (32u + 1680u + 8192u)   /* header, directory (padded to 16), ROM */
 size_t sq80_test_pack(uint8_t *buf);
+/* bytes off .. off+n-1 of the same, for building it a piece at a time */
+void sq80_test_pack_part(uint8_t *buf, size_t off, size_t n);
 
 /* ------------------------------------------------------------------------- programs */
 

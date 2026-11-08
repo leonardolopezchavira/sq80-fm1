@@ -12,7 +12,7 @@ waveforms, read from **your** ROM dumps.
 | Step | State |
 |---|---|
 | 1. Engine on the desktop, compared against SQ8L | **done** (calibrated, see below) |
-| 2. Move to the FM-1 (fm1-base on felucca-bsp), front-panel UI | in progress: SQ-80 TEST firmware |
+| 2. Move to the FM-1 (fm1-base on felucca-bsp), front-panel UI | in progress: SQ-80 0.3 (ROM pack and banks from flash) |
 | 3. Test on hardware | not started |
 
 What works now (desktop):
@@ -59,23 +59,25 @@ SQ-80 would be. What was measured is in [docs/measurements.md](docs/measurements
 
 ## The FM-1 firmware
 
-`app/` is an [fm1-base](https://github.com/charlesvestal/fm1-base) app (fm1-base is the
-`fm1/base` submodule). The first one is **SQ-80 TEST**: the real engine with a small synthetic
-wave set built in (no Ensoniq data), four test sounds (PRESET), the octave (OCT-/OCT+), a stress
-test that holds all eight voices (ARP), and the audio CPU load and its peak on screen (HOME
-resets the peak). It tells us whether the engine runs on the FM-1 and how much CPU it takes.
+`app/` is an [fm1-base](https://github.com/charlesvestal/fm1-base) app (fm1-base is the `fm1/base`
+submodule): **SQ-80**, the engine on the FM-1, eight voices over its two cores. It plays your ROM pack and
+your ESQ-1/SQ-80 program banks, loaded into its flash over USB SysEx by the loader page
+(`app/loader/index.html`, also at https://leonardolopezchavira.github.io/sq80-fm1/load/; the protocol is in
+`app/app.c` and `tools/fm1_loader.py`). Without them it plays a synthetic test wave set.
 
-- Simulator: `git submodule update --init --recursive`, then
-  `python3 fm1/base/tools/build.py app --host` and
-  `app/build/host/sq80test_host app/tests/basic.txt app/build/host`.
-- Firmware: the `firmware` workflow builds the installable `.fwsc` with JieLi's toolchain
-  (the shared [fm1-build](https://github.com/zvenson/fm1-build) workflow); download it from the
-  run's `packages` artifact.
+- Install: https://leonardolopezchavira.github.io/sq80-fm1/install/ (Chrome or Edge).
+- Simulator: `git submodule update --init --recursive`, `python3 fm1/base/tools/build.py app --host`,
+  then `app/build/host/sq80_host app/tests/basic.txt app/build/host`; the loader:
+  `python3 tools/fm1_loader.py sim-script /tmp/l.txt && app/build/host/sq80_host /tmp/l.txt app/build/host`.
+- Firmware: the `firmware` workflow builds release `app/VERSION` with JieLi's toolchain (the shared
+  [fm1-build](https://github.com/zvenson/fm1-build) workflow) and publishes the site.
+
+Measured on the FM-1 (0.2.0): eight voices at 39% audio load on two cores, no under-runs.
 
 ## Layout
 
 - `src/sq80/`: the engine (portable C99, single-precision float, no OS calls, no allocation), the same source for the desktop tools and the FM-1
-- `app/`: the FM-1 app (fm1-base); `fm1/base`: fm1-base
+- `app/`: the FM-1 app (fm1-base), its loader page in `app/loader/`; `fm1/base`: fm1-base
 - `tools/`: ROM pack builder, desktop renderer, patch codec, oracle comparisons
 - `tests/`: unit tests with a synthetic ROM pack
 - `docs/`: formats and measurements
