@@ -12,7 +12,7 @@ waveforms, read from **your** ROM dumps.
 | Step | State |
 |---|---|
 | 1. Engine on the desktop, compared against SQ8L | **done** (calibrated, see below) |
-| 2. Move to the FM-1 (fm1-base on felucca-bsp), front-panel UI | next |
+| 2. Move to the FM-1 (fm1-base on felucca-bsp), front-panel UI | in progress: SQ-80 TEST firmware |
 | 3. Test on hardware | not started |
 
 What works now (desktop):
@@ -57,9 +57,25 @@ SQ8L sample for sample, and measures the difference. The port's engine is **not*
 repository and none of its code is used: it is only played and listened to, like a hardware
 SQ-80 would be. What was measured is in [docs/measurements.md](docs/measurements.md).
 
+## The FM-1 firmware
+
+`firmware/` is an [fm1-base](https://github.com/charlesvestal/fm1-base) app (fm1-base is the
+`fm1/base` submodule). The first one is **SQ-80 TEST**: the real engine with a small synthetic
+wave set built in (no Ensoniq data), four test sounds (PRESET), the octave (OCT-/OCT+), a stress
+test that holds all eight voices (ARP), and the audio CPU load and its peak on screen (HOME
+resets the peak). It tells us whether the engine runs on the FM-1 and how much CPU it takes.
+
+- Simulator: `git submodule update --init --recursive`, then
+  `python3 fm1/base/tools/build.py firmware --host` and
+  `firmware/build/host/sq80test_host firmware/tests/basic.txt firmware/build/host`.
+- Firmware: the `firmware` workflow builds the installable `.fwsc` with JieLi's toolchain
+  (the shared [fm1-build](https://github.com/zvenson/fm1-build) workflow); download it from the
+  run's `packages` artifact.
+
 ## Layout
 
 - `src/sq80/`: the engine (portable C99, single-precision float, no OS calls, no allocation), the same source for the desktop tools and the FM-1
+- `firmware/`: the FM-1 app (fm1-base); `fm1/base`: fm1-base
 - `tools/`: ROM pack builder, desktop renderer, patch codec, oracle comparisons
 - `tests/`: unit tests with a synthetic ROM pack
 - `docs/`: formats and measurements

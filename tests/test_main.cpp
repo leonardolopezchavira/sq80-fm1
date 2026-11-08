@@ -200,6 +200,25 @@ int main() {
         CHECK(late < 1e-3f, "one-shot still sounding (%g)", late);
     }
 
+    {
+        // the built-in test pack (the FM-1 test firmware's): every wave it maps sounds, the one-shot stops
+        static uint8_t buf[SQ80_TEST_PACK_SIZE];
+        sq80_rompack tp;
+        CHECK(sq80_rompack_load(&tp, buf, sq80_test_pack(buf)), "test pack rejected");
+        const int waves[] = {0, 2, 3, 30, 60};
+        for (int w : waves) {
+            basicProgram(prog, w);
+            sq80_decode_patch(prog, &p);
+            static sq80_synth s;
+            sq80_init(&s, &tp, 44100.0f);
+            sq80_set_patch(&s, &p);
+            std::vector<float> x = renderNote(s, 60, 0.3f, 0.3f);
+            float peak = 0.0f;
+            for (int i = 0; i < 4410; ++i) peak = std::max(peak, std::fabs(x[i]));
+            CHECK(peak > 0.05f, "test pack wave %d silent (peak %g)", w, peak);
+        }
+    }
+
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
     return failures ? 1 : 0;
 }

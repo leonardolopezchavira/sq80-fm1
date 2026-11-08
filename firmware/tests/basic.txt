@@ -1,0 +1,59 @@
+# SQ-80 TEST in the host simulator: python3 fm1/base/tools/build.py firmware --host, then
+#   firmware/build/host/SQ80TEST_host firmware/tests/basic.txt firmware/build/host
+wait 600
+shot boot.png
+expect patch 0
+wav keys.wav
+key 7 down
+wait 400
+expect note 60
+expect voices 1
+key 11 down
+wait 400
+expect voices 2
+shot playing.png
+key 7 up
+key 11 up
+wait 1500
+turn PRESET 1
+wait 30
+expect patch 1
+expect dirty 1
+key 2 down
+wait 300
+key 2 up
+wait 600
+turn PRESET 1
+wait 30
+expect patch 2
+midi 90 45 64
+wait 600
+midi B0 01 7F
+wait 600
+midi 80 45 00
+wait 800
+turn PRESET 1
+wait 30
+expect patch 3
+midi 90 3C 64
+wait 900
+midi 80 3C 00
+wait 300
+wavstop
+turn PRESET 1
+wait 30
+expect patch 0
+tap ARP
+wait 300
+expect stress 1
+expect voices 8
+shot stress.png
+tap ARP
+wait 30
+expect stress 0
+tap SAVE
+wait 30
+expect dirty 0
+reboot
+wait 600
+expect patch 0

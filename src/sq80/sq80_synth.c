@@ -3,10 +3,9 @@
  * rate (38455.855 Hz), resampled to the output rate; a 4-pole resonant low-pass; the final DCA
  * with pan; four envelopes and three LFOs at the SQ-80's control rate (83.59 Hz).
  * Every mapping constant is in sq80_cal.h (measured, docs/measurements.md). */
-#include <math.h>
-#include <string.h>
 
 #include "sq80.h"
+#include "sq80_port.h"
 #include "sq80_cal.h"
 
 #define PI_F 3.14159265358979f
@@ -16,7 +15,7 @@ enum { ST_IDLE, ST_ATTACK, ST_DECAY1, ST_DECAY2, ST_SUSTAIN, ST_RELEASE, ST_RELE
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int level_bytes(int c) { return c >= 0 ? 2 * c : 2 * (c - 1); }   /* -63..63 -> -128..126 */
-static float semitone_ratio(float semis) { return exp2f(semis * (1.0f / 12.0f)); }
+static float semitone_ratio(float semis) { return sq80_exp2f(semis * (1.0f / 12.0f)); }
 
 /* tanh, rational approximation (error < 2.5 % before the clamp), cheap enough per sample */
 static float fast_tanh(float x) {
@@ -35,13 +34,13 @@ static float dca_gain(float level) {
     while (level > SQ80_DCA_LEVEL[i]) ++i;
     t = (level - SQ80_DCA_LEVEL[i - 1]) / (SQ80_DCA_LEVEL[i] - SQ80_DCA_LEVEL[i - 1]);
     db = SQ80_DCA_DB[i - 1] + (SQ80_DCA_DB[i] - SQ80_DCA_DB[i - 1]) * t;
-    return exp2f(db * (3.32192809f / 20.0f));
+    return sq80_exp2f(db * (3.32192809f / 20.0f));
 }
 
 /* FILTER FREQ steps (fractional, may be out of 0..127) to the cutoff parameter in Hz */
 static float cutoff_hz(float steps) {
     int i;
-    if (steps <= 0.0f) return SQ80_CUTOFF_HZ[0] * exp2f(steps * (1.0f / 12.0f));
+    if (steps <= 0.0f) return SQ80_CUTOFF_HZ[0] * sq80_exp2f(steps * (1.0f / 12.0f));
     if (steps >= 127.0f) return SQ80_CUTOFF_HZ[127];
     i = (int)steps;
     return SQ80_CUTOFF_HZ[i] + (SQ80_CUTOFF_HZ[i + 1] - SQ80_CUTOFF_HZ[i]) * (steps - (float)i);
@@ -191,7 +190,7 @@ static int lfo_tick(sq80_lfo *l, int mod_source) {
 
 static void filter_set(sq80_filter *f, float hz, float resonance, float sample_rate) {
     hz = clampf(hz, 10.0f, sample_rate * 0.45f);
-    f->g = tanf(PI_F * hz / sample_rate);
+    f->g = sq80_tanf(PI_F * hz / sample_rate);
     f->k = resonance;
 }
 
@@ -217,12 +216,12 @@ static float filter_process(sq80_filter *f, float x) {
 /* ------------------------------------------------------------------------- synth */
 
 void sq80_init(sq80_synth *s, const sq80_rompack *rom, float sample_rate) {
-    memset(s, 0, sizeof *s);
+    sq80_zero(s, sizeof *s);
     s->rom = rom;
     s->sample_rate = sample_rate;
     s->doc_step = SQ80_DOC_RATE / sample_rate;
     s->samples_per_tick = sample_rate / SQ80_CONTROL_RATE;
-    s->amp_pole = powf(0.01f, 1.0f / (0.002f * SQ80_DOC_RATE + 1.0f));   /* -40 dB in 2 ms */
+    s->amp_pole = sq80_powf(0.01f, 1.0f / (0.002f * SQ80_DOC_RATE + 1.0f));   /* -40 dB in 2 ms */
     s->volume = 127;
     s->last_key = -1;
     sq80_default_patch(&s->patch);
@@ -272,7 +271,7 @@ static void setup_osc(sq80_synth *s, sq80_voice *v, int i, float pitch) {
     semis = pitch + (float)w.tune_semi + (float)w.tune_frac * (1.0f / 256.0f) - (float)SQ80_A4_KEY;
     /* DOC: a table pass takes 2^(17 + resolution) accumulator steps: each resolution step halves
      * the rate. Single-cycle waves (resolution 1) are the reference. */
-    hz = SQ80_A4 * semitone_ratio(semis) * exp2f(1.0f - (float)w.resolution);
+    hz = SQ80_A4 * semitone_ratio(semis) * sq80_exp2f(1.0f - (float)w.resolution);
     inc = hz / SQ80_DOC_RATE * 4294967296.0f;
     o->inc = inc >= 2147483647.0f ? 2147483647u : (uint32_t)inc;
 }
@@ -309,7 +308,7 @@ static void control_tick(sq80_synth *s, sq80_voice *v) {
     v->resonance = SQ80_RESONANCE[p->resonance & 31];
 
     env4 = (float)(v->env[3].output > 0 ? v->env[3].output : 0) / 126.0f;
-    gain = powf(env4 * ((float)p->final_level / 63.0f), SQ80_FINAL_EXPONENT) * ((float)s->volume / 127.0f) *
+    gain = sq80_powf(env4 * ((float)p->final_level / 63.0f), SQ80_FINAL_EXPONENT) * ((float)s->volume / 127.0f) *
            SQ80_OUTPUT_GAIN;
     /* linear pan law: PAN 8 is the centre, 0 and 15 the sides */
     pan_steps = (float)p->pan + (float)(mod_source(s, v, p->pan_mod.source) * p->pan_mod.depth) / 64.0f * SQ80_PAN_MOD_PER_UNIT;
@@ -328,7 +327,7 @@ static void start_voice(sq80_synth *s, sq80_voice *v, int key, int velocity, int
     v->age = ++s->age_counter;
     if (glide_ticks > 0.0f && s->last_key >= 0) {   /* glide from the last key played */
         if (!reuse) v->pitch_key = (float)s->last_key;
-        v->glide_rate = fabsf((float)key - v->pitch_key) / glide_ticks;
+        v->glide_rate = sq80_fabsf((float)key - v->pitch_key) / glide_ticks;
     } else {
         v->pitch_key = (float)key;
         v->glide_rate = 0.0f;
@@ -351,8 +350,8 @@ static void start_voice(sq80_synth *s, sq80_voice *v, int key, int velocity, int
         if (!reuse) o->amp = 0.0f;
     }
     if (!reuse) {
-        memset(&v->filter, 0, sizeof v->filter);
-        memset(v->hist, 0, sizeof v->hist);
+        sq80_zero(&v->filter, sizeof v->filter);
+        sq80_zero(v->hist, sizeof v->hist);
         v->doc_phase = 0.0f;
         v->gain_l = v->gain_r = 0.0f;
     }
@@ -473,7 +472,7 @@ static float render_doc(sq80_synth *s, sq80_voice *v) {
         o->wrapped = o->phase < before;
         if (o->wrapped && o->one_shot && !(i == 1 && p->sync)) { o->halted = 1; continue; }
         if (i == 1 && p->sync && v->osc[0].wrapped) o->phase = 0;
-        smp = rom[(o->start + (o->phase >> o->shift)) & (SQ80_WAVE_ROM_SIZE - 1)];
+        smp = rom[(o->start + (o->phase >> o->shift)) & s->rom->rom_mask];
         if (smp == 0) { o->halted = 1; continue; }   /* a zero byte stops the DOC oscillator */
         x = (float)((int)smp - 128) * (1.0f / 127.0f);
         if (i == 0) s0 = x;

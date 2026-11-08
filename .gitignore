@@ -12,3 +12,4 @@ __pycache__/
 *.SYX
 *.zip
 .DS_Store
+firmware/web/

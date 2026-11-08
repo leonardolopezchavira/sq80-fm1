@@ -1,0 +1,32 @@
+# The FM-1 firmware (firmware/, on fm1-base), built with JieLi's toolchain by the shared fm1-build workflow:
+# every push that touches it gives an installable .fwsc (the run's "packages" artifact); a v* tag publishes a
+# release with it.
+name: firmware
+
+on:
+  push:
+    branches: [main]
+    paths: ['firmware/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml']
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      build: |
+        git submodule update --init --recursive
+        if [ "$GITHUB_REF_TYPE" = tag ]; then
+          python3 fm1/base/tools/build.py firmware --release "${GITHUB_REF_NAME#v}"
+        else
+          python3 fm1/base/tools/build.py firmware
+        fi
+      packages: firmware/build/*.fwsc
+      test: |
+        python3 fm1/base/tools/build.py firmware --host
+        firmware/build/host/sq80test_host firmware/tests/basic.txt firmware/build/host
+      tests-block: false

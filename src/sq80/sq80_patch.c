@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT
  * ROM pack reader, program decoder and SysEx reader. */
-#include <string.h>
 
 #include "sq80.h"
+#include "sq80_port.h"
 
 static uint32_t rd32(const uint8_t *p) {
     return p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -11,15 +11,15 @@ static uint32_t rd32(const uint8_t *p) {
 int sq80_rompack_load(sq80_rompack *pack, const uint8_t *data, size_t size) {
     uint32_t version, header, waves, raws, rom_size, i;
     size_t body;
-    memset(pack, 0, sizeof *pack);
-    if (size < 32 || memcmp(data, "SQ80PACK", 8) != 0) return 0;
+    sq80_zero(pack, sizeof *pack);
+    if (size < 32 || !sq80_same(data, "SQ80PACK", 8)) return 0;
     version = rd32(data + 8);
     header = rd32(data + 12);
     waves = rd32(data + 16);
     raws = rd32(data + 20);
     rom_size = rd32(data + 24);
     if (version != 1 || header != 32 || waves != SQ80_WAVES || raws == 0 || raws > 255 ||
-        rom_size != SQ80_WAVE_ROM_SIZE)
+        rom_size < 4096u || rom_size > SQ80_WAVE_ROM_SIZE || (rom_size & (rom_size - 1u)) != 0)
         return 0;
     body = 6u * SQ80_WAVES + 16u * SQ80_WAVES + 4u * raws;
     body += (16 - body % 16) % 16;
@@ -28,10 +28,11 @@ int sq80_rompack_load(sq80_rompack *pack, const uint8_t *data, size_t size) {
     pack->zones = pack->names + 6 * SQ80_WAVES;
     pack->raws = pack->zones + 16 * SQ80_WAVES;
     pack->rom = data + header + body;
+    pack->rom_mask = rom_size - 1u;
     pack->raw_count = (int)raws;
     for (i = 0; i < SQ80_WAVES * SQ80_ZONES; ++i)
         if (pack->zones[i] >= raws) {
-            memset(pack, 0, sizeof *pack);
+            sq80_zero(pack, sizeof *pack);
             return 0;
         }
     return 1;
@@ -49,8 +50,57 @@ sq80_raw_wave sq80_rompack_raw(const sq80_rompack *pack, int index) {
 }
 
 void sq80_rompack_name(const sq80_rompack *pack, int wave, char out[7]) {
-    memcpy(out, pack->names + 6 * wave, 6);
+    sq80_copy(out, pack->names + 6 * wave, 6);
     out[6] = 0;
+}
+
+/* ------------------------------------------------------------------------- test pack */
+
+static void wr32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+}
+
+size_t sq80_test_pack(uint8_t *buf) {
+    /* raw waves: [page, wave select (bank 7-6, size 5-3, resolution 2-0), tune semitones, tune 1/256] */
+    static const uint8_t raws[4][4] = {
+        {0x00, (2 << 3) | 1, 0, 0},   /* 0: 1024-byte sine, pages 0..3 */
+        {0x04, (1 << 3) | 1, 0, 0},   /* 1: 512-byte saw, pages 4..5 */
+        {0x06, (1 << 3) | 1, 0, 0},   /* 2: 512-byte square, pages 6..7 */
+        {0x10, (4 << 3) | 4, 0, 0}};  /* 3: 4096-byte decaying one-shot, pages 16..31 */
+    uint8_t *names = buf + 32, *zones = names + 6 * SQ80_WAVES, *raw = zones + 16 * SQ80_WAVES;
+    uint8_t *rom = buf + 32 + 1680;   /* where sq80_rompack_load finds it: the directory padded to 16 */
+    int w, z, i;
+    sq80_zero(buf, SQ80_TEST_PACK_SIZE);
+    sq80_copy(buf, "SQ80PACK", 8);
+    wr32(buf + 8, 1); wr32(buf + 12, 32); wr32(buf + 16, SQ80_WAVES); wr32(buf + 20, 4); wr32(buf + 24, 8192);
+    for (w = 0; w < SQ80_WAVES; ++w) {
+        uint8_t r = (uint8_t)(w == 0 ? 1 : (w == 3 || w == 4) ? 2 : w >= 54 ? 3 : 0);
+        names[6 * w] = 'T';
+        names[6 * w + 1] = 'E';
+        names[6 * w + 2] = 'S';
+        names[6 * w + 3] = 'T';
+        names[6 * w + 4] = (char)('0' + w / 10);
+        names[6 * w + 5] = (char)('0' + w % 10);
+        for (z = 0; z < SQ80_ZONES; ++z) zones[16 * w + z] = r;
+    }
+    sq80_copy(raw, raws, sizeof raws);
+    /* sine and one-shot from a quarter-wave table by symmetry, without libm: a Bhaskara approximation */
+    for (i = 0; i < 1024; ++i) {
+        int q = i & 511, x = q <= 256 ? q : 512 - q;   /* 0..256 over a half period */
+        /* sin(pi*x/512) ~ 16 x (512 - x) / (5*512^2 - 4 x (512 - x)) */
+        int32_t num = 16 * x * (512 - x), den = 5 * 512 * 512 - 4 * x * (512 - x);
+        int v = (int)(126 * num / den);
+        rom[i] = (uint8_t)(128 + (i < 512 ? v : -v));
+    }
+    for (i = 0; i < 512; ++i) rom[0x400 + i] = (uint8_t)(1 + i * 254 / 511);
+    for (i = 0; i < 512; ++i) rom[0x600 + i] = (uint8_t)(i < 256 ? 228 : 28);
+    for (i = 0; i < 4095; ++i) {
+        int amp = 120 - i * 120 / 4095, v = rom[(i * 16) & 1023] - 128;
+        int s = 128 + v * amp / 126;
+        rom[0x1000 + i] = (uint8_t)(s < 1 ? 1 : s);
+    }
+    rom[0x1fff] = 0;   /* the one-shot's terminator */
+    return SQ80_TEST_PACK_SIZE;
 }
 
 /* ------------------------------------------------------------------------- programs */
@@ -63,7 +113,7 @@ static uint8_t src(int v) { return (uint8_t)(v & 15); }
 
 void sq80_decode_patch(const uint8_t p[102], sq80_patch *out) {
     int i;
-    memset(out, 0, sizeof *out);
+    sq80_zero(out, sizeof *out);
     for (i = 0; i < 6; ++i) out->name[i] = (p[i] >= 0x20 && p[i] < 0x7f) ? (char)p[i] : ' ';
     for (i = 0; i < 4; ++i) {
         const uint8_t *b = p + 6 + 10 * i;
@@ -134,8 +184,8 @@ void sq80_decode_patch(const uint8_t p[102], sq80_patch *out) {
 
 void sq80_default_patch(sq80_patch *out) {
     int i;
-    memset(out, 0, sizeof *out);
-    memcpy(out->name, "INIT  ", 7);
+    sq80_zero(out, sizeof *out);
+    sq80_copy(out->name, "INIT  ", 7);
     for (i = 0; i < 4; ++i) out->env[i].l1 = out->env[i].l2 = out->env[i].l3 = (int8_t)(i == 3 ? 63 : 0);
     for (i = 0; i < 3; ++i) {
         out->lfo[i].mod = SQ80_OFF;

@@ -1,0 +1,17 @@
+# SQ-80 TEST build settings (fm1-base tools/build.py)
+name = "SQ80TEST"
+id_prefix = "FM-1_80"          # package identity: dev FM-1_8000
+usb_manufacturer = "sq80-fm1"
+usb_product = "SQ-80 TEST FM-1"
+o2 = ["sq80/sq80_synth.c", "sq80/sq80_patch.c"]   # the engine, at -O2 (sq80 links to ../src/sq80)
+o2_cflags = ["-DSQ80_FASTMATH"] # fm1-base's fastmath.h in place of libm
+include = ["sq80"]
+words = "words.tsv"
+ble = true                     # Bluetooth MIDI in
+tagline = "an Ensoniq SQ-80 voice engine test for the FM-1"
+repo = "https://github.com/leonardolopezchavira/sq80-fm1"
+licence = "MIT"
+credits = "Built on fm1-base (MPL-2.0)."
+author = "Leonardo Lopez Chavira"
+description = "A test firmware: the sq80-fm1 engine (an Ensoniq SQ-80 voice: three wavetable oscillators, a 4-pole filter, four envelopes, three LFOs, 8 voices) playing four test sounds on built-in synthetic waves, with the audio CPU load on screen."
+tags = ["synth"]

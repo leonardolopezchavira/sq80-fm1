@@ -16,3 +16,20 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Patch codec round trip
         run: python3 -c "import sys; sys.path.insert(0,'tools'); import patchcodec as pc; d=pc.basic(); assert pc.decode(pc.encode(d))['osc'][0]['WAVE']==2; print('ok')"
+
+  simulator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Pillow (fm1-base's fonts)
+        run: python3 -m pip install Pillow
+      - name: SQ-80 TEST in fm1-base's host simulator
+        run: |
+          python3 fm1/base/tools/build.py firmware --host
+          firmware/build/host/sq80test_host firmware/tests/basic.txt firmware/build/host
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simulator-screens
+          path: firmware/build/host/*.png

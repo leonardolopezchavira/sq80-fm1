@@ -17,7 +17,7 @@ extern "C" {
 
 #define SQ80_WAVES 75
 #define SQ80_ZONES 16
-#define SQ80_WAVE_ROM_SIZE 0x40000u
+#define SQ80_WAVE_ROM_SIZE (256u * 1024u)   /* 256 KiB */
 
 typedef struct {
     uint32_t start;      /* byte offset into the wave ROM */
@@ -31,7 +31,8 @@ typedef struct {
     const uint8_t *names;  /* 75 x 6 characters */
     const uint8_t *zones;  /* 75 x 16 raw-wave indices */
     const uint8_t *raws;   /* raw count x 4 */
-    const uint8_t *rom;    /* 256 KiB */
+    const uint8_t *rom;    /* the wave ROM: 256 KiB for the SQ-80; a test pack may be smaller */
+    uint32_t rom_mask;     /* rom size - 1 (a power of two) */
     int raw_count;
 } sq80_rompack;
 
@@ -40,6 +41,12 @@ int sq80_rompack_load(sq80_rompack *pack, const uint8_t *data, size_t size);
 sq80_raw_wave sq80_rompack_raw(const sq80_rompack *pack, int index);
 /* wave name, 6 characters + NUL */
 void sq80_rompack_name(const sq80_rompack *pack, int wave, char out[7]);
+
+/* A test pack with synthetic waves (no Ensoniq data), built into `buf` (SQ80_TEST_PACK_SIZE bytes):
+ * SAW (wave 0) a saw, SINE (2) a sine, SQUARE (3) and PULSE (4) a square, the one-shot waves (54..74) a
+ * decaying tone that stops, every other wave the sine. Returns the pack's size. */
+#define SQ80_TEST_PACK_SIZE (32u + 1680u + 8192u)   /* header, directory (padded to 16), ROM */
+size_t sq80_test_pack(uint8_t *buf);
 
 /* ------------------------------------------------------------------------- programs */
 
