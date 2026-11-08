@@ -1,0 +1,18 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+      - name: Engine tests (synthetic ROM pack, no Ensoniq data)
+        run: ctest --test-dir build --output-on-failure
+      - name: Patch codec round trip
+        run: python3 -c "import sys; sys.path.insert(0,'tools'); import patchcodec as pc; d=pc.basic(); assert pc.decode(pc.encode(d))['osc'][0]['WAVE']==2; print('ok')"

@@ -1,0 +1,71 @@
+# SQ-80 for the M-VAVE FM-1
+
+An unofficial Ensoniq SQ-80 / ESQ-1 engine, written from scratch to run as custom firmware on
+the **M-VAVE FM-1** pocket synthesizer. It plays ESQ-1/SQ-80 SysEx patches with the SQ-80's own
+waveforms, read from **your** ROM dumps.
+
+> **Unofficial.** Not affiliated with M-VAVE, Ensoniq or the SQ8L authors. **No Ensoniq ROM
+> data is in this repository**; you build a ROM pack from your own dumps (see below).
+
+## Status
+
+| Step | State |
+|---|---|
+| 1. Engine on the desktop, compared against SQ8L | **in progress** |
+| 2. Move to the FM-1 (felucca-bsp), front-panel UI | not started |
+| 3. Test on hardware | not started |
+
+What works now (desktop):
+
+- **ROM pack** built from your SQ-80 OS ROM and wave ROMs: 75 waves, 151 raw samples, 16 pitch
+  zones each (`tools/make_rompack.py`, 264 KB, it fits the FM-1's flash data area).
+- **Patches**: ESQ-1/SQ-80 single-program and 40-program bank SysEx.
+- **Oscillators**: DOC 5503-style, running at the DOC's 38,455.855 Hz and resampled, with the
+  SQ-80's pitch zones, one-shots, SYNC and AM. **All 75 waves match the reference in pitch,
+  envelope and spectrum.**
+- **Envelopes** with the measured SQ-80 time table, LV/T1V/TK, second release, full cycle.
+- **LFOs** (TRI/SAW/SQR/NOISE, delay fade, wheel depth), 8-voice allocation, mono and glide.
+- 4-pole resonant filter, DCA4 and pan: **implemented, not yet calibrated** (see
+  `src/sq80/calibration.h`, the values marked `TODO(calibrate)`).
+
+How close whole patches are, from `tools/oracle/compare.py` on a 40-program factory bank at
+middle C: levels within a median 2.4 dB and envelopes correlating at 0.91, but spectra differ by
+a median of 21 dB because the filter is not calibrated yet. That is the next job.
+
+## Build (desktop)
+
+```sh
+cmake -S . -B build && cmake --build build
+./build/sq80_tests                      # no ROMs needed: uses synthetic waves
+```
+
+## Your ROM pack
+
+```sh
+python3 tools/make_rompack.py --os-low sq80rom.low --os-high sq80rom.hig \
+    --wave 2202.bin 2204.bin 2203.bin 2205.bin -o sq80.rompack
+# or: --wave "SQ80m voice rom 020.bin"
+./build/sq80_render sq80.rompack bank.syx 0 out.wav 60 100 2.0   # program 0, middle C
+```
+
+## How it is checked
+
+`tools/oracle/` renders the same notes through the SQ8L 64-bit port
+([sq8l-revival/SQ8L](https://github.com/sq8l-revival/SQ8L)), whose output matches the original
+SQ8L sample for sample, and measures the difference. The port's engine is **not** part of this
+repository and none of its code is used: it is only played and listened to, like a hardware
+SQ-80 would be. What was measured is in [docs/measurements.md](docs/measurements.md).
+
+## Layout
+
+- `src/sq80/`: the engine (portable C++17, float, no OS calls, no allocation while rendering)
+- `tools/`: ROM pack builder, desktop renderer, patch codec, oracle comparisons
+- `tests/`: unit tests with a synthetic ROM pack
+- `docs/`: formats and measurements
+
+## Credits
+
+The SysEx byte map and the DOC/envelope/LFO behaviour follow the MIT-licensed documentation of
+the SQ8L 64-bit port (`docs/modules/*.md` there). The SQ-80 wave directory was decoded from the
+OS ROM in this project. SQ8L is by Siegfried Kullmann; Ensoniq, ESQ-1 and SQ-80 are trademarks
+of their owners.

@@ -1,0 +1,14 @@
+build/
+__pycache__/
+*.wav
+*.f32
+# Ensoniq ROM dumps, ROM packs and patch banks are never committed
+*.bin
+*.BIN
+*.hig
+*.low
+*.rompack
+*.syx
+*.SYX
+*.zip
+.DS_Store
