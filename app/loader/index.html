@@ -56,6 +56,7 @@
     <div class="row"><button id="romsend" disabled>Load the ROM pack</button></div>
     <progress id="romprog" value="0" max="1" hidden></progress>
     <div class="status" id="romstat"></div>
+    <pre id="report" hidden style="white-space:pre-wrap;font-size:12px;color:var(--dim);margin:10px 0 0"></pre>
   </section>
 
   <section>
@@ -106,21 +107,55 @@ const CRC_T = (() => { const t = new Uint32Array(256);
   return t; })();
 function crc32(d) { let c = 0xFFFFFFFF; for (const b of d) c = CRC_T[(c ^ b) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
 
+let reading = null;
+function readBack(off, n) {   // the FM-1's flash, n (<= 112) bytes of the pack area from off
+  return new Promise((resolve, reject) => {
+    reading = {off, n, resolve, timer: setTimeout(() => { reading = null; reject(new Error("no answer")); }, 3000)};
+    out.send([0xF0, ...HEAD, 0x13, ...u7(off, 4), n, 0xF7]);
+  });
+}
 function onMessage(e) {
   const d = e.data;
+  if (reading && d.length > 10 && d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x53 && d[3] === 0x51 && d[4] === 0x7E) {
+    const r = reading; reading = null; clearTimeout(r.timer);
+    const body = d.subarray(9, d.length - 1), o = [];
+    for (let i = 0; i < body.length; i += 8) {
+      const hi = body[i];
+      for (let k = 1; k < 8 && i + k < body.length; k++) o.push(body[i + k] | (((hi >> (k - 1)) & 1) << 7));
+    }
+    r.resolve(Uint8Array.from(o.slice(0, r.n)));
+    return;
+  }
   if (d.length >= 8 && d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x53 && d[3] === 0x51 && d[4] === 0x7F && waiting
       && d[5] === waiting.cmd) {
     const w = waiting; waiting = null; clearTimeout(w.timer); w.resolve(Array.from(d));
   }
 }
-const STATUS = {1: "the FM-1 did not understand a frame", 2: "writing the flash failed",
-                3: "the check after loading failed (the file or the transfer is damaged)", 4: "the FM-1 lost the load"};
+const STATUS = {1: "the FM-1 did not understand a frame", 2: "the FM-1's flash refused a write",
+                3: "the check after loading failed", 4: "the FM-1 lost the load",
+                5: "a byte read back from the flash differs from the one written",
+                6: "the FM-1 did not accept the ROM pack after loading it"};
+const hex = (v, n = 2) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(n, "0");
+function why(a) {   // the failure's details: three numbers of 4 x 7 bits after the status
+  if (a.length < 20) return [];
+  const num = (k) => a[7 + 4 * k] + a[8 + 4 * k] * 128 + a[9 + 4 * k] * 16384 + a[10 + 4 * k] * 2097152;
+  return [num(0), num(1), num(2)];
+}
 function send(cmd, body = [], ms = 4000) {
   return new Promise((resolve, reject) => {
     waiting = {cmd, resolve, timer: setTimeout(() => { waiting = null; reject(new Error("no answer from the FM-1")); }, ms)};
     out.send([0xF0, ...HEAD, cmd, ...body, 0xF7]);
   }).then((a) => {
-    if (cmd !== 0x01 && a[6] !== 0) throw new Error(STATUS[a[6]] || "error " + a[6]);
+    if (cmd !== 0x01 && a[6] !== 0) {
+      const w = why(a);
+      let more = "";
+      if (a[6] === 5) more = ` (offset ${w[0]}: wrote ${hex(w[1])}, read ${hex(w[2])})`;
+      else if (a[6] === 3) more = ` (the FM-1's CRC ${hex(((w[1] & 15) * 268435456 + w[0]) >>> 0, 8)}, ` +
+                                  `${w[2]} bytes taken)`;
+      else if (a[6] === 6) more = ` (it starts ${hex(w[0], 6)} ${hex(w[1])}, size ${w[2]})`;
+      else if (a[6] === 2) more = ` (offset ${w[0]})`;
+      throw new Error((STATUS[a[6]] || "error " + a[6]) + more);
+    }
     return a;
   });
 }
@@ -191,12 +226,39 @@ $("romsend").onclick = async () => {
       $("romprog").value = off / pack.length;
       say("romstat", `Loading… ${Math.round(100 * off / pack.length)}%`);
     }
-    await send(0x12, u7(crc32(pack), 5), 15000);
+    await send(0x12, u7(crc32(pack), 5), 15000).catch((err) => {
+      throw new Error(err.message + `; the file's CRC ${hex(crc32(pack), 8)}, ${pack.length} bytes`);
+    });
     $("romprog").value = 1;
     say("romstat", "The ROM pack is loaded and checked. The FM-1 plays your SQ-80 waves now.", "ok");
-  } catch (err) { say("romstat", "Stopped: " + err.message + ". Try again; until then the FM-1 plays its test waves.", "bad"); }
+  } catch (err) {
+    say("romstat", "Stopped: " + err.message + ". Try again; until then the FM-1 plays its test waves.", "bad");
+    if (/check after loading/.test(err.message)) await compare(pack);
+  }
   $("romsend").disabled = false;
 };
+
+// after a failed check: the FM-1's flash read back and compared with the file, for the report
+async function compare(pack) {
+  const rep = $("report");
+  rep.hidden = false;
+  const bad = [], perSector = new Map();
+  try {
+    for (let off = 8; off < pack.length; off += 112) {
+      const n = Math.min(112, pack.length - off), got = await readBack(off, n);
+      for (let i = 0; i < n; i++)
+        if (got[i] !== pack[off + i]) {
+          if (bad.length < 12) bad.push(`${off + i} (${hex(off + i, 5)}): file ${hex(pack[off + i])}, FM-1 ${hex(got[i])}`);
+          const s = (off + i) >> 12; perSector.set(s, (perSector.get(s) || 0) + 1);
+        }
+      if (off % 11200 === 8) rep.textContent = `Reading the FM-1's flash back to compare… ${Math.round(100 * off / pack.length)}%`;
+    }
+    const total = [...perSector.values()].reduce((a, b) => a + b, 0);
+    rep.textContent = total === 0 ? "Read back: every byte matches the file (the transfer or the check is at fault)." :
+      `Read back: ${total} bytes differ.\nFirst ones:\n  ${bad.join("\n  ")}\nPer 4 KB sector (sector: bytes):\n  ` +
+      [...perSector].map(([s, c]) => `${s}: ${c}`).join(", ");
+  } catch (err) { rep.textContent = "Reading back stopped: " + err.message; }
+}
 
 let programs = [];
 function programsFrom(d) {   // ESQ-1 / SQ-80 dumps: F0 0F 02 ch 01 (one) or 02 (40), each program 204 nibbles

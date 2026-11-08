@@ -383,11 +383,14 @@ void app_init(void)
 
 /* ------------------------------------------------------------ the loader --- */
 /* SysEx from the loader page, F0 7D 53 51 CMD ... F7 (7D: non-commercial; "SQ"), each answered
- * F0 7D 53 51 7F CMD STATUS F7 (0 done; 1 bad frame; 2 flash; 3 check failed; 4 not ready):
+ * F0 7D 53 51 7F CMD STATUS [WHY: 3 numbers, 4 x 7 bits each] F7 (0 done; 1 bad frame; 2 flash refused (why: the
+ * offset); 3 CRC (why: the FM-1's CRC, low 28 bits and high 4, the bytes it took); 4 not ready; 5 a byte read back
+ * different (why: its offset, written, read); 6 the pack refused (why: its first bytes, the size)):
  *   01                         hello: the answer's STATUS is 0, then the ROM pack's state (0 none, 1 loaded)
  *   10 S0 S1 S2 S3             ROM pack, its size (7 bits each, low first): the sound stops, the old pack goes
  *   11 O0 O1 O2 O3 DATA..      its bytes from offset O, 7-bit packed (8 bytes carry 7: the first the high bits)
  *   12 C0 C1 C2 C3 C4          the end, its CRC-32 (5 x 7 bits): checked, then kept (its first 8 bytes written last)
+ *   13 O0 O1 O2 O3 N           read back N (<= 112) bytes of the pack area from offset O: answered 7E O0..O3 DATA
  *   20 B                       bank B (0..3): erased
  *   21 B P DATA..              program P (0..39) of bank B, 102 bytes as 204 nibbles, low first (as ESQ-1 SysEx)
  *   22 B N                     bank B holds N programs: kept
@@ -399,14 +402,32 @@ static struct {
     uint32_t got;                        /* bytes written */
 } ld;
 static uint32_t loads;                       /* frames taken (the screen) */
+static uint8_t why[12];                      /* a failure's details, sent with its answer (why_n bytes) */
+static uint32_t why_n;
+static void why_set(uint32_t a, uint32_t b, uint32_t c)   /* three numbers, 4 x 7 bits each (low first) */
+{
+    uint32_t i;
+    for (i = 0; i < 4u; i++) {
+        why[i] = (uint8_t)((a >> (7u * i)) & 0x7Fu);
+        why[4 + i] = (uint8_t)((b >> (7u * i)) & 0x7Fu);
+        why[8 + i] = (uint8_t)((c >> (7u * i)) & 0x7Fu);
+    }
+    why_n = 12;
+}
 static char ld_msg[24];
 
-static void reply(uint32_t cmd, uint32_t status)
+static void reply(uint32_t cmd, uint32_t status)   /* with the failure's details, if any */
 {
-    uint8_t f[8] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0, 0, 0xF7};
+    uint8_t f[8 + 12] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0, 0};
+    uint32_t n = 7, i;
     f[5] = (uint8_t)cmd;
     f[6] = (uint8_t)status;
-    plat_sysex_send(f, sizeof f);
+    if (status)
+        for (i = 0; i < why_n; i++)
+            f[n++] = why[i];
+    f[n++] = 0xF7;
+    why_n = 0;
+    plat_sysex_send(f, n);
 }
 
 static uint32_t crc32_flash(const uint8_t *p, uint32_t n, const uint8_t *head)
@@ -443,7 +464,22 @@ static int rom_write(uint32_t off, const uint8_t *src, uint32_t n)   /* erasing 
         src += k;
         n -= k;
     }
-    return n ? plat_data_write(ROM_LO + off, src, n) : 0;
+    if (!n)
+        return 0;
+    if (plat_data_write(ROM_LO + off, src, n) != 0) {
+        why_set(off, 0, 0);
+        return -1;
+    }
+    {   /* read back: what the flash holds now */
+        const uint8_t *f = plat_data(ROM_LO + off);
+        uint32_t i;
+        for (i = 0; f && i < n; i++)
+            if (f[i] != src[i]) {
+                why_set(off + i, src[i], f[i]);
+                return -2;
+            }
+    }
+    return 0;
 }
 
 static void loader_stop_sound(void)
@@ -494,8 +530,13 @@ static int frame_rom(const uint8_t *p, uint32_t n)
         }
         if (off + m > ld.size)
             return 1;
-        if (rom_write(off, raw, m) != 0)
-            return 2;
+        {
+            int rc = rom_write(off, raw, m);
+            if (rc == -2)
+                return 5;                    /* written, read back different (why: where, wrote, read) */
+            if (rc != 0)
+                return 2;
+        }
         ld.got += m;
         return 0;
     }
@@ -509,6 +550,7 @@ static int frame_rom(const uint8_t *p, uint32_t n)
         ld.active = 0;
         got = crc32_flash(f, ld.size, ld.head);
         if (got != want) {
+            why_set(got & 0x0FFFFFFFu, got >> 28, ld.got);   /* the CRC the FM-1 found, the bytes it took */
             loader_resume();                 /* (no pack now: the test waves) */
             return 3;
         }
@@ -517,8 +559,10 @@ static int frame_rom(const uint8_t *p, uint32_t n)
             return 2;
         }
         if (!sq80_rompack_load(&test, plat_data(ROM_LO), ld.size)) {
+            const uint8_t *h = plat_data(ROM_LO);
+            why_set(h[0] | (uint32_t)h[1] << 8 | (uint32_t)h[2] << 16, h[3], ld.size);
             loader_resume();
-            return 3;
+            return 6;
         }
         loader_resume();
         return 0;
@@ -578,6 +622,31 @@ int app_sysex(const uint8_t *p, uint32_t n)
         uint8_t f[9] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0x01, 0, 0, 0xF7};
         f[7] = rom_real;
         plat_sysex_send(f, sizeof f);
+        return 1;
+    }
+    case 0x13u: {                        /* read the flash back (the pack's first 8 bytes: 0xFF until it is kept):
+                                          * 13 O0..O3 N -> 7E O0..O3 DATA (7-bit packed), N <= 112 */
+        uint8_t f[12 + 128];
+        const uint8_t *src;
+        uint32_t off = n >= 9u ? u7(p + 4, 4) : 0u, cnt = n >= 9u ? p[8] : 0u, k = 0, i;
+        if (cnt == 0 || cnt > 112u || (src = plat_data(ROM_LO + off)) == 0 || off + cnt > ROM_MAX) {
+            reply(0x13, 1);
+            return 1;
+        }
+        f[0] = 0xF0; f[1] = 0x7D; f[2] = 0x53; f[3] = 0x51; f[4] = 0x7E;
+        for (i = 0; i < 4u; i++)
+            f[5 + i] = p[4 + i] & 0x7Fu;
+        k = 9;
+        for (i = 0; i < cnt; i += 7u) {
+            uint32_t j, hi = 0;
+            for (j = 0; j < 7u && i + j < cnt; j++)
+                hi |= (uint32_t)(src[i + j] >> 7) << j;
+            f[k++] = (uint8_t)hi;
+            for (j = 0; j < 7u && i + j < cnt; j++)
+                f[k++] = src[i + j] & 0x7Fu;
+        }
+        f[k++] = 0xF7;
+        plat_sysex_send(f, k);
         return 1;
     }
     case 0x10u: case 0x11u: case 0x12u:
