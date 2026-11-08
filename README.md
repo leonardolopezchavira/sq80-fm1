@@ -11,8 +11,8 @@ waveforms, read from **your** ROM dumps.
 
 | Step | State |
 |---|---|
-| 1. Engine on the desktop, compared against SQ8L | **in progress** |
-| 2. Move to the FM-1 (felucca-bsp), front-panel UI | not started |
+| 1. Engine on the desktop, compared against SQ8L | **done** (calibrated, see below) |
+| 2. Move to the FM-1 (fm1-base on felucca-bsp), front-panel UI | next |
 | 3. Test on hardware | not started |
 
 What works now (desktop):
@@ -25,12 +25,13 @@ What works now (desktop):
   envelope and spectrum.**
 - **Envelopes** with the measured SQ-80 time table, LV/T1V/TK, second release, full cycle.
 - **LFOs** (TRI/SAW/SQR/NOISE, delay fade, wheel depth), 8-voice allocation, mono and glide.
-- 4-pole resonant filter, DCA4 and pan: **implemented, not yet calibrated** (see
-  `src/sq80/calibration.h`, the values marked `TODO(calibrate)`).
+- 4-pole resonant filter, DCAs, DCA4 and pan, calibrated by measurement: cutoff curve, key
+  tracking, resonance, modulation depths and level curves.
 
-How close whole patches are, from `tools/oracle/compare.py` on a 40-program factory bank at
-middle C: levels within a median 2.4 dB and envelopes correlating at 0.91, but spectra differ by
-a median of 21 dB because the filter is not calibrated yet. That is the next job.
+How close whole patches are (`tools/oracle/compare.py`): on a 40-program factory bank the
+median spectrum difference is **2.7 dB**, envelopes correlate at **0.99** and levels are within
+0.2 dB; on 120 random programs from a 5,000-program collection, at two other keys, **2.8 dB** and
+0.99, with 104 of 120 within 6 dB. Details: [docs/measurements.md](docs/measurements.md).
 
 ## Build (desktop)
 

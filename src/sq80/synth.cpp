@@ -17,8 +17,21 @@ float semitoneRatio(float semis) { return std::exp2(semis * (1.0f / 12.0f)); }
 
 float dcaGain(float level) {  // level 0..63 (may be fractional / out of range)
     if (level <= 0.0f) return 0.0f;
-    level = std::min(level, 63.0f);
-    return std::pow(10.0f, -(63.0f - level) * cal::kDcaDbPerStep / 20.0f);
+    if (level >= 63.0f) return 1.0f;
+    int i = 1;
+    while (level > cal::kDcaLevel[i]) ++i;
+    const float t = (level - cal::kDcaLevel[i - 1]) / (cal::kDcaLevel[i] - cal::kDcaLevel[i - 1]);
+    const float db = cal::kDcaDb[i - 1] + (cal::kDcaDb[i] - cal::kDcaDb[i - 1]) * t;
+    return std::exp2(db * (3.32192809f / 20.0f));
+}
+
+// FILTER FREQ steps (may be fractional or out of 0..127) to the cutoff parameter in Hz.
+float cutoffHz(float steps) {
+    if (steps <= 0.0f) return cal::kCutoffHz[0] * std::exp2(steps * (1.0f / 12.0f));
+    if (steps >= 127.0f) return cal::kCutoffHz[127];
+    const int i = static_cast<int>(steps);
+    const float t = steps - static_cast<float>(i);
+    return cal::kCutoffHz[i] + (cal::kCutoffHz[i + 1] - cal::kCutoffHz[i]) * t;
 }
 
 }  // namespace
@@ -179,8 +192,9 @@ float Filter::process(float x) {
     const float inv = 1.0f / (1.0f + g_);
     const float S = ((G * G * G * s_[0] + G * G * s_[1] + G * s_[2] + s_[3]) * inv);
     const float G4 = G * G * G * G;
-    const float y4 = (G4 * x + S) / (1.0f + k_ * G4);
-    float u = std::tanh(x - k_ * y4);
+    const float y4 = (G4 * (1.0f + cal::kFilterBassCompensation * k_) * x + S) / (1.0f + k_ * G4);
+    float u = std::tanh(cal::kFilterDrive * ((1.0f + cal::kFilterBassCompensation * k_) * x - k_ * y4)) *
+              (1.0f / cal::kFilterDrive);
     for (int i = 0; i < 4; ++i) {
         const float v = (u - s_[i]) * G;
         const float y = v + s_[i];
@@ -414,16 +428,19 @@ void Synth::controlTick(Voice& v) {
 
     const float cutoffSteps = patch_.cutoff +
                               modSum(patch_.filterMod[0], patch_.filterMod[1]) * cal::kCutoffModPerUnit +
-                              patch_.keyTrack / 63.0f * cal::kKeyTrackAtMax * (v.key - cal::kKeyTrackCenter);
-    v.cutoffTarget = cal::kCutoffHzAt0 * semitoneRatio(cutoffSteps * cal::kCutoffSemitonesPerStep);
-    v.filter.set(v.cutoff, patch_.resonance / 31.0f * cal::kResonanceAtMax, sampleRate_);
+                              patch_.keyTrack / 63.0f * cal::kKeyTrackAtMax * static_cast<float>(v.key - cal::kKeyTrackCenter);
+    v.cutoffTarget = cutoffHz(cutoffSteps);
+    v.filter.set(v.cutoff, cal::kResonance[patch_.resonance & 31], sampleRate_);
 
     const float env4 = std::max(0, v.env[3].level()) / 126.0f;
-    const float gain = env4 * dcaGain(patch_.finalLevel) * (volume_ / 127.0f) * cal::kOutputGain;
-    const float pan = std::clamp((patch_.pan + source(v, patch_.panMod.source) * patch_.panMod.depth / 64.0f *
-                                 cal::kPanModPerUnit) / 15.0f, 0.0f, 1.0f);
-    v.gainLTarget = gain * std::cos(pan * kPi * 0.5f) * 1.41421356f;
-    v.gainRTarget = gain * std::sin(pan * kPi * 0.5f) * 1.41421356f;
+    const float gain = std::pow(env4 * (patch_.finalLevel / 63.0f), cal::kFinalExponent) * (volume_ / 127.0f) *
+                       cal::kOutputGain;
+    // linear pan law: PAN 8 is the centre, 0 and 15 the sides
+    const float panSteps = patch_.pan +
+                           source(v, patch_.panMod.source) * patch_.panMod.depth / 64.0f * cal::kPanModPerUnit;
+    const float pan = std::clamp(panSteps >= 15.0f ? 1.0f : 0.5f + (panSteps - 8.0f) / 16.0f, 0.0f, 1.0f);
+    v.gainLTarget = gain * 2.0f * (1.0f - pan);
+    v.gainRTarget = gain * 2.0f * pan;
 }
 
 float Synth::renderDoc(Voice& v) {
@@ -482,7 +499,7 @@ void Synth::render(float* left, float* right, int n) {
             const float x = ((c3 * t + c2) * t + c1) * t + c0;
 
             v.cutoff += (v.cutoffTarget - v.cutoff) * 0.002f;
-            if ((k & 15) == 0) v.filter.set(v.cutoff, patch_.resonance / 31.0f * cal::kResonanceAtMax, sampleRate_);
+            if ((k & 15) == 0) v.filter.set(v.cutoff, cal::kResonance[patch_.resonance & 31], sampleRate_);
             const float y = v.filter.process(x);
             v.gainL += (v.gainLTarget - v.gainL) * 0.004f;
             v.gainR += (v.gainRTarget - v.gainR) * 0.004f;

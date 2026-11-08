@@ -30,7 +30,9 @@ def f0(x):
     k = lo + int(np.argmax(c[lo:hi]))
     if 0 < k < len(c) - 1:  # parabolic refinement
         a, b, cc = c[k - 1], c[k], c[k + 1]
-        k = k + 0.5 * (a - cc) / (a - 2 * b + cc)
+        den = a - 2 * b + cc
+        if den < 0:
+            k = k + max(-0.5, min(0.5, 0.5 * (a - cc) / den))
     return SR / k
 
 def envelope(x, hop=441):
