@@ -126,27 +126,50 @@ function onMessage(e) {
     r.resolve(Uint8Array.from(o.slice(0, r.n)));
     return;
   }
-  if (d.length >= 8 && d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x53 && d[3] === 0x51 && d[4] === 0x7F && waiting
-      && d[5] === waiting.cmd) {
+  if (d.length >= 10 && d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x53 && d[3] === 0x51 && d[4] === 0x7F && waiting
+      && d[5] === waiting.cmd && (waiting.echo === null || (d[7] === waiting.echo[0] && d[8] === waiting.echo[1]) ||
+                                  d[6] === 7)) {   // (a late answer to an earlier frame is not this one's)
     const w = waiting; waiting = null; clearTimeout(w.timer); w.resolve(Array.from(d));
   }
 }
 const STATUS = {1: "the FM-1 did not understand a frame", 2: "the FM-1's flash refused a write",
                 3: "the check after loading failed", 4: "the FM-1 lost the load",
                 5: "a byte read back from the flash differs from the one written",
-                6: "the FM-1 did not accept the ROM pack after loading it"};
+                6: "the FM-1 did not accept the ROM pack after loading it", 7: "frames kept arriving damaged"};
 const hex = (v, n = 2) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(n, "0");
 function why(a) {   // the failure's details: three numbers of 4 x 7 bits after the status
-  if (a.length < 20) return [];
-  const num = (k) => a[7 + 4 * k] + a[8 + 4 * k] * 128 + a[9 + 4 * k] * 16384 + a[10 + 4 * k] * 2097152;
+  if (a.length < 22) return [];
+  const num = (k) => a[9 + 4 * k] + a[10 + 4 * k] * 128 + a[11 + 4 * k] * 16384 + a[12 + 4 * k] * 2097152;
   return [num(0), num(1), num(2)];
 }
-function send(cmd, body = [], ms = 4000) {
+function sendOnce(cmd, body, ms) {
   return new Promise((resolve, reject) => {
-    waiting = {cmd, resolve, timer: setTimeout(() => { waiting = null; reject(new Error("no answer from the FM-1")); }, ms)};
-    out.send([0xF0, ...HEAD, cmd, ...body, 0xF7]);
-  }).then((a) => {
-    if (cmd !== 0x01 && a[6] !== 0) {
+    let frame = [cmd, ...body], echo = null;
+    if ((cmd >= 0x10 && cmd <= 0x12) || (cmd >= 0x20 && cmd <= 0x22)) {   // a check: the sum, 2 x 7 bits
+      const s = frame.reduce((a, b) => a + b, 0);
+      echo = [s & 0x7F, (s >> 7) & 0x7F];
+      frame = [...frame, ...echo];
+    }
+    waiting = {cmd, echo, resolve, timer: setTimeout(() => { waiting = null; reject(new Error("no answer from the FM-1")); }, ms)};
+    out.send([0xF0, ...HEAD, ...frame, 0xF7]);
+  });
+}
+let resent = 0;
+async function send(cmd, body = [], ms = 4000) {
+  let a, last;
+  for (let tries = 0; tries < 6; tries++) {   // a frame lost or damaged on the way goes again (each may come twice)
+    try {
+      a = await sendOnce(cmd, body, tries ? Math.max(ms, 1500) : ms);
+      if (a[6] === 7) { resent++; last = new Error("frames kept arriving damaged"); a = null; continue; }
+      break;
+    } catch (err) { resent++; last = err; a = null; await new Promise((r) => setTimeout(r, 200)); }
+  }
+  if (!a) throw last;
+  return a;
+}
+function checked(p) {
+  return p.then((a) => {
+    if (a[6] !== 0) {
       const w = why(a);
       let more = "";
       if (a[6] === 5) more = ` (offset ${w[0]}: wrote ${hex(w[1])}, read ${hex(w[2])})`;
@@ -159,6 +182,7 @@ function send(cmd, body = [], ms = 4000) {
     return a;
   });
 }
+const sendChecked = (cmd, body, ms) => checked(send(cmd, body, ms));
 
 // the FM-1 is found by asking: every port pair gets this app's hello, and the one that answers is it (port names
 // differ from one computer and firmware to another: "SQ-80 FM-1", "USB-MIDI", "Felucca"...)
@@ -217,22 +241,24 @@ $("romsend").onclick = async () => {
   const pack = new Uint8Array(await f.arrayBuffer());
   const magic = String.fromCharCode(...pack.subarray(0, 8));
   if (magic !== "SQ80PACK") { say("romstat", "That is not a ROM pack (it does not start with SQ80PACK).", "bad"); return; }
-  $("romsend").disabled = true; $("romprog").hidden = false;
+  $("romsend").disabled = true; $("romprog").hidden = false; resent = 0; $("report").hidden = true;
   try {
-    await send(0x10, u7(pack.length, 4), 8000);
-    const CH = 448;
+    await sendChecked(0x10, u7(pack.length, 4), 8000);
+    const CH = 224;   // 265-byte frames: two fit the FM-1's SysEx buffer at once
     for (let off = 0; off < pack.length; off += CH) {
-      await send(0x11, [...u7(off, 4), ...pack7(pack.subarray(off, off + CH))], 4000);
+      await sendChecked(0x11, [...u7(off, 4), ...pack7(pack.subarray(off, off + CH))], 4000);
       $("romprog").value = off / pack.length;
-      say("romstat", `Loading… ${Math.round(100 * off / pack.length)}%`);
+      say("romstat", `Loading… ${Math.round(100 * off / pack.length)}%` + (resent ? ` (${resent} frames sent again)` : ""));
     }
-    await send(0x12, u7(crc32(pack), 5), 15000).catch((err) => {
+    await sendChecked(0x12, u7(crc32(pack), 5), 15000).catch((err) => {
       throw new Error(err.message + `; the file's CRC ${hex(crc32(pack), 8)}, ${pack.length} bytes`);
     });
     $("romprog").value = 1;
-    say("romstat", "The ROM pack is loaded and checked. The FM-1 plays your SQ-80 waves now.", "ok");
+    say("romstat", "The ROM pack is loaded and checked. The FM-1 plays your SQ-80 waves now." +
+        (resent ? ` (${resent} frames had to be sent again.)` : ""), "ok");
   } catch (err) {
-    say("romstat", "Stopped: " + err.message + ". Try again; until then the FM-1 plays its test waves.", "bad");
+    say("romstat", "Stopped: " + err.message + (resent ? ` (${resent} frames were sent again before that)` : "") +
+        ". Try again; until then the FM-1 plays its test waves.", "bad");
     if (/check after loading/.test(err.message)) await compare(pack);
   }
   $("romsend").disabled = false;
@@ -288,13 +314,13 @@ $("banksend").onclick = async () => {
   const slot = +$("slot").value;
   $("banksend").disabled = true; $("bankprog").hidden = false;
   try {
-    await send(0x20, [slot], 4000);
+    await sendChecked(0x20, [slot], 4000);
     for (let i = 0; i < programs.length; i++) {
       const nib = []; programs[i].forEach((b) => nib.push(b & 15, b >> 4));
-      await send(0x21, [slot, i, ...nib]);
+      await sendChecked(0x21, [slot, i, ...nib]);
       $("bankprog").value = (i + 1) / programs.length;
     }
-    await send(0x22, [slot, programs.length]);
+    await sendChecked(0x22, [slot, programs.length]);
     say("bankstat", `Bank ${slot + 1} holds ${programs.length} programs now. SELECT on the FM-1 picks it.`, "ok");
   } catch (err) { say("bankstat", "Stopped: " + err.message + ".", "bad"); }
   $("banksend").disabled = false;

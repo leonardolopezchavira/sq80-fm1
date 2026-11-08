@@ -383,9 +383,10 @@ void app_init(void)
 
 /* ------------------------------------------------------------ the loader --- */
 /* SysEx from the loader page, F0 7D 53 51 CMD ... F7 (7D: non-commercial; "SQ"), each answered
- * F0 7D 53 51 7F CMD STATUS [WHY: 3 numbers, 4 x 7 bits each] F7 (0 done; 1 bad frame; 2 flash refused (why: the
+ * F0 7D 53 51 7F CMD STATUS E0 E1 [WHY: 3 numbers, 4 x 7 bits each] F7 (E0 E1: the frame's check, below, echoed) (0 done; 1 bad frame; 2 flash refused (why: the
  * offset); 3 CRC (why: the FM-1's CRC, low 28 bits and high 4, the bytes it took); 4 not ready; 5 a byte read back
- * different (why: its offset, written, read); 6 the pack refused (why: its first bytes, the size)):
+ * different (why: its offset, written, read); 6 the pack refused (why: its first bytes, the size); 7 the frame's
+ * check failed):
  *   01                         hello: the answer's STATUS is 0, then the ROM pack's state (0 none, 1 loaded)
  *   10 S0 S1 S2 S3             ROM pack, its size (7 bits each, low first): the sound stops, the old pack goes
  *   11 O0 O1 O2 O3 DATA..      its bytes from offset O, 7-bit packed (8 bytes carry 7: the first the high bits)
@@ -394,7 +395,9 @@ void app_init(void)
  *   20 B                       bank B (0..3): erased
  *   21 B P DATA..              program P (0..39) of bank B, 102 bytes as 204 nibbles, low first (as ESQ-1 SysEx)
  *   22 B N                     bank B holds N programs: kept
- * and an ESQ-1/SQ-80 single-program dump, F0 0F 02 ch 01 (204 nibbles) F7: played, unsaved. */
+ * Frames 10..12 and 20..22 end with a check: the sum of the bytes from CMD on, mod 16384, as 2 x 7 bits (low first);
+ * one that fails it is answered 7 and taken no further (the loader sends it again; every frame may come twice).
+ * And an ESQ-1/SQ-80 single-program dump, F0 0F 02 ch 01 (204 nibbles) F7: played, unsaved. */
 static struct {
     uint32_t size, erased_to;            /* the pack being written; the sectors erased so far end at erased_to */
     uint8_t head[8];                     /* its first bytes, written last */
@@ -416,12 +419,15 @@ static void why_set(uint32_t a, uint32_t b, uint32_t c)   /* three numbers, 4 x 
 }
 static char ld_msg[24];
 
+static uint8_t echo[2];                      /* the frame's check, sent back with its answer: which frame it answers */
 static void reply(uint32_t cmd, uint32_t status)   /* with the failure's details, if any */
 {
-    uint8_t f[8 + 12] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0, 0};
-    uint32_t n = 7, i;
+    uint8_t f[10 + 12] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0, 0};
+    uint32_t n = 9, i;
     f[5] = (uint8_t)cmd;
     f[6] = (uint8_t)status;
+    f[7] = echo[0];
+    f[8] = echo[1];
     if (status)
         for (i = 0; i < why_n; i++)
             f[n++] = why[i];
@@ -518,7 +524,7 @@ static int frame_rom(const uint8_t *p, uint32_t n)
     if (!ld.active)
         return 4;
     if (cmd == 0x11u) {
-        uint8_t raw[7 * 80];
+        uint8_t raw[7 * 64];
         uint32_t off, m = 0, i;
         if (n < 8u)
             return 1;
@@ -617,6 +623,23 @@ int app_sysex(const uint8_t *p, uint32_t n)
     if (n < 4u || p[0] != 0x7Du || p[1] != 0x53u || p[2] != 0x51u)
         return 0;
     loads++;
+    echo[0] = echo[1] = 0;
+    if ((p[3] >= 0x10u && p[3] <= 0x12u) || (p[3] >= 0x20u && p[3] <= 0x22u)) {   /* their last 2 bytes: a check */
+        uint32_t sum = 0, i;
+        if (n < 6u) {
+            reply(p[3], 1);
+            return 1;
+        }
+        for (i = 3; i < n - 2u; i++)
+            sum += p[i];
+        echo[0] = p[n - 2u];
+        echo[1] = p[n - 1u];
+        if ((sum & 0x7Fu) != p[n - 2u] || ((sum >> 7) & 0x7Fu) != p[n - 1u]) {
+            reply(p[3], 7);                  /* damaged on the way: the loader sends it again */
+            return 1;
+        }
+        n -= 2u;
+    }
     switch (p[3]) {
     case 0x01u: {
         uint8_t f[9] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0x01, 0, 0, 0xF7};
