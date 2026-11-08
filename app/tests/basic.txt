@@ -47,6 +47,7 @@ tap ARP
 wait 300
 expect stress 1
 expect voices 8
+expect cores 2
 shot stress.png
 tap ARP
 wait 30

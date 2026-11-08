@@ -5,6 +5,8 @@
  * pitch bend and pressure. PRESET picks one of four test sounds, OCT- / OCT+ the octave, SAVE keeps both.
  * ARP is the stress test: it holds an eight-note chord on every voice, the engine's worst case. The screen
  * shows the audio CPU load now and its peak since the last reset (HOME), and the audio under-runs.
+ * Two cores: the second renders voices 4..7 while the first renders 0..3 (fm1.toml cpu2; one core if it
+ * does not start, or gives up).
  *
  * The waves are a synthetic test set built in RAM (sq80_test_pack): a sine, a saw, a square and a decaying
  * one-shot. No Ensoniq data is in this firmware.
@@ -32,6 +34,8 @@ static sq80_rompack rom;
 static sq80_synth syn;
 static sq80_patch patches[NPATCH];
 static float buf_l[APP_BLOCK], buf_r[APP_BLOCK];
+static float buf2_l[APP_BLOCK], buf2_r[APP_BLOCK];   /* the second core's voices */
+static uint8_t two_cores;                /* the second core takes voices 4..7 */
 static float gain_now;
 
 static void make_patches(void)
@@ -200,6 +204,11 @@ static void events(void)                     /* audio interrupt */
 
 static volatile uint32_t voices_now;
 
+static void core2_job(uint32_t n)            /* the second core: voices 4..7 */
+{
+    sq80_render_part(&syn, buf2_l, buf2_r, (int)n, SQ80_VOICES / 2, SQ80_VOICES / 2);
+}
+
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     uint32_t i;
@@ -208,7 +217,18 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     midi_in();
     if (n > APP_BLOCK)
         n = APP_BLOCK;
-    sq80_render(&syn, buf_l, buf_r, (int)n);
+    if (two_cores && plat_cpu2_on() && plat_cpu2_run(core2_job, n)) {
+        sq80_render_part(&syn, buf_l, buf_r, (int)n, 0, SQ80_VOICES / 2);
+        if (plat_cpu2_wait() != 0)           /* given up: its voices here */
+            sq80_render_part(&syn, buf2_l, buf2_r, (int)n, SQ80_VOICES / 2, SQ80_VOICES / 2);
+        for (i = 0; i < n; i++) {
+            buf_l[i] += buf2_l[i];
+            buf_r[i] += buf2_r[i];
+        }
+        sq80_render_commit(&syn, (int)n);
+    } else {
+        sq80_render(&syn, buf_l, buf_r, (int)n);
+    }
     for (i = 0; i < n; i++) {
         float l, r;
         gain_now += (gain - gain_now) * 0.004f;
@@ -242,6 +262,7 @@ void app_init(void)
     sq80_rompack_load(&rom, pack_buf, sq80_test_pack(pack_buf));
     sq80_init(&syn, &rom, 44100.0f);
     make_patches();
+    two_cores = plat_cpu2_set(1) == 0;
     if (plat_store_load(OBJ_SETTINGS, &set, sizeof set) != (int)sizeof set || set.magic != SET_MAGIC
         || set.octave < -2 || set.octave > 2 || set.patch >= NPATCH)
         settings_defaults();
@@ -485,8 +506,10 @@ static void draw(void)
     cv_text(120, 102, &FONT_XS, "XRUN", C_GRAY);
     int_text((int32_t)plat_xruns(), t);
     cv_text(158, 102, &FONT_XS, t, plat_xruns() ? RGB(230, 70, 60) : C_WHITE);
-    cv_text(10, 124, &FONT_XS, "STRESS (ARP)", C_GRAY);
-    cv_text(120, 124, &FONT_XS, ui.stress ? "ON: 8 VOICES" : "OFF", ui.stress ? C_HI : C_DIM);
+    cv_text(10, 124, &FONT_XS, "CORES", C_GRAY);
+    cv_text(66, 124, &FONT_XS, two_cores && plat_cpu2_on() ? "2" : "1", C_WHITE);
+    cv_text(120, 124, &FONT_XS, "STRESS", C_GRAY);
+    cv_text(166, 124, &FONT_XS, ui.stress ? "8 VOICES" : "OFF", ui.stress ? C_HI : C_DIM);
     cv_blit(0, 36);
     /* the footer: octave, MIDI in, the help */
     cv_begin(240, 52, C_BLACK);
@@ -554,6 +577,8 @@ int app_expect(const char *what, int *got)
         *got = last_note;
     else if (!strcmp(what, "dirty"))
         *got = set_dirty;
+    else if (!strcmp(what, "cores"))
+        *got = two_cores && plat_cpu2_on() ? 2 : 1;
     else if (!strcmp(what, "stress"))
         *got = ui.stress;
     else

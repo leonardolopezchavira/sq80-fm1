@@ -219,6 +219,29 @@ int main() {
         }
     }
 
+    {
+        // two cores: two parts on disjoint voices, summed, equal one render
+        basicProgram(prog, 0);
+        sq80_decode_patch(prog, &p);
+        static sq80_synth a, b;
+        sq80_init(&a, &rom, 44100.0f);
+        sq80_init(&b, &rom, 44100.0f);
+        sq80_set_patch(&a, &p);
+        sq80_set_patch(&b, &p);
+        for (int i = 0; i < 8; ++i) { sq80_note_on(&a, 48 + 3 * i, 100); sq80_note_on(&b, 48 + 3 * i, 100); }
+        std::vector<float> la(256), ra(256), l1(256), r1(256), l2(256), r2(256);
+        float worst = 0.0f;
+        for (int blk = 0; blk < 40; ++blk) {
+            sq80_render(&a, la.data(), ra.data(), 256);
+            sq80_render_part(&b, l1.data(), r1.data(), 256, 0, 4);
+            sq80_render_part(&b, l2.data(), r2.data(), 256, 4, 4);
+            sq80_render_commit(&b, 256);
+            for (int i = 0; i < 256; ++i)
+                worst = std::max(worst, std::max(std::fabs(la[i] - (l1[i] + l2[i])), std::fabs(ra[i] - (r1[i] + r2[i]))));
+        }
+        CHECK(worst < 1e-5f, "parts differ from the whole by %g", worst);
+    }
+
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
     return failures ? 1 : 0;
 }

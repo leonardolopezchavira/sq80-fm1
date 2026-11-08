@@ -129,7 +129,7 @@ typedef struct {
     float amp, amp_target;
 } sq80_osc;
 
-typedef struct { float g, k, s[4]; } sq80_filter;
+typedef struct { float k, G, G2, G3, G4, inv, den, s[4]; } sq80_filter;   /* coefficients from filter_set */
 
 typedef struct {
     uint8_t active, released;
@@ -169,6 +169,10 @@ void sq80_channel_pressure(sq80_synth *s, int value);
 void sq80_all_notes_off(sq80_synth *s);
 /* Renders n stereo frames into left/right (overwritten). */
 void sq80_render(sq80_synth *s, float *left, float *right, int n);
+/* The same in parts, for two cores: sq80_render_part for disjoint voice ranges (each into its own
+ * buffers, cleared first; they may run at once), the buffers summed, then sq80_render_commit(s, n) once. */
+void sq80_render_part(sq80_synth *s, float *left, float *right, int n, int first, int count);
+void sq80_render_commit(sq80_synth *s, int n);
 int sq80_active_voices(const sq80_synth *s);
 
 #ifdef __cplusplus

@@ -14,7 +14,7 @@
   "hardware": {
     "models": ["FM-1"],
     "flash": ["856014", "B36014"],
-    "features": ["bluetooth-midi", "usb-audio-in", "usb-audio-out", "velocity", "pressure", "screen-reader"]
+    "features": ["bluetooth-midi", "usb-audio-in", "usb-audio-out", "second-core", "velocity", "pressure", "screen-reader"]
   },
   "credits": "Built on fm1-base (MPL-2.0)."
 }

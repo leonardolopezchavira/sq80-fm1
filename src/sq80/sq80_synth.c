@@ -17,15 +17,6 @@ static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ?
 static int level_bytes(int c) { return c >= 0 ? 2 * c : 2 * (c - 1); }   /* -63..63 -> -128..126 */
 static float semitone_ratio(float semis) { return sq80_exp2f(semis * (1.0f / 12.0f)); }
 
-/* tanh, rational approximation (error < 2.5 % before the clamp), cheap enough per sample */
-static float fast_tanh(float x) {
-    float x2;
-    if (x > 3.0f) return 1.0f;
-    if (x < -3.0f) return -1.0f;
-    x2 = x * x;
-    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
-}
-
 static float dca_gain(float level) {
     int i = 1;
     float t, db;
@@ -189,20 +180,34 @@ static int lfo_tick(sq80_lfo *l, int mod_source) {
 /* ------------------------------------------------------------------------- filter */
 
 static void filter_set(sq80_filter *f, float hz, float resonance, float sample_rate) {
+    float g, G;
     hz = clampf(hz, 10.0f, sample_rate * 0.45f);
-    f->g = sq80_tanf(PI_F * hz / sample_rate);
+    g = sq80_tanf(PI_F * hz / sample_rate);
+    G = g / (1.0f + g);
     f->k = resonance;
+    f->G = G;
+    f->G2 = G * G;
+    f->G3 = f->G2 * G;
+    f->G4 = f->G2 * f->G2;
+    f->inv = 1.0f / (1.0f + g);
+    f->den = 1.0f / (1.0f + resonance * f->G4);
+}
+
+/* soft clip, division-free: x - 4x^3/27 up to |x| = 1.5, then +-1 (tanh's slope at 0, flat at the knee) */
+static float soft_clip(float x) {
+    if (x > 1.5f) return 1.0f;
+    if (x < -1.5f) return -1.0f;
+    return x - (4.0f / 27.0f) * x * x * x;
 }
 
 static float filter_process(sq80_filter *f, float x) {
-    /* 4-pole zero-delay-feedback ladder with passband compensation and a soft input */
-    const float g = f->g, k = f->k;
-    const float G = g / (1.0f + g), inv = 1.0f / (1.0f + g);
-    const float S = (G * G * G * f->s[0] + G * G * f->s[1] + G * f->s[2] + f->s[3]) * inv;
-    const float G4 = G * G * G * G;
+    /* 4-pole zero-delay-feedback ladder with passband compensation and a soft input; the coefficients
+     * (filter_set, every 16 samples) leave no division per sample */
+    const float G = f->G, k = f->k;
+    const float S = (f->G3 * f->s[0] + f->G2 * f->s[1] + G * f->s[2] + f->s[3]) * f->inv;
     const float xin = (1.0f + SQ80_FILTER_BASS_COMPENSATION * k) * x;
-    const float y4 = (G4 * xin + S) / (1.0f + k * G4);
-    float u = fast_tanh(SQ80_FILTER_DRIVE * (xin - k * y4)) * (1.0f / SQ80_FILTER_DRIVE);
+    const float y4 = (f->G4 * xin + S) * f->den;
+    float u = soft_clip(SQ80_FILTER_DRIVE * (xin - k * y4)) * (1.0f / SQ80_FILTER_DRIVE);
     int i;
     for (i = 0; i < 4; ++i) {
         const float v = (u - f->s[i]) * G;
@@ -484,48 +489,84 @@ static float render_doc(sq80_synth *s, sq80_voice *v) {
     return sum;
 }
 
-void sq80_render(sq80_synth *s, float *left, float *right, int n) {
-    int k, i;
-    for (k = 0; k < n; ++k) {
-        float l = 0.0f, r = 0.0f;
-        int tick;
-        s->control_countdown -= 1.0f;
-        tick = s->control_countdown <= 0.0f;
-        if (tick) s->control_countdown += s->samples_per_tick;
-        ++s->filter_counter;
-        for (i = 0; i < SQ80_VOICES; ++i) {
-            sq80_voice *v = &s->voices[i];
-            float t, c0, c1, c2, c3, x, y;
-            if (!v->active) continue;
-            if (tick) {
-                control_tick(s, v);
-                if (!v->active) continue;
-            }
-            v->doc_phase += s->doc_step;
-            while (v->doc_phase >= 1.0f) {
-                v->doc_phase -= 1.0f;
-                v->hist[0] = v->hist[1];
-                v->hist[1] = v->hist[2];
-                v->hist[2] = v->hist[3];
-                v->hist[3] = render_doc(s, v);
-            }
-            /* cubic Hermite between hist[1] and hist[2] */
-            t = v->doc_phase;
-            c0 = v->hist[1];
-            c1 = 0.5f * (v->hist[2] - v->hist[0]);
-            c2 = v->hist[0] - 2.5f * v->hist[1] + 2.0f * v->hist[2] - 0.5f * v->hist[3];
-            c3 = 0.5f * (v->hist[3] - v->hist[0]) + 1.5f * (v->hist[1] - v->hist[2]);
-            x = ((c3 * t + c2) * t + c1) * t + c0;
-
-            v->cutoff += (v->cutoff_target - v->cutoff) * 0.002f;
-            if ((s->filter_counter & 15u) == 0) filter_set(&v->filter, v->cutoff, v->resonance, s->sample_rate);
-            y = filter_process(&v->filter, x);
-            v->gain_l += (v->gain_l_target - v->gain_l) * 0.004f;
-            v->gain_r += (v->gain_r_target - v->gain_r) * 0.004f;
-            l += y * v->gain_l;
-            r += y * v->gain_r;
+/* one voice over m samples (no control tick among them), added into left and right */
+static void render_voice(sq80_synth *s, sq80_voice *v, float *left, float *right, int m, uint32_t fc) {
+    const float doc_step = s->doc_step;
+    float h0 = v->hist[0], h1 = v->hist[1], h2 = v->hist[2], h3 = v->hist[3], ph = v->doc_phase;
+    float cutoff = v->cutoff, gl = v->gain_l, gr = v->gain_r;
+    const float ct = v->cutoff_target, glt = v->gain_l_target, grt = v->gain_r_target;
+    int k;
+    for (k = 0; k < m; ++k) {
+        float c1, c2, c3, x, y;
+        ph += doc_step;
+        while (ph >= 1.0f) {
+            ph -= 1.0f;
+            h0 = h1;
+            h1 = h2;
+            h2 = h3;
+            h3 = render_doc(s, v);
         }
-        left[k] = l;
-        right[k] = r;
+        /* cubic Hermite between h1 and h2 */
+        c1 = 0.5f * (h2 - h0);
+        c2 = h0 - 2.5f * h1 + 2.0f * h2 - 0.5f * h3;
+        c3 = 0.5f * (h3 - h0) + 1.5f * (h1 - h2);
+        x = ((c3 * ph + c2) * ph + c1) * ph + h1;
+
+        cutoff += (ct - cutoff) * 0.002f;
+        if (((fc + (uint32_t)k) & 15u) == 0) filter_set(&v->filter, cutoff, v->resonance, s->sample_rate);
+        y = filter_process(&v->filter, x);
+        gl += (glt - gl) * 0.004f;
+        gr += (grt - gr) * 0.004f;
+        left[k] += y * gl;
+        right[k] += y * gr;
     }
+    v->hist[0] = h0; v->hist[1] = h1; v->hist[2] = h2; v->hist[3] = h3;
+    v->doc_phase = ph;
+    v->cutoff = cutoff;
+    v->gain_l = gl;
+    v->gain_r = gr;
+}
+
+/* Voices first .. first+count-1 over n samples into left and right (cleared first). Reads the synth's
+ * shared state and writes only those voices: two calls on disjoint voices may run at once (two cores).
+ * The block's control ticks fall where sq80_render puts them; sq80_render_commit then moves the clock. */
+void sq80_render_part(sq80_synth *s, float *left, float *right, int n, int first, int count) {
+    float countdown = s->control_countdown;
+    uint32_t fc = s->filter_counter;
+    int k = 0, i, last = first + count;
+    if (first < 0) first = 0;
+    if (last > SQ80_VOICES) last = SQ80_VOICES;
+    for (i = 0; i < n; ++i) left[i] = right[i] = 0.0f;
+    while (k < n) {
+        int m = 1;
+        /* this sample: a control tick? then the samples after it up to the next tick, voice by voice */
+        countdown -= 1.0f;
+        if (countdown <= 0.0f) {
+            countdown += s->samples_per_tick;
+            for (i = first; i < last; ++i)
+                if (s->voices[i].active) control_tick(s, &s->voices[i]);
+        }
+        while (k + m < n && countdown - 1.0f > 0.0f) {
+            countdown -= 1.0f;
+            ++m;
+        }
+        for (i = first; i < last; ++i)
+            if (s->voices[i].active) render_voice(s, &s->voices[i], left + k, right + k, m, fc + 1u);
+        fc += (uint32_t)m;
+        k += m;
+    }
+}
+
+void sq80_render_commit(sq80_synth *s, int n) {
+    int k;
+    for (k = 0; k < n; ++k) {
+        s->control_countdown -= 1.0f;
+        if (s->control_countdown <= 0.0f) s->control_countdown += s->samples_per_tick;
+    }
+    s->filter_counter += (uint32_t)n;
+}
+
+void sq80_render(sq80_synth *s, float *left, float *right, int n) {
+    sq80_render_part(s, left, right, n, 0, SQ80_VOICES);
+    sq80_render_commit(s, n);
 }
