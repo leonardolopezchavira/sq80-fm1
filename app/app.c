@@ -360,12 +360,16 @@ static int rom_attach(void)
     return p && sq80_rompack_load(&rom, p, SQ80_TEST_PACK_SIZE);
 }
 
-static void settings_defaults(void)
+static void settings_defaults(void)          /* (bank_count works from app_init on: the flash is mapped) */
 {
+    uint32_t b;
     set.magic = SET_MAGIC;
     set.octave = 0;
     set.bank = 0;
     set.prog = 0;
+    for (b = 1; b <= NBANK && !set.bank; b++)    /* the first loaded bank, else T */
+        if (bank_count(b))
+            set.bank = (uint8_t)b;
 }
 
 void app_init(void)
@@ -388,6 +392,7 @@ void app_init(void)
  * different (why: its offset, written, read); 6 the pack refused (why: its first bytes, the size); 7 the frame's
  * check failed):
  *   01                         hello: the answer's STATUS is 0, then the ROM pack's state (0 none, 1 loaded)
+ *   02                         the ROM pack kept: answered 7F 02 00 0 0 SIZE (4 x 7 bits) CRC-32 (5 x 7), 0 for none
  *   10 S0 S1 S2 S3             ROM pack, its size (7 bits each, low first): the sound stops, the old pack goes
  *   11 O0 O1 O2 O3 DATA..      its bytes from offset O, 7-bit packed (8 bytes carry 7: the first the high bits)
  *   12 C0 C1 C2 C3 C4          the end, its CRC-32 (5 x 7 bits): checked, then kept (its first 8 bytes written last)
@@ -601,8 +606,13 @@ static int frame_bank(const uint8_t *p, uint32_t n)
         h[4] = (uint8_t)cnt;
         if (plat_data_write(BANK_LO + b * SECTOR, h, 8) != 0)
             return 2;
-        if (set.bank == b + 1u)
+        if (set.bank == b + 1u || set.bank == 0) {   /* from the test sounds to the player's first bank */
+            if (set.bank == 0) {
+                set.bank = (uint8_t)(b + 1u);
+                set.prog = 0;
+            }
             program_load(1);
+        }
         return 0;
     }
     return 1;
@@ -644,6 +654,28 @@ int app_sysex(const uint8_t *p, uint32_t n)
     case 0x01u: {
         uint8_t f[9] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0x01, 0, 0, 0xF7};
         f[7] = rom_real;
+        plat_sysex_send(f, sizeof f);
+        return 1;
+    }
+    case 0x02u: {                        /* the ROM pack kept: 7F 02 00 0 0 SIZE(4 x 7) CRC(5 x 7), zeros for none */
+        uint8_t f[19] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0x02, 0, 0, 0};
+        uint32_t size = 0, crc = 0, i;
+        const uint8_t *h = plat_data(ROM_LO);
+        if (rom_real && h) {
+            uint32_t raws = h[20] | (uint32_t)h[21] << 8, romsz = h[24] | (uint32_t)h[25] << 8 | (uint32_t)h[26] << 16,
+                     body = 6u * SQ80_WAVES + 16u * SQ80_WAVES + 4u * raws;
+            body += (16u - body % 16u) % 16u;
+            size = 32u + body + romsz;
+            if (size <= ROM_MAX)
+                crc = crc32_flash(h, size, h);
+            else
+                size = 0;
+        }
+        for (i = 0; i < 4u; i++)
+            f[9 + i] = (uint8_t)((size >> (7u * i)) & 0x7Fu);
+        for (i = 0; i < 5u; i++)
+            f[13 + i] = (uint8_t)((crc >> (7u * i)) & 0x7Fu);
+        f[18] = 0xF7;
         plat_sysex_send(f, sizeof f);
         return 1;
     }

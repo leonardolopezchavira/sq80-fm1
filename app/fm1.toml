@@ -9,6 +9,7 @@ include = ["sq80"]
 cpu2 = true                    # the second core renders half the voices
 cpu2_fallback = true           # and if it fails: one core until power-off, not a restart
 words = "words.tsv"
+install_app = "install_app.js"   # the installer also loads the ROM pack and banks (kept in the browser)
 ble = true                     # Bluetooth MIDI in
 tagline = "an Ensoniq SQ-80 for the FM-1, on your own ROMs"
 repo = "https://github.com/leonardolopezchavira/sq80-fm1"

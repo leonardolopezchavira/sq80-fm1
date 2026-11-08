@@ -5,8 +5,10 @@ a resonant 4-pole filter, four envelopes and three LFOs per voice, eight voices 
 measured against the SQ8L emulation to sound like the real instrument.
 
 It plays **your own** SQ-80 waves and programs: none are included. Make a ROM pack from your SQ-80 ROM dumps
-(`tools/make_rompack.py` in the source), then load it and your ESQ-1 / SQ-80 SysEx banks with the
-[loader](load/). Until then it plays a small synthetic test wave set and four test sounds.
+(`tools/make_rompack.py` in the source); the [installer](install/) then asks for it and your ESQ-1 / SQ-80 SysEx
+banks and loads them in the same go as the firmware, and remembers them in your browser for the next install.
+The [loader](load/) loads them on their own. Without them it plays a small synthetic test wave set and four test
+sounds.
 
 This is version {{VERSION}}. You install it at your own risk, and the installer can put M-VAVE's own firmware back.
 

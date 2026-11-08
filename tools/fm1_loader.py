@@ -91,7 +91,7 @@ def sim_script(out, pack, programs, bank):
         for f in bf:
             L += ["sysex " + hexline(f), "wait 5"]
         L += ["wait 50", "expect_sysex " + hexline(answer(0x22, 0, bf[-1])),
-              "turn SELECT 1", "wait 50", f"expect bank {bank + 1}", f"expect banksize {len(programs)}",
+              "wait 50", f"expect bank {bank + 1}",   # (from the test sounds to the first bank loaded) f"expect banksize {len(programs)}",
               f"expect name0 {programs[0][0]}", "wav bank.wav", "key 7 down", "wait 600", "expect voices 1",
               "key 7 up", "wait 800", "wavstop", "shot bank.png",
               # an ESQ-1 single-program dump from a librarian: played at once
