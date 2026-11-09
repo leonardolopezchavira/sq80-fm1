@@ -95,14 +95,14 @@ EMU_CSS = f"""<style id="sq80-emu">
 """
 
 
-# every page: cyan text in VFDigit 7B, the font of a vacuum fluorescent display (Pronama LLC, SIL OFL 1.1:
+# every page: cyan text in DSEG14 Classic, a 14-segment display's letters (keshikan, SIL OFL 1.1, unmodified:
 # app/site/fonts, copied to the site's fonts/). Whatever is drawn cyan, headings, links, a status that turns cyan,
 # the editor's program name, gets it, the page's own font behind it for the few characters it does not have
-# (its letters, digits and - . ' ( ) = ? _ ° only); a page that changes later is looked at again
-VFD_FONT = "VFDigit 7B"
+# (· and the like); a page that changes later is looked at again
+VFD_FONT = "DSEG14 Classic"
 VFD = f"""<style id="sq80-vfd">
-  @font-face {{ font-family: "{VFD_FONT}"; src: url("{{base}}fonts/VFDigit7B.woff2") format("woff2"); font-display: swap; }}
-  html body .sq80-vfd {{ font-size: 1.3em; letter-spacing: .08em; text-transform: uppercase; }}   /* (its capitals read best) */
+  @font-face {{ font-family: "{VFD_FONT}"; src: url("{{base}}fonts/DSEG14Classic-Regular.woff2") format("woff2"); font-display: swap; }}
+  html body .sq80-vfd {{ font-size: .92em; letter-spacing: .04em; word-spacing: .4em; font-style: normal; }}
   html body h1 .sq80-vfd, html body h2.sq80-vfd, html body h3.sq80-vfd {{ font-weight: 400; }}
 </style>
 <script id="sq80-vfd-js">
