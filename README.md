@@ -63,7 +63,13 @@ SQ-80 would be. What was measured is in [docs/measurements.md](docs/measurements
 submodule): **SQ-80**, the engine on the FM-1, eight voices over its two cores. It plays your ROM pack and
 up to eight ESQ-1/SQ-80 program banks, loaded into its flash over USB SysEx by the loader page
 (`app/loader/index.html`, also at https://leonardolopezchavira.github.io/sq80-fm1/load/; the protocol is in
-`app/app.c` and `tools/fm1_loader.py`). Without them it plays a synthetic test wave set.
+`app/app.c` and `tools/fm1_loader.py`). Without a ROM pack it plays its **built-in waves**: an original set of
+75 in the SQ-80's slots and names, made from scratch by `tools/gen_waves.py` (additive spectra, formants, noise,
+plucked-string and drum models; no Ensoniq data is read or used) and built into the firmware as
+`app/waves/sq80_waves.h` (`python3 tools/gen_waves.py /tmp/w.rompack --header app/waves/sq80_waves.h` remakes
+it). They stand in for the originals: the plain shapes are the same shapes, the sampled instruments and drums are
+our own sounds of the same kind. Your own ROM pack, when loaded, replaces them. The browser emulator loads yours
+too ("Your ROM pack and banks…" in its bar: kept in the browser).
 
 - Install: https://leonardolopezchavira.github.io/sq80-fm1/install/ (Chrome or Edge).
 - Simulator: `git submodule update --init --recursive`, `python3 fm1/base/tools/build.py app --host`,

@@ -259,7 +259,7 @@ $("romsend").onclick = async () => {
         (resent ? ` (${resent} frames had to be sent again.)` : ""), "ok");
   } catch (err) {
     say("romstat", "Stopped: " + err.message + (resent ? ` (${resent} frames were sent again before that)` : "") +
-        ". Try again; until then the FM-1 plays its test waves.", "bad");
+        ". Try again; until then the FM-1 plays its built-in waves.", "bad");
     if (/check after loading/.test(err.message)) await compare(pack);
   }
   $("romsend").disabled = false;

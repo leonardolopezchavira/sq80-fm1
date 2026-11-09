@@ -12,4 +12,7 @@ __pycache__/
 *.SYX
 *.zip
 .DS_Store
-app/web/
+app/web/*
+!app/web/emu/
+app/web/emu/*
+!app/web/emu/app.js

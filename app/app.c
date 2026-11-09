@@ -7,8 +7,8 @@
  *     BANK_LO, banks 5..8 in the XDATA0 window (bank_base: there bytes 0xF00..0xF07 of each sector stay erased).
  * Both come in over USB SysEx from the loader page (web/load/index.html) in this app's own framing (below); a
  * single-program ESQ-1/SQ-80 dump (F0 0F 02 ch 01 ...) from any librarian plays at once, unsaved. Without a ROM
- * pack the engine plays a small synthetic wave set (sq80_test_pack: no Ensoniq data), written once to TEST_LO;
- * without a bank, a plain INIT program.
+ * pack the engine plays its built-in waves: an original set of 75 in the same slots (tools/gen_waves.py, built into
+ * the image as waves/sq80_waves.h: no Ensoniq data); where no bank is stored, INIT programs.
  *
  * The panel: PRESET picks the program, SELECT the bank, K1..K4 change the playing program's cutoff, resonance,
  * attack and release (HOME puts them back), OCT- / OCT+ the octave (bank, program, octave and the instrument's
@@ -24,6 +24,7 @@
 #include "sq80_cal.h"                      /* (SQ80_ENV_TICKS: the envelope drawing's times) */
 #include "fmini_fx.h"
 #include "sloop_seq.h"
+#include "sq80_waves.h"                 /* the built-in waves (tools/gen_waves.py: no Ensoniq data) */
 
 #define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
 
@@ -36,7 +37,6 @@
 #define NBANK 8u
 #define GAP 0xF00u                       /* banks 5..8: bytes GAP..GAP+7 of the sector kept erased (the update loader
                                           * looks for its record there: plat.h, PLAT_XDATA0) */
-#define TEST_LO PLAT_XDATA1_LO           /* the synthetic test pack, 3 sectors (its bytes 0xF00..0xF07 never "AT") */
 #define BANK_MAGIC 0x4B425153u           /* "SQBK" */
 #define NPROG 40u
 
@@ -62,7 +62,7 @@ static uint8_t set_dirty;
 
 /* ----------------------------------------------------------------- engine --- */
 static sq80_rompack rom;
-static uint8_t rom_real;                 /* the player's ROM pack (else the test waves) */
+static uint8_t rom_real;                 /* the player's ROM pack (else the built-in waves) */
 static volatile uint8_t engine_on;       /* 0 while the ROM pack is rewritten: the render keeps quiet */
 static sq80_synth syn;
 static float buf_l[APP_BLOCK], buf_r[APP_BLOCK];
@@ -422,7 +422,7 @@ void app_panic(void)
     notes_forget();
 }
 
-/* the waves: the player's ROM pack, else the test pack (written to TEST_LO the first time) */
+/* the waves: the player's ROM pack, else the built-in set (waves/sq80_waves.h: tools/gen_waves.py's, our own) */
 static int rom_attach(void)
 {
     const uint8_t *p = plat_data(ROM_LO);
@@ -431,24 +431,7 @@ static int rom_attach(void)
         return 1;
     }
     rom_real = 0;
-    p = plat_data(TEST_LO);
-    if (p && sq80_rompack_load(&rom, p, SQ80_TEST_PACK_SIZE))
-        return 1;
-    {   /* written once, 512 bytes at a time (no room in RAM for the whole) */
-        uint8_t tmp[512];
-        uint32_t off;
-        for (off = 0; off < SQ80_TEST_PACK_SIZE; off += SECTOR)
-            if (plat_data_erase(TEST_LO + off) != 0)
-                return 0;
-        for (off = 0; off < SQ80_TEST_PACK_SIZE; off += sizeof tmp) {
-            uint32_t m = SQ80_TEST_PACK_SIZE - off < sizeof tmp ? SQ80_TEST_PACK_SIZE - off : sizeof tmp;
-            sq80_test_pack_part(tmp, off, m);
-            if (plat_data_write(TEST_LO + off, tmp, m) != 0)
-                return 0;
-        }
-    }
-    p = plat_data(TEST_LO);
-    return p && sq80_rompack_load(&rom, p, SQ80_TEST_PACK_SIZE);
+    return sq80_rompack_load(&rom, SQ80_WAVES_PACK, SQ80_WAVES_SIZE);
 }
 
 static void settings_defaults(void)          /* (the flash is mapped from app_init on) */
@@ -2391,7 +2374,7 @@ static void draw(void)
                 cv_text(230 - text_w(&FONT_XS, t), 22, &FONT_XS, t, C_GRAY);
             }
         } else if (!rom_real) {
-            cv_text(10, 22, &FONT_XS, "NO ROM PACK: TEST WAVES", C_GRAY);
+            cv_text(10, 22, &FONT_XS, "BUILT-IN WAVES   HOME: SCOPE, RANDOM", C_GRAY);
         } else {
             cv_text(10, 22, &FONT_XS, "HOME: SCOPE, RANDOM", C_DIM);
         }

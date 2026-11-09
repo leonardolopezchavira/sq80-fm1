@@ -111,7 +111,7 @@ def theme(html, sub, home=False, extra=""):
 
 
 SUBS = {"install": "for the FM-1 · install", "load": "for the FM-1 · your waves and programs",
-        "manual": "for the FM-1 · manual", "emu": "for the FM-1 · in the browser, with the test waves"}
+        "manual": "for the FM-1 · manual", "emu": "for the FM-1 · in the browser"}
 
 
 def main():
