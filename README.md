@@ -81,6 +81,15 @@ Instruments), ported as they are: DRIVE (SOFT, TUBE), CHORUS (STEREO, JUNO, MULT
 P-PONG, MULTI, SLAP, REVERSE) and REVERB (ROOM, HALL, PLATE, SPRING, CLOUD), on FX. They are GPL-3.0-only, so the
 firmware as a whole is too: see [LICENSING.md](LICENSING.md).
 
+## HOME: the scope and RANDOM
+
+HOME goes through three screens: playing, with a waveform of the output under the knobs; the waveform alone, full
+screen, the program's name small at the foot; and **RANDOM**, new programs from the one playing: K1 AMOUNT (how far
+each value moves; 100 %: anywhere), K2 PARTS (ALL, OSC, FILTER, ENV, LFO, MOD), K3 right a new one, left the one
+before (8 kept), K4 back to the program as stored. The name (RND001...), volume and voice modes stay; OSC 1, the
+filter and ENV 4 are kept audible. SAVE stores one you like. (HOME no longer reverts the knobs on the play screen:
+RANDOM's K4 does.)
+
 ## Arpeggiator, sequencer, recording
 
 The arpeggiator, the step sequencer and live recording are SLOOP's (https://github.com/isod89/sloop-fm1, by Leo

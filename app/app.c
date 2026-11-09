@@ -259,6 +259,18 @@ static void click_mix(int32_t *lr, uint32_t n, uint32_t master_q12)
     click.at = 0;
 }
 
+/* the scope (HOME): the output as heard, the two sides mixed, the last 1024 samples (the main loop reads them) */
+#define SCOPE_N 1024u
+static int16_t scope_cap[SCOPE_N];
+static volatile uint32_t scope_w;
+static void scope_take(const int32_t *lr, uint32_t n)
+{
+    uint32_t i, w = scope_w;
+    for (i = 0; i < n; i++)
+        scope_cap[(w + i) % SCOPE_N] = (int16_t)(((lr[2u * i] >> 8) + (lr[2u * i + 1u] >> 8)) / 2);
+    scope_w = w + n;
+}
+
 static void notes_forget(void)               /* the engine let every note go */
 {
     memset(note_cnt, 0, sizeof note_cnt);
@@ -398,6 +410,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     fx_render(buf_l, buf_r, lr, n, master_q12);   /* DRIVE, the sends, the effects, the master (fmini_fx.c) */
     if (click.left)
         click_mix(lr, n, master_q12);
+    scope_take(lr, n);
     voices_now = (uint32_t)sq80_active_voices(&syn);
 }
 
@@ -861,6 +874,11 @@ static struct {
     uint32_t peak;
     uint32_t cpu_shown, voices_shown, peak_shown, loads_shown;
     uint8_t redraw;
+    uint8_t view;                        /* HOME's screens: 0 playing (with the scope), 1 the scope alone */
+    uint32_t scope_t;                    /* the scope's last frame */
+    int32_t scope_peak;                  /* its height: the recent peak */
+    uint8_t rnd_amt, rnd_part;           /* RANDOM: how far, which parts */
+    uint8_t rnd_n, rnd_seq;              /* .. the programs before (rnd_hist), the next name's number */
 } ui;
 
 static void text_cat(char *d, const char *s)
@@ -1024,7 +1042,7 @@ static void bank_step(int32_t d)             /* SELECT: the next bank that has p
  * values, HOME goes back to the play screen. On the play screen K1..K4 change cutoff, resonance and ENV4's attack
  * and release. SAVE stores the program: PRESET and SELECT choose where (program and bank), SAVE again writes it,
  * HOME leaves it. */
-enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE, ED_SYS, ED_ARP, ED_SEQ, ED_N };   /* SYS: GLO, the load */
+enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE, ED_SYS, ED_ARP, ED_SEQ, ED_RAND, ED_N };   /* SYS: GLO, the load */
 typedef struct {
     const char *title;
     int8_t p[4];                         /* parameter in the group (sq80_params.h), -1 none */
@@ -1214,6 +1232,7 @@ static void knob_turn(uint32_t k, int32_t e)
 
 static void section(uint32_t sec, uint32_t ninst)   /* SEL, ENV, LFO, EDIT: the section, or its next instance */
 {
+    ui.view = 0;
     if (ed.sec == sec) {
         if (ninst > 1)
             ed.inst = (uint8_t)((ed.inst + 1u) % ninst);
@@ -1227,6 +1246,140 @@ static void section(uint32_t sec, uint32_t ninst)   /* SEL, ENV, LFO, EDIT: the 
         ed.inst = 0;
     }
     ui.msg_until = 0;
+    ui.redraw = 1;
+}
+
+/* ------------------------------------------------------------------ RANDOM --- */
+/* HOME's third screen: new programs from the one playing. K1 AMOUNT how far each value moves (100 %: anywhere in its
+ * range; a switch, a source or a wave changes with that chance), K2 PARTS which ones (ALL, OSC, FILTER, ENV, LFO,
+ * MOD: the modulation routings), K3 right a new one, left the one before (8 kept), K4 the program as stored. The name,
+ * the volume and the voice modes stay; OSC 1 sounds, the filter is not shut, ENV 4 (the amplitude) opens and does
+ * not take forever, so a new program is never silent. SAVE stores one as any other */
+enum { RP_ALL, RP_OSC, RP_FILTER, RP_ENV, RP_LFO, RP_MOD, RP_N };
+static const char *const RP_NAME[RP_N] = {"ALL", "OSC", "FILTER", "ENV", "LFO", "MOD"};
+#define RND_HIST 8u
+static uint8_t rnd_hist[RND_HIST][102];
+static uint32_t rnd_state = 0x2545F491u;
+static uint32_t rnd(void)
+{
+    rnd_state ^= rnd_state << 13;
+    rnd_state ^= rnd_state >> 17;
+    rnd_state ^= rnd_state << 5;
+    return rnd_state;
+}
+static int32_t rnd_in(int32_t lo, int32_t hi) { return lo + (int32_t)(rnd() % (uint32_t)(hi - lo + 1)); }
+
+static uint32_t rnd_part_of(int id)          /* which RP_* a parameter is (RP_N: never changed) */
+{
+    if (id < SQ80_PARAM_LFO(0, 0)) {
+        return RP_ENV;
+    } else if (id < SQ80_PARAM_OSC(0, 0)) {
+        return (id - SQ80_PARAM_LFO(0, 0)) % SQ80_P_LFO_N == SQ80_P_LFO_MOD ? RP_MOD : RP_LFO;
+    } else if (id < SQ80_PARAM_PROG(0)) {
+        int q = (id - SQ80_PARAM_OSC(0, 0)) % SQ80_P_OSC_N;
+        return q == SQ80_P_OSC_MOD1 || q == SQ80_P_OSC_DEPTH1 || q == SQ80_P_OSC_MOD2 || q == SQ80_P_OSC_DEPTH2 ||
+               q == SQ80_P_OSC_DMOD1 || q == SQ80_P_OSC_DDEPTH1 || q == SQ80_P_OSC_DMOD2 || q == SQ80_P_OSC_DDEPTH2
+                   ? RP_MOD : RP_OSC;
+    }
+    switch (id - SQ80_PARAM_PROG(0)) {
+    case SQ80_P_FREQ: case SQ80_P_RES: case SQ80_P_KEYBD: return RP_FILTER;
+    case SQ80_P_FMOD1: case SQ80_P_FDEPTH1: case SQ80_P_FMOD2: case SQ80_P_FDEPTH2:
+    case SQ80_P_PANMOD: case SQ80_P_PANDEPTH: return RP_MOD;
+    case SQ80_P_PAN: case SQ80_P_SYNC: case SQ80_P_AM: return RP_OSC;
+    default: return RP_N;                    /* FINAL, MONO, GLIDE, VC, the restarts, CYC, the name */
+    }
+}
+
+static void rnd_at_least(int id, int v)
+{
+    if (sq80_param_get(prog_raw, id) < v)
+        sq80_param_set(prog_raw, id, v);
+}
+static void rnd_at_most(int id, int v)
+{
+    if (sq80_param_get(prog_raw, id) > v)
+        sq80_param_set(prog_raw, id, v);
+}
+
+static void randomize(void)
+{
+    int id, amt = ui.rnd_amt, i;
+    char nm[7];
+    rnd_state ^= plat_ms() * 2654435761u;    /* (a different series each time) */
+    if (!rnd_state)
+        rnd_state = 1;
+    if (ui.rnd_n < RND_HIST)                 /* the one before, for K3 left */
+        ui.rnd_n++;
+    for (i = (int)RND_HIST - 1; i > 0; i--)
+        memcpy(rnd_hist[i], rnd_hist[i - 1], 102);
+    memcpy(rnd_hist[0], prog_raw, 102);
+    for (id = 0; id < SQ80_PARAMS; id++) {
+        const sq80_param_info *in = sq80_param(id);
+        uint32_t part = rnd_part_of(id);
+        int v = sq80_param_get(prog_raw, id), lo = in->min, hi = in->max;
+        if (part == RP_N || (ui.rnd_part != RP_ALL && part != ui.rnd_part))
+            continue;
+        if (id >= SQ80_PARAM_OSC(0, 0) && id < SQ80_PARAM_PROG(0) &&
+            (id - SQ80_PARAM_OSC(0, 0)) % SQ80_P_OSC_N == SQ80_P_OSC_OCT) {
+            lo = -2;                         /* (octaves: the playable middle) */
+            hi = 2;
+        }
+        if (in->kind == SQ80_K_NUM || in->kind == SQ80_K_SIGNED) {
+            int span = (hi - lo) * amt / 100;
+            v = amt >= 100 ? rnd_in(lo, hi) : v + rnd_in(-span, span);
+        } else if ((int32_t)(rnd() % 100u) < amt) {   /* a switch, a source, a wave: changed or not */
+            v = rnd_in(lo, hi);
+        }
+        sq80_param_set(prog_raw, id, v < lo ? lo : v > hi ? hi : v);
+    }
+    /* never silent: OSC 1 on and heard, the filter open enough, ENV 4 up and not too slow */
+    sq80_param_set(prog_raw, SQ80_PARAM_OSC(0, SQ80_P_OSC_OUTPUT), 1);
+    rnd_at_least(SQ80_PARAM_OSC(0, SQ80_P_OSC_LEVEL), 40);
+    rnd_at_least(SQ80_PARAM_PROG(SQ80_P_FREQ), 40);
+    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_L1), 40);
+    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_L2), 30);
+    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_L3), 20);
+    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_LV), 20);
+    rnd_at_most(SQ80_PARAM_ENV(3, SQ80_P_ENV_T1), 45);
+    rnd_at_most(SQ80_PARAM_ENV(3, SQ80_P_ENV_T4), 50);
+    nm[0] = 'R'; nm[1] = 'N'; nm[2] = 'D';   /* RND001 .. RND999 */
+    ui.rnd_seq = (uint8_t)(ui.rnd_seq + 1u);
+    i = ui.rnd_seq;
+    nm[3] = (char)('0' + i / 100 % 10);
+    nm[4] = (char)('0' + i / 10 % 10);
+    nm[5] = (char)('0' + i % 10);
+    for (i = 0; i < 6; i++)
+        sq80_param_set(prog_raw, SQ80_PARAM_PROG(SQ80_P_NAME0 + i), nm[i]);
+    edited = 1;
+    program_play(0);
+}
+
+static void rand_turn(uint32_t k, int32_t e)
+{
+    if (k == 0u) {
+        int v = (int)ui.rnd_amt + (e > 0 ? 5 : -5);
+        ui.rnd_amt = (uint8_t)(v < 5 ? 5 : v > 100 ? 100 : v);
+    } else if (k == 1u) {
+        ui.rnd_part = (uint8_t)((ui.rnd_part + (uint32_t)(e > 0 ? 1 : RP_N - 1)) % RP_N);
+    } else if (k == 2u) {
+        if (e > 0) {
+            randomize();
+        } else if (ui.rnd_n) {               /* the one before */
+            uint32_t i;
+            memcpy(prog_raw, rnd_hist[0], 102);
+            for (i = 0; i + 1u < RND_HIST; i++)
+                memcpy(rnd_hist[i], rnd_hist[i + 1u], 102);
+            ui.rnd_n--;
+            edited = 1;
+            program_play(0);
+        } else {
+            app_say("RANDOM", "NONE BEFORE");
+        }
+    } else {
+        program_load(1);                     /* the program as stored */
+        ui.rnd_n = 0;
+        app_say("PROGRAM", "AS STORED");
+    }
     ui.redraw = 1;
 }
 
@@ -1502,12 +1655,18 @@ static void input(void)
             if (ed.sec == ED_SAVE) {         /* not saved: back where it was */
                 ed.sec = ed.back;
                 ui.redraw = 1;
-            } else if (ed.sec != ED_PLAY) {  /* the editor: back to playing (the edits kept) */
-                ed.sec = ED_PLAY;
+            } else if (ed.sec == ED_PLAY && ui.view == 0u) {   /* HOME's screens: playing, the scope, RANDOM */
+                ui.view = 1;
                 ui.redraw = 1;
-            } else if (edited) {             /* playing: the program as stored */
-                program_load(1);
-                app_say("PROGRAM", "AS STORED");
+            } else if (ed.sec == ED_PLAY) {
+                ui.view = 0;
+                ed.sec = ED_RAND;
+                ui.msg_until = 0;
+                ui.redraw = 1;
+            } else {                         /* RANDOM, an editor: back to playing (the edits kept) */
+                ed.sec = ED_PLAY;
+                ui.view = 0;
+                ui.redraw = 1;
             }
         } else if (k == B_SAVE) {
             if (ed.sec == ED_SAVE)
@@ -1567,6 +1726,8 @@ static void input(void)
                     step_turn(k, e);
                 } else if (ed.sec == ED_SEQ && ed.page[ED_SEQ] % 3u == 0u) {
                     entry_turn(k, e);
+                } else if (ed.sec == ED_RAND) {
+                    rand_turn(k, e);
                 } else if (ed.sec == ED_SYS) {
                     if (k == 0u) {           /* GLO K1: the metronome (kept by itself, as the pattern) */
                         sl_turn(SL_CLICK, e > 0 ? 1 : -1);
@@ -1590,7 +1751,7 @@ static void input(void)
         ui.redraw = 1;
     ui.keys = keys;
     {
-        static const uint8_t LIT[ED_N] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO, B_ARP, B_SEQ};
+        static const uint8_t LIT[ED_N] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO, B_ARP, B_SEQ, B_HOME};
         uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u, st = sl_state(), kl = keys, w;
         if (st & SL_S_BEAT)
             lit |= 1u << B_PLAY;             /* PLAY flashes on the beats */
@@ -1943,12 +2104,94 @@ static void seq_draw(void)
                 st & (SL_S_REC | SL_S_ARMED) ? RGB(230, 70, 60) : C_ACCENT);
 }
 
+/* the scope: the last samples from a rising zero crossing (the trace stands still on a steady note), 232 points of
+ * two samples each (~10 ms), its height following the recent peak */
+#define SCOPE_W 232u
+static int16_t scope_pt[SCOPE_W];            /* -1000 .. 1000 */
+static void scope_prepare(void)
+{
+    static int16_t sm[SCOPE_N];
+    uint32_t w = scope_w, i, j, need = 2u * SCOPE_W, trig = SCOPE_N - need;
+    int32_t pk = 0;
+    for (i = 0; i < SCOPE_N; i++)
+        sm[i] = scope_cap[(w + i) % SCOPE_N];
+    for (j = SCOPE_N - need; j > 1u; j--)
+        if (sm[j - 1u] < 0 && sm[j] >= 0) {
+            trig = j;
+            break;
+        }
+    for (i = 0; i < need; i++) {
+        int32_t v = sm[trig + i] < 0 ? -sm[trig + i] : sm[trig + i];
+        if (v > pk)
+            pk = v;
+    }
+    ui.scope_peak = pk > ui.scope_peak ? pk : ui.scope_peak - (ui.scope_peak - pk) / 8;
+    if (ui.scope_peak < 600)
+        ui.scope_peak = 600;                 /* (quiet: a flat line, not the noise blown up) */
+    for (i = 0; i < SCOPE_W; i++) {
+        int32_t v = ((int32_t)sm[trig + 2u * i] + sm[trig + 2u * i + 1u]) / 2 * 1000 / ui.scope_peak;
+        scope_pt[i] = (int16_t)(v > 1000 ? 1000 : v < -1000 ? -1000 : v);
+    }
+}
+/* the trace into the canvas whose row 0 is screen row top, over screen rows y .. y + h */
+static void scope_paint(int32_t top, int32_t y, int32_t h)
+{
+    int32_t cy = y + h / 2 - top, half = h / 2 - 2, x, py = cy;
+    cv_rect(4, cy, (int32_t)SCOPE_W, 1, C_LINE);
+    for (x = 0; x < (int32_t)SCOPE_W; x++) {
+        int32_t yy = cy - scope_pt[x] * half / 1000;
+        if (x)
+            cv_line(3 + x, py, 4 + x, yy, C_ACCENT);
+        py = yy;
+    }
+}
+static void scope_show(void)                 /* the scope where this screen has it */
+{
+    scope_prepare();
+    if (ed.sec == ED_PLAY && ui.view == 1u) {   /* alone: the whole screen, the program's name small at the foot */
+        char t[24];
+        cv_begin(240, 120, C_BLACK);
+        scope_paint(0, 6, 206);
+        cv_blit(0, 0);
+        cv_begin(240, 120, C_BLACK);
+        scope_paint(120, 6, 206);
+        t[0] = 0;
+        bank_text(t);
+        text_cat(t, "-");
+        int_text(set.prog + 1, t + 2);
+        text_cat(t, "  ");
+        text_cat(t, prog_name);
+        cv_text(120 - text_w(&FONT_XS, t) / 2, 100, &FONT_XS, t, edited ? C_ACCENT : C_GRAY);
+        cv_blit(0, 120);
+    } else if (ed.sec == ED_PLAY) {
+        cv_begin(240, 52, C_BLACK);
+        scope_paint(0, 2, 48);
+        cv_blit(0, 146);
+    } else if (ed.sec == ED_RAND) {
+        cv_begin(240, 66, C_BLACK);
+        scope_paint(0, 4, 58);
+        cv_blit(0, 174);
+    }
+}
+
 static void draw(void)
 {
     static const char *const PLAY_NAMES[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
     static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM", "FX", "", "", "ARP", "SEQ"};
     char t[32], n[12];
     uint32_t now = plat_ms();
+    static uint8_t was_alone;
+    if (ed.sec == ED_PLAY && ui.view == 1u) {   /* HOME's second screen: the scope alone */
+        if (!was_alone)
+            lcd_fill(0, 0, 240, 240, C_BLACK);
+        was_alone = 1;
+        scope_show();
+        return;
+    }
+    if (was_alone) {                         /* (from the scope alone: nothing of it stays) */
+        was_alone = 0;
+        lcd_fill(0, 0, 240, 240, C_BLACK);
+    }
     /* the header: the name, or a message for a moment */
     cv_begin(240, 32, C_BLACK);
     if (now < ui.msg_until) {
@@ -1958,7 +2201,8 @@ static void draw(void)
         cv_text(10, 6, &FONT_B, APP_NAME, C_WHITE);
         if (ed.sec != ED_PLAY)
             cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : ed.sec == ED_FX ? "FX" :
-                    ed.sec == ED_SYS ? "SYSTEM" : ed.sec == ED_ARP ? "ARP" : ed.sec == ED_SEQ ? "SEQ" : "EDIT", C_ACCENT);
+                    ed.sec == ED_SYS ? "SYSTEM" : ed.sec == ED_ARP ? "ARP" : ed.sec == ED_SEQ ? "SEQ" :
+                    ed.sec == ED_RAND ? "RANDOM" : "EDIT", C_ACCENT);
         if (last_note >= 0) {
             note_name(last_note, t);
             cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_ACCENT);
@@ -2038,6 +2282,36 @@ static void draw(void)
         cv_blit(0, 100);
         return;
     }
+    if (ed.sec == ED_RAND) {                 /* HOME's third screen: new programs at random */
+        static const char *const RK[4] = {"AMOUNT", "PARTS", "NEW", "STORED"};
+        uint32_t k;
+        cv_begin(240, 28, C_BLACK);
+        cv_text(10, 2, &FONT_B, "RANDOM", C_ACCENT);
+        cv_text(20 + text_w(&FONT_B, "RANDOM"), 2, &FONT_B, "NEW PROGRAMS", C_WHITE);
+        cv_blit(0, 100);
+        cv_begin(240, 46, C_BLACK);
+        for (k = 0; k < 4u; k++) {
+            int32_t x = 4 + (int32_t)k * 59;
+            t[0] = 0;
+            if (k == 0) {
+                int_text(ui.rnd_amt, t);
+                text_cat(t, "%");
+                cv_rect(x, 36, 54, 4, C_LINE);
+                cv_rect(x, 36, 54 * ui.rnd_amt / 100, 4, C_ACCENT);
+            } else if (k == 1) {
+                text_cat(t, RP_NAME[ui.rnd_part % RP_N]);
+            } else if (k == 2) {
+                text_cat(t, "< >");
+            } else {
+                text_cat(t, "BACK");
+            }
+            cv_text(x, 0, &FONT_XS, RK[k], C_GRAY);
+            cv_text(x, 14, &FONT_B, t, C_WHITE);
+        }
+        cv_blit(0, 128);
+        scope_show();
+        return;
+    }
     if (ed.sec != ED_PLAY) {                 /* an editor page */
         uint32_t np;
         ed_pages(ed.sec, &np);
@@ -2082,47 +2356,47 @@ static void draw(void)
         return;
     }
     knob_cells(100, PLAY_NAMES);
-    /* the octave, MIDI in, and a load under way (or no ROM pack yet) */
-    cv_begin(240, 94, C_BLACK);
-    cv_text(10, 22, &FONT_XS, "OCT", C_GRAY);
+    scope_show();                            /* the output, under the knobs */
+    /* the octave, MIDI in; the transport, a load under way, or no ROM pack yet */
+    cv_begin(240, 42, C_BLACK);
+    cv_text(10, 4, &FONT_XS, "OCT", C_GRAY);
     t[0] = set.octave < 0 ? '-' : '+';
     t[1] = (char)('0' + (set.octave < 0 ? -set.octave : set.octave));
     t[2] = 0;
-    cv_text(44, 22, &FONT_XS, t, C_ACCENT);
+    cv_text(44, 4, &FONT_XS, t, C_ACCENT);
     if (midi_count) {
         static const char *const PORT[NPORTS] = {"USB", "BLE", "TRS"};
-        cv_text(120, 22, &FONT_XS, "MIDI", C_GRAY);
-        cv_text(156, 22, &FONT_XS, midi_last_port < NPORTS ? PORT[midi_last_port] : "", C_ACCENT);
-    }
-    if (ld.active) {
-        int_text((int32_t)(ld.got * 100u / (ld.size ? ld.size : 1u)), t);
-        text_cat(t, "%");
-        cv_text(10, 48, &FONT_XS, "LOADING ROM PACK", C_ACCENT);
-        cv_text(140, 48, &FONT_XS, t, C_WHITE);
-    } else if (!rom_real) {
-        cv_text(10, 48, &FONT_XS, "NO ROM PACK: TEST WAVES", C_GRAY);
+        cv_text(120, 4, &FONT_XS, "MIDI", C_GRAY);
+        cv_text(156, 4, &FONT_XS, midi_last_port < NPORTS ? PORT[midi_last_port] : "", C_ACCENT);
     }
     {
         uint32_t st = sl_state();
-        if (st & (SL_S_PLAY | SL_S_REC | SL_S_ARMED)) {   /* the transport */
+        if (ld.active) {
+            int_text((int32_t)(ld.got * 100u / (ld.size ? ld.size : 1u)), t);
+            text_cat(t, "%");
+            cv_text(10, 22, &FONT_XS, "LOADING ROM PACK", C_ACCENT);
+            cv_text(140, 22, &FONT_XS, t, C_WHITE);
+        } else if (st & (SL_S_PLAY | SL_S_REC | SL_S_ARMED)) {   /* the transport */
             t[0] = 0;
             text_cat(t, st & SL_S_REC ? "REC" : st & SL_S_ARMED ? "REC READY" : "PLAY");
-            cv_text(10, 76, &FONT_XS, t, st & (SL_S_REC | SL_S_ARMED) ? RGB(230, 70, 60) : C_ACCENT);
+            cv_text(10, 22, &FONT_XS, t, st & (SL_S_REC | SL_S_ARMED) ? RGB(230, 70, 60) : C_ACCENT);
             int_text(set.sl.p[SL_BPM], t);
             text_cat(t, st & SL_S_SYNC ? " BPM MIDI" : " BPM");
-            cv_text(100, 76, &FONT_XS, t, C_WHITE);
+            cv_text(100, 22, &FONT_XS, t, C_WHITE);
             if (sl_pos() >= 0) {
                 int_text(sl_pos() + 1, t);
                 text_cat(t, "/");
                 int_text((int32_t)seq_len(), n);
                 text_cat(t, n);
-                cv_text(230 - text_w(&FONT_XS, t), 76, &FONT_XS, t, C_GRAY);
+                cv_text(230 - text_w(&FONT_XS, t), 22, &FONT_XS, t, C_GRAY);
             }
+        } else if (!rom_real) {
+            cv_text(10, 22, &FONT_XS, "NO ROM PACK: TEST WAVES", C_GRAY);
         } else {
-            cv_text(10, 76, &FONT_XS, "SEL ENV LFO EDIT: EDIT THE SOUND", C_DIM);
+            cv_text(10, 22, &FONT_XS, "HOME: SCOPE, RANDOM", C_DIM);
         }
     }
-    cv_blit(0, 146);
+    cv_blit(0, 198);
 }
 
 /* the boot screen: SQ-80 in block letters of our own (6 x 9 cells, strokes two cells thick, the last row only
@@ -2178,6 +2452,7 @@ void app_splash(void)                        /* at boot, before app_ui_init */
 
 void app_ui_init(void)
 {
+    ui.rnd_amt = 30;
     touch_on(1);
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.redraw = 1;
@@ -2238,7 +2513,11 @@ void app_frame(void)
     }
     if (ui.redraw) {
         ui.redraw = 0;
+        ui.scope_t = now;
         draw();
+    } else if ((ed.sec == ED_PLAY || ed.sec == ED_RAND) && now - ui.scope_t >= (ui.view ? 60u : 40u)) {
+        ui.scope_t = now;                    /* the scope moves: ~25 frames a second (alone, the whole screen: ~16) */
+        scope_show();
     }
 }
 
@@ -2275,6 +2554,8 @@ int app_expect(const char *what, int *got)
         *got = (int)(sl_state() & ~(uint32_t)SL_S_BEAT & ~(uint32_t)SL_S_UNDO & ~(uint32_t)SL_S_REDO);
     else if (!strcmp(what, "seqpos"))
         *got = sl_pos();
+    else if (!strcmp(what, "view"))
+        *got = ui.view;
     else if (!strcmp(what, "cursor"))
         *got = (int)sl_cursor();
     else if (!strcmp(what, "steppage"))

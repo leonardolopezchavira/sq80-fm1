@@ -29,9 +29,44 @@ expect prog 1
 turn K1 -10
 wait 30
 expect cutoff 117
+# HOME's screens: playing (with the scope), the scope alone, RANDOM (K3 a new program, left the one before,
+# K4 the program as stored), then playing again
+key 7 down
+wait 300
+shot play_scope.png
+tap HOME
+wait 100
+expect view 1
+shot scope.png
+key 7 up
 tap HOME
 wait 30
+expect sec 10
+expect view 0
+turn K3 1
+wait 30
+expect edited 1
+expect name0 82
+key 7 down
+wait 300
+shot random.png
+key 7 up
+turn K3 1
+wait 30
+turn K3 -1
+wait 30
+turn K3 -1
+wait 30
+expect cutoff 117
+turn K3 -1
+wait 30
+turn K4 1
+wait 30
 expect cutoff 127
+expect edited 0
+tap HOME
+wait 30
+expect sec 0
 tap OCT+
 wait 30
 expect octave 1
