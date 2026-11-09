@@ -215,6 +215,43 @@ void sl_out_off(uint32_t note)
     sq80_note_off(&syn, (int)note);
 }
 
+/* the metronome (GLO: CLICK): a short sine blip, 1.6 kHz on the bar's first beat, 1 kHz on the others, decaying in
+ * ~30 ms; mixed after the effects (no reverb on it), started where the beat falls in the block */
+static struct {
+    float y1, y2, k, env;
+    uint32_t left, at;                   /* samples still to sound; where in this block it starts */
+} click;
+static uint32_t render_at;                   /* app_render: the place in the block reached (sl_run's "now") */
+
+void sl_out_click(uint32_t accent)
+{
+    click.k = accent ? 1.94824f : 1.97974f;  /* 2 cos(2 pi f / 44100) */
+    click.y1 = 0.0f;
+    click.y2 = accent ? -0.2268f : -0.1420f; /* (-sin w: the sine starts at 0) */
+    click.env = accent ? 18000.0f : 12000.0f;
+    click.left = 2646u;                      /* 60 ms */
+    click.at = render_at;
+}
+
+static void click_mix(int32_t *lr, uint32_t n, uint32_t master_q12)
+{
+    uint32_t i;
+    float g = (float)master_q12 * (1.0f / 4096.0f);
+    for (i = click.at; i < n && click.left; i++, click.left--) {
+        float y = click.k * click.y1 - click.y2;
+        int32_t v, j;
+        click.y2 = click.y1;
+        click.y1 = y;
+        v = (int32_t)(y * click.env * g);
+        click.env *= 0.99925f;
+        for (j = 0; j < 2; j++) {
+            int32_t o = (lr[2u * i + (uint32_t)j] >> 8) + v;
+            lr[2u * i + (uint32_t)j] = (o > 32767 ? 32767 : o < -32768 ? -32768 : o) * 256;
+        }
+    }
+    click.at = 0;
+}
+
 static void notes_forget(void)               /* the engine let every note go */
 {
     memset(note_cnt, 0, sizeof note_cnt);
@@ -339,17 +376,21 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     }
     events();
     midi_in();
+    render_at = 0;
     sl_block(n, plat_ms());
     for (i = 0; off < n && i < 64u; i++) {   /* up to each note of the arpeggiator and the sequencer, then the note */
         uint32_t due = sl_next(), m = due < n - off ? due : n - off;
         if (m)
             render_span(off, m);
         off += m;
+        render_at = off;
         sl_run(m);
     }
     if (off < n)                             /* (never: a guard against an event that does not move on) */
         render_span(off, n - off);
     fx_render(buf_l, buf_r, lr, n, master_q12);   /* DRIVE, the sends, the effects, the master (fmini_fx.c) */
+    if (click.left)
+        click_mix(lr, n, master_q12);
     voices_now = (uint32_t)sq80_active_voices(&syn);
 }
 
@@ -799,6 +840,7 @@ static struct {
     uint8_t rec_down;                    /* REC down, not acted on */
     uint8_t edit_used;                   /* EDIT held: undo / redo used (no tap) */
     uint32_t touched;                    /* the last key, button or knob (autosave waits) */
+    uint8_t autosave;                    /* a setting kept by itself (CLICK) changed */
     int32_t pos_shown;
     uint32_t state_shown, chg_shown, chg_saved, bpm_sent;
     uint32_t peak;
@@ -1524,6 +1566,11 @@ static void input(void)
                     step_turn(k, e);
                 } else if (ed.sec == ED_SEQ && ed.page[ED_SEQ] % 3u == 0u) {
                     entry_turn(k, e);
+                } else if (ed.sec == ED_SYS) {
+                    if (k == 0u) {           /* GLO K1: the metronome (kept by itself, as the pattern) */
+                        sl_turn(SL_CLICK, e > 0 ? 1 : -1);
+                        ui.autosave = 1;
+                    }
                 } else {
                     knob_turn(k, e);
                 }
@@ -1983,8 +2030,10 @@ static void draw(void)
         cv_text(190, 70, &FONT_XS, t, C_WHITE);
         cv_text(10, 88, &FONT_XS, "CORES", C_GRAY);
         cv_text(70, 88, &FONT_XS, two_cores && plat_cpu2_on() ? "2" : "1", C_WHITE);
+        cv_text(130, 88, &FONT_XS, "CLICK", C_GRAY);
+        cv_text(190, 88, &FONT_XS, sl_value_text(SL_CLICK, set.sl.p[SL_CLICK], t), C_ACCENT);
         cv_text(10, 112, &FONT_XS, "GLO: PEAK FROM 0   PLAY: 8 VOICES", C_DIM);
-        cv_text(10, 126, &FONT_XS, "HOME: PLAY", C_DIM);
+        cv_text(10, 126, &FONT_XS, "K1: CLICK OFF / REC / ON   HOME: PLAY", C_DIM);
         cv_blit(0, 100);
         return;
     }
@@ -2178,8 +2227,10 @@ void app_frame(void)
             ui.bpm_sent = set.sl.p[SL_BPM];
             fx_tempo((int32_t)ui.bpm_sent);
         }
-        if (chg != ui.chg_saved && !(st & (SL_S_PLAY | SL_S_REC)) && !ui.step_held && now - ui.touched >= 3000u) {
+        if ((chg != ui.chg_saved || ui.autosave) && !(st & (SL_S_PLAY | SL_S_REC)) && !ui.step_held &&
+            now - ui.touched >= 3000u) {
             ui.chg_saved = chg;              /* (stopped, nothing touched for 3 s: the pattern to flash) */
+            ui.autosave = 0;
             if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0)
                 set_dirty = 0;
         }

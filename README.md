@@ -100,7 +100,8 @@ Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq
 - **PLAY** starts and stops it (on GLO it is still the 8-voice load test). **REC**: playing, records what you play
   into the nearest step (as you heard it), chords up to 4 notes, held notes as ties, overdubbing pass after pass;
   stopped, arms it, and your first note starts the loop as step 1. **Hold REC 2 s** clears the pattern;
-  **EDIT + OCT- / OCT+** undo / redo. It follows a MIDI clock (start, stop, tempo) when MIDI CLK is on.
+  **EDIT + OCT- / OCT+** undo / redo. It follows a MIDI clock (start, stop, tempo) when MIDI CLK is on. **GLO + K1** sets the
+  metronome: CLICK OFF, REC (on the beats while recording) or ON (whenever the sequencer plays).
 - The pattern and these settings are the instrument's: kept by SAVE on ARP or SEQ, and by themselves 3 s after the
   sequencer stops.
 

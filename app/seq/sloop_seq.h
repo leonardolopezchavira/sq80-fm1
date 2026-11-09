@@ -39,7 +39,7 @@ enum {
     SL_SSWING,   /* 0..100 */
     SL_BPM,      /* 40..240 */
     SL_SYNC,     /* off / on: follow a MIDI clock that comes in */
-    SL_RSV,
+    SL_CLICK,    /* the metronome: OFF, REC (while recording), ON (while playing) */
     SL_NP
 };
 typedef struct {
@@ -60,6 +60,7 @@ const char *sl_value_text(uint32_t id, int32_t v, char *t);
 /* the hooks (the app's): a note of the sequencer, the arpeggiator or the player's keys starts / ends */
 void sl_out_on(uint32_t note, uint32_t vel);
 void sl_out_off(uint32_t note);
+void sl_out_click(uint32_t accent);     /* a beat of the metronome (accent: the bar's first), now */
 
 /* all of the following run in the audio interrupt (the app posts its UI's commands there) */
 void sl_init(sl_song *s);

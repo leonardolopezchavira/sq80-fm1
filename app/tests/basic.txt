@@ -176,6 +176,9 @@ expect fx1 0
 tap GLO
 wait 300
 expect sec 7
+turn K1 1
+wait 30
+expect sl15 1
 shot system.png
 tap HOME
 wait 30

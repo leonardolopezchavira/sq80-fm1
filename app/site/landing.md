@@ -33,7 +33,7 @@ goes on to length (up to 64 steps), division, gate, swing, tempo and MIDI clock;
 the white keys are the steps (an empty one is set with the last note or chord played, a set one tapped is cleared,
 held with K1–K4 its notes, velocity, ratchets and type), the first black keys the pages. PLAY starts and stops it,
 REC records what you play into it (stopped: the first note starts it), REC held 2 s clears it, EDIT + OCT- / OCT+
-undo and redo. GLO shows the audio load. MIDI in
+undo and redo. GLO shows the audio load, and its K1 sets the metronome click: off, while recording, or always. MIDI in
 over USB, Bluetooth and TRS plays it, program changes too, and an ESQ-1 / SQ-80 single-program dump sent to it
 plays at once.
 

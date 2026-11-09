@@ -60,13 +60,14 @@ static const char *const AMODES[] = {"UP", "DOWN", "UP/DN", "RANDOM", "ORDER", "
                                      "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD"};
 static const char *const RATES[] = {"1/4", "1/8", "1/16", "1/32", "1/8T", "1/16T", "1/2", "1 BAR", "2 BARS"};
 static const char *const ORDERS[] = {"SORTED", "PLAYED"};
+static const char *const CLICKS[] = {"OFF", "REC", "ON"};
 static const sl_param_info INFO[SL_NP] = {
     {"ARP", 0, 1, 0, ONOFF},          {"MODE", 1, 14, 1, AMODES},     {"RATE", 0, 5, 2, RATES},
     {"OCTAVES", 1, 4, 1, 0},          {"GATE", 1, 127, 64, 0},        {"SWING", 0, 100, 0, 0},
     {"HOLD", 0, 1, 0, ONOFF},         {"ORDER", 0, 1, 0, ORDERS},     {"CHANCE", 0, 127, 127, 0},
     {"LENGTH", 1, 64, 16, 0},         {"DIV", 0, 8, 2, RATES},        {"GATE", 1, 127, 64, 0},
     {"SWING", 0, 100, 0, 0},          {"TEMPO", 40, 240, 120, 0},     {"MIDI CLK", 0, 1, 1, ONOFF},
-    {"", 0, 0, 0, 0}};
+    {"CLICK", 0, 2, 0, CLICKS}};
 
 const sl_param_info *sl_param(uint32_t id) { return &INFO[id % SL_NP]; }
 
@@ -145,6 +146,8 @@ static uint32_t div_units(uint32_t div)
 }
 
 static volatile uint8_t playing, recording, armed;
+static uint32_t click_beat = 0xFFFFFFFFu;            /* the beat the metronome last clicked */
+static int clicking(void) { return P(SL_CLICK) == 2u || (P(SL_CLICK) == 1u && recording); }
 static uint32_t blk_n, blk_u, blk_done;                /* this block: samples, units in all, samples gone */
 
 /* units an odd step starts late: MPC swing (0 = 50 %, 100 = 75 %) */
@@ -687,6 +690,7 @@ static void seq_start(void)
     T.arp_new = T.nheld != 0;
     clk_beat = 0;
     clk_pos = 0;
+    click_beat = 0xFFFFFFFFu;
     mclk.done = mclk.pos;
     playing = 1;
 }
@@ -1132,6 +1136,8 @@ uint32_t sl_next(void)
         uint32_t abs;
         if (T.seq_abs == SEQ_NONE)
             return 0;
+        if (clicking() && BEAT_U - clk_pos < u)
+            u = BEAT_U - clk_pos;
         abs = trk_grid(&into, &slen);
         if (slen - into < u)
             u = slen - into;
@@ -1163,6 +1169,11 @@ void sl_run(uint32_t m)
     blk_done += m;
     if (playing)
         clk_move(adv);
+    if (playing && clk_beat != click_beat) {           /* a new beat: the metronome */
+        click_beat = clk_beat;
+        if (clicking())
+            sl_out_click((clk_beat & 3u) == 0u);
+    }
     arp_tick(adv);
     seq_tick(adv);
 }
