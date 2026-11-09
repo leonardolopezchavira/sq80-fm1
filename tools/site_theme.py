@@ -95,6 +95,48 @@ EMU_CSS = f"""<style id="sq80-emu">
 """
 
 
+# every page: cyan text in VFDigit 7B, the font of a vacuum fluorescent display (Pronama LLC, SIL OFL 1.1:
+# app/site/fonts, copied to the site's fonts/). Whatever is drawn cyan, headings, links, a status that turns cyan,
+# the editor's program name, gets it, the page's own font behind it for the few characters it does not have
+# (its letters, digits and - . ' ( ) = ? _ ° only); a page that changes later is looked at again
+VFD_FONT = "VFDigit 7B"
+VFD = f"""<style id="sq80-vfd">
+  @font-face {{ font-family: "{VFD_FONT}"; src: url("{{base}}fonts/VFDigit7B.woff2") format("woff2"); font-display: swap; }}
+  html body .sq80-vfd {{ font-size: 1.3em; letter-spacing: .08em; text-transform: uppercase; }}   /* (its capitals read best) */
+  html body h1 .sq80-vfd, html body h2.sq80-vfd, html body h3.sq80-vfd {{ font-weight: 400; }}
+</style>
+<script id="sq80-vfd-js">
+(() => {{
+  const FONT = '"{VFD_FONT}"';
+  const cyan = (c) => {{ const m = c.match(/[\\d.]+/g); if (!m || (m[3] !== undefined && +m[3] === 0)) return false;
+    return Math.abs(m[0] - 64) < 14 && Math.abs(m[1] - 220) < 14 && Math.abs(m[2] - 230) < 14; }};
+  const own = (el) => /^(INPUT|SELECT|TEXTAREA|OUTPUT)$/.test(el.tagName) ||
+    [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+  function look() {{
+    for (const el of document.body.querySelectorAll("*")) {{
+      if (el.closest("svg, canvas, script, style") || !own(el)) continue;
+      const on = el.classList.contains("sq80-vfd");
+      if (on) {{ el.style.fontFamily = el.dataset.vfdWas || ""; el.classList.remove("sq80-vfd"); }}
+      const cs = getComputedStyle(el);
+      if (cyan(cs.color)) {{
+        el.dataset.vfdWas = el.style.fontFamily;
+        el.style.fontFamily = FONT + ", " + cs.fontFamily;
+        el.classList.add("sq80-vfd");
+      }}
+    }}
+  }}
+  let due = 0;
+  const soon = () => {{ if (!due) due = setTimeout(() => {{ due = 0; obs.disconnect(); look(); watch(); }}, 120); }};
+  const obs = new MutationObserver(soon);
+  const watch = () => obs.observe(document.body, {{ subtree: true, childList: true, attributes: true,
+    attributeFilter: ["class", "style", "hidden", "disabled", "aria-selected", "aria-pressed", "open"] }});
+  const go = () => {{ look(); watch(); }};
+  document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", go) : go();
+}})();
+</script>
+"""
+
+
 # every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
 BASE = "/sq80-fm1/"
 NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("emu/", "Emulator"),
@@ -135,7 +177,7 @@ def theme(html, sub, home=False, extra="", current=""):
     under it) in place of its first h1's name"""
     if 'id="sq80-theme"' in html:
         return html
-    html = html.replace("</head>", CSS + NAV_CSS + extra + ('<style>a.home { display: none; }</style>\n' if home else "")
+    html = html.replace("</head>", CSS + NAV_CSS + VFD.replace("{base}", BASE) + extra + ('<style>html body a.home { display: none !important; } html body a.sq80-home { display: block; margin-top: 28px; }</style>\n' if home else "")
                         + "</head>", 1)
     html = re.sub(r"(<body[^>]*>)", lambda k: k.group(1) + nav(current), html, count=1)
     head = (f'<a class="sq80-home" href="{BASE}install/" title="Install SQ-80">{logo_svg()}</a>'
@@ -158,13 +200,17 @@ SUBS = {"install": "for the FM-1 · install", "load": "for the FM-1 · your wave
 
 def main():
     root = Path(sys.argv[1])
+    fonts = Path(__file__).resolve().parents[1] / "app" / "site" / "fonts"
+    (root / "fonts").mkdir(exist_ok=True)
+    for f in fonts.iterdir():
+        (root / "fonts" / f.name).write_bytes(f.read_bytes())
     for p in sorted(root.rglob("*.html")):
         rel = p.relative_to(root).parts
         if rel[0] in ("words", "firmware") or (rel[0] == "emu" and rel[-1] != "index.html"):
             continue
         sub = SUBS.get(rel[0], "for the FM-1") if len(rel) > 1 else "for the FM-1"
         p.write_text(theme(p.read_text(encoding="utf-8"), sub, home=len(rel) == 1,
-                           extra=EMU_CSS if rel[0] == "emu" else PAPER_CSS if rel[0] == "manual" else "",
+                           extra=EMU_CSS if rel[0] == "emu" else PAPER_CSS if rel[0] in ("manual", "index.html") else "",
                            current=rel[0] + "/" if len(rel) > 1 else ""), encoding="utf-8")
         print("themed", p.relative_to(root))
 

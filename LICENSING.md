@@ -15,6 +15,9 @@
   synthesized from scratch; only the SQ-80's wave names and slot numbers are followed, so programs find a wave of
   the right kind. No Ensoniq ROM data went into them; programs played with a ROM pack were only compared by
   overall loudness, to set the sampled-instrument waves' level.
+- **The web pages' cyan lettering** (`app/site/fonts/VFDigit7B.woff2`): VFDigit 7B, © 2021 Pronama LLC
+  (https://github.com/jz5/fonts-vfdigit), unmodified, under the SIL Open Font License 1.1
+  (`app/site/fonts/OFL-VFDigit.txt`, also served beside it as `fonts/OFL-VFDigit.txt`).
 - **fm1-base** (`fm1/base`, a submodule): MPL-2.0, its own terms (its `LICENSING.md`).
 
 **The FM-1 firmware as a whole** (what `app/` builds: the engine, the app, the effects, the sequencer and fm1-base together) is
