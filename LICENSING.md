@@ -18,6 +18,9 @@
 - **The web pages' cyan lettering** (`app/site/fonts/DSEG14Classic-Regular.woff2`): DSEG14 Classic, © 2020
   keshikan (https://github.com/keshikan/DSEG, Reserved Font Name "DSEG"), unmodified, under the SIL Open Font License
   1.1 (`app/site/fonts/OFL-DSEG.txt`, also served beside it as `fonts/OFL-DSEG.txt`).
+- **The program name's letters on the FM-1** (`app/fonts/seg_font.h`, made by `tools/gen_seg_font.py` from
+  `app/fonts/DSEG14Classic-Regular.ttf`): a bitmap rendering of DSEG14 Classic, © 2020 keshikan, under the SIL Open
+  Font License 1.1 (`app/fonts/OFL-DSEG.txt`); not named DSEG (its Reserved Font Name). The generator is MIT.
 - **fm1-base** (`fm1/base`, a submodule): MPL-2.0, its own terms (its `LICENSING.md`).
 
 **The FM-1 firmware as a whole** (what `app/` builds: the engine, the app, the effects, the sequencer and fm1-base together) is

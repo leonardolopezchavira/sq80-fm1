@@ -26,6 +26,7 @@
 #include "fmini_fx.h"
 #include "sloop_seq.h"
 #include "sq80_waves.h"                 /* the built-in waves (tools/gen_waves.py: no Ensoniq data) */
+#include "seg_font.h"                   /* the program name's letters (tools/gen_seg_font.py) */
 
 #define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
 
@@ -2197,7 +2198,14 @@ static void draw(void)
     cv_text(124, 2, &FONT_XS, t, C_ACCENT);
     if (edited)
         cv_text(196, 2, &FONT_XS, "EDITED", C_ACCENT);
-    cv_text(10, 20, &FONT_L, prog_name, edited ? C_ACCENT : C_WHITE);
+    {                                        /* the name in 14-segment letters (fonts/seg_font.h: DSEG14) */
+        char nm[8];
+        uint32_t i;
+        for (i = 0; i < 7u && prog_name[i]; i++)
+            nm[i] = prog_name[i] >= 'a' && prog_name[i] <= 'z' ? (char)(prog_name[i] - 32) : prog_name[i];
+        nm[i] = 0;
+        cv_text(10, 22, &FONT_SEG, nm, edited ? C_ACCENT : C_WHITE);
+    }
     cv_blit(0, 34);
     if (ed.sec == ED_SAVE) {                 /* where to save */
         uint8_t there[102];
