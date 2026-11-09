@@ -109,7 +109,10 @@ async function load(files, say) {
       await send(0x22, [bank, progs.length]);
       bank++;
     }
-    say(bank ? `Loaded: banks 1–${bank}. SELECT picks the bank, PRESET the program.` : "Loaded.");
+    if (!bank && !list.some((f) => f.name.toLowerCase().endsWith(".rompack")))
+      say("Those were not a ROM pack (.rompack) or ESQ-1 / SQ-80 banks (.syx).");
+    else
+      say(bank ? `Loaded: banks 1–${bank}. SELECT picks the bank, PRESET the program.` : "Loaded.");
   } catch (e) {
     say("Not loaded: " + (e && e.message || e));
   } finally {
@@ -120,17 +123,24 @@ async function load(files, say) {
 export function attach(ctx) {
   const bar = document.querySelector(".bar");
   if (!bar) return;
-  const say = (s) => { const st = document.getElementById("status"); if (st) st.textContent = s; else if (ctx.status) ctx.status(s); };
+  const note = document.createElement("span");   // what the load is doing, beside its button
+  note.className = "sq80-load";
+  note.setAttribute("role", "status");
+  const say = (s) => { note.textContent = s; };
   const input = document.createElement("input");
   input.type = "file";
   input.multiple = true;
   input.accept = ".rompack,.syx,.SYX";
   input.hidden = true;
-  input.addEventListener("change", () => { if (input.files.length) load(input.files, say); input.value = ""; });
+  input.addEventListener("change", () => {
+    const files = [...input.files];      // (a copy: the input's own list empties when it is reset, below)
+    input.value = "";
+    if (files.length) load(files, say);
+  });
   const btn = document.createElement("button");
   btn.type = "button";
   btn.textContent = "Your ROM pack and banks…";
   btn.title = "Load your own SQ-80 ROM pack (.rompack) and ESQ-1 / SQ-80 banks (.syx): they stay in this browser";
   btn.addEventListener("click", () => input.click());
-  bar.append(btn, input);
+  bar.append(btn, input, note);
 }
