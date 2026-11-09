@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SQ-80's look on its web pages: the boot screen's block-letter wordmark (app/app.c app_splash, the same cells)
 and its colours, black, cream and cyan, laid over the pages tools/make_site.py makes (the installer, the front
-page, the manual) and the loader page.
+page, the manual, the emulator) and the loader page.
 
     python3 tools/site_theme.py SITE_DIR      every .html page under it, themed in place
 """
@@ -71,11 +71,34 @@ CSS = f"""<style id="sq80-theme">
 """
 
 
-def theme(html, sub, home=False):
+# the emulator page (fm1-base's web/emu) has its own palette variables: the same colours through them, and its
+# accents (the switch-on button, a held control's ring, the focus) cyan in place of orange
+EMU_CSS = f"""<style id="sq80-emu">
+  html:root:root:root {{ --ground: {BLACK}; --ink: {CREAM}; --muted: #9a958a; --rule: #2a2a2a; --accent: {CYAN};
+    --teal: {CYAN}; --card: #0d0d0d; --bad: #ff6b5e; --focus: {CYAN}; color-scheme: dark; }}
+  html body header {{ display: block; }}
+  html body .start {{ background: rgba(0, 0, 0, .6); }}
+  html body .start button {{ border-radius: 2px; background: {CYAN}; color: #001215; font-weight: 700;
+    letter-spacing: .08em; text-transform: uppercase; }}
+  html body .bar button, html body .speak button {{ border-radius: 2px; background: #0d0d0d; color: {CREAM};
+    border-color: #555; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; font-size: .85rem; }}
+  html body .bar button[aria-pressed="true"] {{ background: {CYAN}; color: #001215; border-color: {CYAN}; }}
+  html body .speak {{ border-radius: 4px; }}
+  html body .speak summary h2, html body .help h2 {{ text-transform: uppercase; letter-spacing: .08em; font-weight: 800;
+    color: {CYAN}; font-size: 14px; }}
+  html body .held .btnface, html body .held .keyface {{ stroke: {CYAN}; }}
+  html body .hit:focus-visible {{ outline-color: {CYAN}; }}
+  html body kbd {{ background: #161616; border-color: #2a2a2a; color: {CREAM}; }}
+  html body input {{ accent-color: {CYAN}; }}
+</style>
+"""
+
+
+def theme(html, sub, home=False, extra=""):
     """the page with the theme's style, and the wordmark (and a line under it) in place of its first h1's name"""
     if 'id="sq80-theme"' in html:
         return html
-    html = html.replace("</head>", CSS + ('<style>a.home { display: none; }</style>\n' if home else "") + "</head>", 1)
+    html = html.replace("</head>", CSS + extra + ('<style>a.home { display: none; }</style>\n' if home else "") + "</head>", 1)
     head = logo_svg() + (f'<p class="sq80-sub">{sub}</p>' if sub else "")
     m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S)
     if m:
@@ -88,17 +111,18 @@ def theme(html, sub, home=False):
 
 
 SUBS = {"install": "for the FM-1 · install", "load": "for the FM-1 · your waves and programs",
-        "manual": "for the FM-1 · manual"}
+        "manual": "for the FM-1 · manual", "emu": "for the FM-1 · in the browser, with the test waves"}
 
 
 def main():
     root = Path(sys.argv[1])
     for p in sorted(root.rglob("*.html")):
         rel = p.relative_to(root).parts
-        if rel[0] in ("emu", "words", "firmware"):
+        if rel[0] in ("words", "firmware") or (rel[0] == "emu" and rel[-1] != "index.html"):
             continue
         sub = SUBS.get(rel[0], "for the FM-1") if len(rel) > 1 else "for the FM-1"
-        p.write_text(theme(p.read_text(encoding="utf-8"), sub, home=len(rel) == 1), encoding="utf-8")
+        p.write_text(theme(p.read_text(encoding="utf-8"), sub, home=len(rel) == 1,
+                           extra=EMU_CSS if rel[0] == "emu" else ""), encoding="utf-8")
         print("themed", p.relative_to(root))
 
 
