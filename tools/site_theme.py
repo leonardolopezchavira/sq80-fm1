@@ -97,7 +97,7 @@ EMU_CSS = f"""<style id="sq80-emu">
 
 # every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
 BASE = "/sq80-fm1/"
-NAV = [("", "Home"), ("install/", "Install"), ("load/", "Load"), ("edit/", "Editor"), ("emu/", "Emulator"),
+NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("emu/", "Emulator"),
        ("rompack/", "ROM pack"), ("wavepack/", "Wave pack")]
 NAV_CSS = f"""<style id="sq80-nav">
   nav.sq80-nav {{ display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; padding: 10px 16px;
@@ -108,6 +108,17 @@ NAV_CSS = f"""<style id="sq80-nav">
   nav.sq80-nav a[aria-current="page"] {{ color: #001215; background: {CYAN}; }}
   a.sq80-home {{ display: inline-block; }}
   a.sq80-home:focus-visible {{ outline: 2px solid {CYAN}; outline-offset: 4px; }}
+</style>
+"""
+
+
+# the front page and the manual (fm1-base's manual_html.py: paper and ink): the same in black, cream and cyan
+PAPER_CSS = f"""<style id="sq80-paper">
+  html:root:root:root {{ --paper: {BLACK}; --sheet: #161616; --rule: #2a2a2a; --ink: {CREAM}; --muted: #9a958a;
+    --hot: {CYAN}; --hot-t: #0d3236; --hot-ink: {CYAN}; --cool: {CYAN}; --cool-t: #0b2224; color-scheme: dark; }}
+  html body figure.shot img {{ box-shadow: 0 0 0 1px #2a2a2a; }}
+  html body figcaption {{ color: #9a958a; font-size: .9rem; margin-top: .3rem; }}
+  html body h2 {{ border-top-color: #2a2a2a; }}
 </style>
 """
 
@@ -152,7 +163,7 @@ def main():
             continue
         sub = SUBS.get(rel[0], "for the FM-1") if len(rel) > 1 else "for the FM-1"
         p.write_text(theme(p.read_text(encoding="utf-8"), sub, home=len(rel) == 1,
-                           extra=EMU_CSS if rel[0] == "emu" else "",
+                           extra=EMU_CSS if rel[0] == "emu" else PAPER_CSS if rel[0] == "manual" else "",
                            current=rel[0] + "/" if len(rel) > 1 else ""), encoding="utf-8")
         print("themed", p.relative_to(root))
 

@@ -151,6 +151,11 @@ Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq
 
 Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills, rolls, the free take and count-in.
 
+## The manual
+
+`app/docs/MANUAL.md` becomes the site's `/manual/` page. Its screen pictures in `app/docs/img/` come from the
+simulator: `python3 tools/manual_shots.py` builds a demo program, steps through every screen and writes the PNGs.
+
 ## Layout
 
 - `src/sq80/`: the engine (portable C99, single-precision float, no OS calls, no allocation), the same source for the desktop tools and the FM-1
