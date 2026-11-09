@@ -119,6 +119,7 @@ PAPER_CSS = f"""<style id="sq80-paper">
   html body figure.shot img {{ box-shadow: 0 0 0 1px #2a2a2a; }}
   html body figcaption {{ color: #9a958a; font-size: .9rem; margin-top: .3rem; }}
   html body h2 {{ border-top-color: #2a2a2a; }}
+  html body header.site {{ display: none; }}   /* the menu at the top has these links */
 </style>
 """
 
