@@ -47,3 +47,91 @@ expect dirty 0
 reboot
 wait 600
 expect octave 1
+# the editor: SEL / ENV / LFO / EDIT, ALGO pages, K1..K4 values, SAVE where to
+tap HOME
+wait 30
+tap SEL
+wait 30
+expect sec 1
+expect inst 0
+turn K4 2
+wait 30
+expect raw63 2
+expect edited 1
+shot edit_osc.png
+tap SEL
+wait 30
+expect inst 1
+turn ALGO 1
+wait 30
+expect page 1
+tap ENV
+wait 30
+expect sec 2
+tap ENV
+tap ENV
+tap ENV
+wait 30
+expect inst 3
+tap LFO
+wait 30
+expect sec 3
+tap EDIT
+wait 30
+expect sec 4
+expect page 0
+turn K1 -27
+wait 30
+expect raw89 100
+turn ALGO 5
+wait 30
+expect page 5
+turn K1 1
+wait 30
+expect raw0 74
+shot edit_name.png
+tap SAVE
+wait 30
+expect sec 5
+turn PRESET 2
+wait 30
+shot save.png
+tap SAVE
+wait 300
+expect sec 4
+expect bank 1
+expect prog 2
+expect banksize 3
+expect edited 0
+tap HOME
+wait 30
+expect sec 0
+reboot
+wait 600
+expect bank 1
+expect prog 2
+expect raw0 74
+expect raw89 100
+expect raw63 2
+# into bank 5, program 38: across the gap at 0xF00 of its sector
+tap EDIT
+wait 30
+tap SAVE
+wait 30
+turn SELECT 4
+turn PRESET 35
+wait 30
+tap SAVE
+wait 300
+expect bank 5
+expect prog 37
+expect banksize 38
+midi C0 00 00
+wait 50
+expect raw0 73
+midi C0 25 00
+wait 50
+expect prog 37
+expect raw0 74
+expect raw89 100
+expect raw63 2

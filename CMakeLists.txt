@@ -11,7 +11,7 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # The engine: portable C99, no OS dependencies: the same source builds as FM-1 firmware (fm1/).
-add_library(sq80 STATIC src/sq80/sq80_patch.c src/sq80/sq80_synth.c)
+add_library(sq80 STATIC src/sq80/sq80_patch.c src/sq80/sq80_synth.c src/sq80/sq80_params.c)
 target_include_directories(sq80 PUBLIC src)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   # -Wdouble-promotion: the FM-1's FPU is single precision, a double would be emulated

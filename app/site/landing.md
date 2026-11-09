@@ -20,7 +20,10 @@ This is version {{VERSION}}. You install it at your own risk, and the installer 
   and felucca-bsp, which come from Felucca by Leo Kuroshita, Hügelton Instruments.
 
 On the FM-1: SELECT picks the bank (1–8), PRESET the program, K1–K4 change cutoff, resonance,
-attack and release (HOME puts them back), OCT- / OCT+ the octave, SAVE keeps bank, program and octave. MIDI in
+attack and release (HOME puts them back), OCT- / OCT+ the octave. Every value of a program can be edited: SEL for
+the oscillators, ENV for the envelopes, LFO for the LFOs, EDIT for the filter, output, modes and name (press again
+for the next one, ALGO for the pages, K1–K4 for the values, HOME to play); SAVE stores it into any of the eight
+banks, a new one too. MIDI in
 over USB, Bluetooth and TRS plays it, program changes too, and an ESQ-1 / SQ-80 single-program dump sent to it
 plays at once.
 

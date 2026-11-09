@@ -17,6 +17,7 @@
  * Part of the unity build (device/unity.c, host/plat_host.c), after the platform: gfx.c and announce.c are in
  * scope. The engine is compiled apart at -O2 (fm1.toml o2). */
 #include "sq80.h"
+#include "sq80_params.h"
 
 #define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
 
@@ -55,12 +56,11 @@ static float buf2_l[APP_BLOCK], buf2_r[APP_BLOCK];   /* the second core's voices
 static uint8_t two_cores;
 static float gain_now;
 
-static sq80_patch base_patch;            /* the program as stored */
-static sq80_patch play_patch[2];         /* with the knobs' changes: two, the main loop writes the one not playing */
+static uint8_t prog_raw[102];            /* the program playing, as its 102 bytes: what the editor changes */
+static sq80_patch play_patch[2];         /* decoded: two, the main loop writes the one not playing */
 static uint8_t play_ix;
 static char prog_name[8];
-static int8_t knob[4];                   /* cutoff, resonance, attack, release: offsets from the program */
-static uint8_t edited;
+static uint8_t edited;                   /* changed since it was loaded (not saved) */
 
 /* a flash bank: "SQBK", the count, then 40 programs of 102 bytes; in banks 5..8 the programs step over GAP */
 static uint32_t bank_base(uint32_t slot)     /* slot 0..7 */
@@ -133,21 +133,24 @@ static void post(uint32_t kind, uint32_t a, uint32_t b)
     ev_w = w + 1u;
 }
 
-static void apply_knobs(void)                /* the playing program, the knobs' offsets on the stored one */
+static void program_play(int fresh)          /* prog_raw to the engine; fresh: a new program (notes off) */
 {
+    uint32_t i;
     sq80_patch *p = &play_patch[play_ix ^ 1u];
-    *p = base_patch;
-    p->cutoff = (uint8_t)clamp((int32_t)p->cutoff + knob[0], 0, 127);
-    p->resonance = (uint8_t)clamp((int32_t)p->resonance + knob[1], 0, 31);
-    p->env[3].t1 = (uint8_t)clamp((int32_t)p->env[3].t1 + knob[2], 0, 63);
-    p->env[3].t4 = (uint8_t)clamp((int32_t)p->env[3].t4 + knob[3], 0, 63);
+    sq80_decode_patch(prog_raw, p);
+    for (i = 0; i < 6; i++) {
+        char c = (char)prog_raw[i];
+        prog_name[i] = c >= 32 && c < 127 ? c : ' ';
+    }
+    prog_name[6] = 0;
     play_ix ^= 1u;
+    post(fresh ? Q_PATCH : Q_EDIT, play_ix, 0);
 }
 
-static void program_load(int fresh)          /* set.bank / set.prog into the engine; fresh: the knobs back to 0 */
+static void program_load(int fresh)          /* set.bank / set.prog into the engine (fresh: the edits dropped) */
 {
-    uint32_t n = bank_count(set.bank), i;
-    uint8_t prog[102];
+    uint32_t n = bank_count(set.bank);
+    (void)fresh;
     if (n == 0) {                            /* that bank went: the first there is */
         set.bank = (uint8_t)first_bank();
         set.prog = 0;
@@ -155,41 +158,19 @@ static void program_load(int fresh)          /* set.bank / set.prog into the eng
     }
     if (set.prog >= n)
         set.prog = 0;
-    if (n && bank_read(set.bank - 1u, set.prog, prog) == 0) {
-        sq80_decode_patch(prog, &base_patch);
-    } else {
-        sq80_default_patch(&base_patch);     /* no bank yet: a plain sound to play */
-        for (i = 0; i < 6; i++)
-            base_patch.name[i] = "INIT  "[i];
-    }
-    for (i = 0; i < 6; i++) {
-        char c = base_patch.name[i];
-        prog_name[i] = c >= 32 && c < 127 ? c : ' ';
-    }
-    prog_name[6] = 0;
-    if (fresh) {
-        for (i = 0; i < 4; i++)
-            knob[i] = 0;
-        edited = 0;
-    }
-    apply_knobs();
-    post(Q_PATCH, play_ix, 0);
+    if (!n || bank_read(set.bank - 1u, set.prog, prog_raw) != 0)
+        sq80_init_program(prog_raw);         /* no bank yet: a plain sound to play */
+    edited = 0;
+    program_play(1);
 }
 
 static void program_from_sysex(const uint8_t *prog102)   /* an ESQ-1/SQ-80 single-program dump: played, unsaved */
 {
     uint32_t i;
-    sq80_decode_patch(prog102, &base_patch);
-    for (i = 0; i < 6; i++) {
-        char c = base_patch.name[i];
-        prog_name[i] = c >= 32 && c < 127 ? c : ' ';
-    }
-    prog_name[6] = 0;
-    for (i = 0; i < 4; i++)
-        knob[i] = 0;
+    for (i = 0; i < 102u; i++)
+        prog_raw[i] = prog102[i];
     edited = 1;
-    apply_knobs();
-    post(Q_PATCH, play_ix, 0);
+    program_play(1);
 }
 
 static volatile int32_t last_note = -1;
@@ -876,23 +857,210 @@ static void bank_step(int32_t d)             /* SELECT: the next bank that has p
     app_say(t, prog_name);
 }
 
-static const char *const KNOB_NAME[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
-static int32_t knob_value(uint32_t k)        /* what the playing program has now */
+/* ------------------------------------------------------------------ editor --- */
+/* SEL: the oscillators (again: OSC 1 > 2 > 3), ENV: the envelopes (1..4), LFO: the LFOs (1..3), EDIT: the
+ * program's own (filter, output, modes, name); ALGO turns the section's pages, K1..K4 change the page's four
+ * values, HOME goes back to the play screen. On the play screen K1..K4 change cutoff, resonance and ENV4's attack
+ * and release. SAVE stores the program: PRESET and SELECT choose where (program and bank), SAVE again writes it,
+ * HOME leaves it. */
+enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_SAVE };
+typedef struct {
+    const char *title;
+    int8_t p[4];                         /* parameter in the group (sq80_params.h), -1 none */
+} ed_page;
+#define NONE (-1)
+static const ed_page OSC_PAGES[] = {
+    {"PITCH", {SQ80_P_OSC_OCT, SQ80_P_OSC_SEMI, SQ80_P_OSC_FINE, SQ80_P_OSC_WAVE}},
+    {"PITCH MOD", {SQ80_P_OSC_MOD1, SQ80_P_OSC_DEPTH1, SQ80_P_OSC_MOD2, SQ80_P_OSC_DEPTH2}},
+    {"DCA", {SQ80_P_OSC_LEVEL, SQ80_P_OSC_OUTPUT, SQ80_P_OSC_DMOD1, SQ80_P_OSC_DDEPTH1}},
+    {"DCA MOD 2", {SQ80_P_OSC_DMOD2, SQ80_P_OSC_DDEPTH2, NONE, NONE}}};
+static const ed_page ENV_PAGES[] = {
+    {"LEVELS", {SQ80_P_ENV_L1, SQ80_P_ENV_L2, SQ80_P_ENV_L3, SQ80_P_ENV_LV}},
+    {"TIMES", {SQ80_P_ENV_T1, SQ80_P_ENV_T2, SQ80_P_ENV_T3, SQ80_P_ENV_T4}},
+    {"KEY", {SQ80_P_ENV_T1V, SQ80_P_ENV_TK, SQ80_P_ENV_R2, NONE}}};
+static const ed_page LFO_PAGES[] = {
+    {"WAVE", {SQ80_P_LFO_FREQ, SQ80_P_LFO_WAVE, SQ80_P_LFO_L1, SQ80_P_LFO_L2}},
+    {"MORE", {SQ80_P_LFO_DELAY, SQ80_P_LFO_MOD, SQ80_P_LFO_HUMAN, SQ80_P_LFO_RESET}}};
+static const ed_page PROG_PAGES[] = {
+    {"FILTER", {SQ80_P_FREQ, SQ80_P_RES, SQ80_P_KEYBD, NONE}},
+    {"FILTER MOD", {SQ80_P_FMOD1, SQ80_P_FDEPTH1, SQ80_P_FMOD2, SQ80_P_FDEPTH2}},
+    {"OUTPUT", {SQ80_P_FINAL, SQ80_P_PAN, SQ80_P_PANMOD, SQ80_P_PANDEPTH}},
+    {"MODES", {SQ80_P_SYNC, SQ80_P_AM, SQ80_P_MONO, SQ80_P_GLIDE}},
+    {"RESTART", {SQ80_P_VC, SQ80_P_ENVRS, SQ80_P_OSCRS, SQ80_P_CYC}},
+    {"NAME 1-4", {SQ80_P_NAME0, SQ80_P_NAME0 + 1, SQ80_P_NAME0 + 2, SQ80_P_NAME0 + 3}},
+    {"NAME 5-6", {SQ80_P_NAME0 + 4, SQ80_P_NAME0 + 5, NONE, NONE}}};
+static const ed_page PLAY_PAGE = {"", {SQ80_P_FREQ, SQ80_P_RES, NONE, NONE}};   /* (K3, K4: ENV4 T1, T4) */
+
+static struct {
+    uint8_t sec, inst, page[5];          /* the section, its instance, each section's page */
+    uint8_t to_bank, to_prog;            /* SAVE: where to */
+    uint8_t back;                        /* SAVE: the section to go back to */
+} ed;
+
+static const ed_page *ed_pages(uint32_t sec, uint32_t *n)
 {
-    const sq80_patch *p = &play_patch[play_ix];
-    return k == 0 ? p->cutoff : k == 1 ? p->resonance : k == 2 ? p->env[3].t1 : p->env[3].t4;
+    switch (sec) {
+    case ED_OSC: *n = sizeof OSC_PAGES / sizeof OSC_PAGES[0]; return OSC_PAGES;
+    case ED_ENV: *n = sizeof ENV_PAGES / sizeof ENV_PAGES[0]; return ENV_PAGES;
+    case ED_LFO: *n = sizeof LFO_PAGES / sizeof LFO_PAGES[0]; return LFO_PAGES;
+    case ED_PROG: *n = sizeof PROG_PAGES / sizeof PROG_PAGES[0]; return PROG_PAGES;
+    default: *n = 1; return &PLAY_PAGE;
+    }
+}
+
+static int ed_param(uint32_t k)              /* the parameter id K1..K4 change now, -1 none */
+{
+    uint32_t n;
+    const ed_page *pg = ed_pages(ed.sec, &n) + (ed.sec <= ED_PROG ? ed.page[ed.sec] % n : 0);
+    int q;
+    if (ed.sec == ED_PLAY)
+        return k == 0 ? SQ80_PARAM_PROG(SQ80_P_FREQ) : k == 1 ? SQ80_PARAM_PROG(SQ80_P_RES) :
+               SQ80_PARAM_ENV(3, k == 2 ? SQ80_P_ENV_T1 : SQ80_P_ENV_T4);
+    if (ed.sec > ED_PROG || (q = pg->p[k]) < 0)
+        return -1;
+    switch (ed.sec) {
+    case ED_OSC: return SQ80_PARAM_OSC(ed.inst, q);
+    case ED_ENV: return SQ80_PARAM_ENV(ed.inst, q);
+    case ED_LFO: return SQ80_PARAM_LFO(ed.inst, q);
+    default: return SQ80_PARAM_PROG(q);
+    }
+}
+
+static void value_text(int id, char *t)      /* a value as the screen shows it */
+{
+    const sq80_param_info *in = sq80_param(id);
+    int v = sq80_param_get(prog_raw, id);
+    t[0] = 0;
+    switch (in->kind) {
+    case SQ80_K_ONOFF: text_cat(t, v ? "ON" : "OFF"); break;
+    case SQ80_K_SOURCE: text_cat(t, sq80_source_name(v)); break;
+    case SQ80_K_LFOWAVE: text_cat(t, sq80_lfo_wave_name(v)); break;
+    case SQ80_K_WAVE: {
+        char w[7];
+        uint32_t i;
+        sq80_rompack_name(&rom, v, w);
+        for (i = 6; i > 0 && w[i - 1] == ' '; i--)
+            w[i - 1] = 0;
+        text_cat(t, w);
+        break;
+    }
+    case SQ80_K_CHAR:
+        t[0] = (char)(v == ' ' ? '_' : v);
+        t[1] = 0;
+        break;
+    case SQ80_K_SIGNED:
+        if (v > 0)
+            text_cat(t, "+");
+        int_text(v, t + (v > 0));
+        break;
+    default: int_text(v, t); break;
+    }
 }
 
 static void knob_turn(uint32_t k, int32_t e)
 {
-    static const int8_t LIM[4] = {127, 31, 63, 63};
+    int id = ed_param(k);
+    const sq80_param_info *in;
     char t[12];
-    knob[k] = (int8_t)clamp(knob[k] + e, -LIM[k], LIM[k]);
+    if (id < 0)
+        return;
+    in = sq80_param(id);
+    sq80_param_set(prog_raw, id, sq80_param_get(prog_raw, id) + e);
     edited = 1;
-    apply_knobs();
-    post(Q_EDIT, play_ix, 0);
-    int_text(knob_value(k), t);
-    app_say(KNOB_NAME[k], t);
+    program_play(0);
+    if (ed.sec == ED_PLAY) {                 /* (the editor's pages show it already) */
+        value_text(id, t);
+        app_say(in->name, t);
+    }
+    ui.redraw = 1;
+}
+
+static void section(uint32_t sec, uint32_t ninst)   /* SEL, ENV, LFO, EDIT: the section, or its next instance */
+{
+    if (ed.sec == sec) {
+        if (ninst > 1)
+            ed.inst = (uint8_t)((ed.inst + 1u) % ninst);
+        else {
+            uint32_t n;
+            ed_pages(sec, &n);
+            ed.page[sec] = (uint8_t)((ed.page[sec] + 1u) % n);   /* EDIT again: its next page */
+        }
+    } else {
+        ed.sec = (uint8_t)sec;
+        ed.inst = 0;
+    }
+    ui.msg_until = 0;
+    ui.redraw = 1;
+}
+
+static uint8_t sector_buf[SECTOR] PLAT_POOL;  /* a bank's sector, rewritten whole to store a program */
+
+static int program_store(uint32_t bank, uint32_t pi)   /* prog_raw into bank (1..8), program pi; 0 done */
+{
+    uint32_t slot = bank - 1u, n = bank_count(bank), i, base = bank_base(slot);
+    const uint8_t *f = plat_data(base);
+    uint8_t init[102];
+    if (!f || slot >= NBANK || pi >= NPROG)
+        return -1;
+    for (i = 0; i < SECTOR; i++)             /* the sector as it is (a bank never loaded: erased) */
+        sector_buf[i] = n ? f[i] : 0xFFu;
+    sq80_init_program(init);
+    if (pi >= n) {                           /* the bank grows to this program: INIT in the places between */
+        uint32_t k, j;
+        for (k = n; k < pi; k++)
+            for (j = 0; j < 102u; j++)
+                sector_buf[phys(slot, prog_at(slot, k) + j)] = init[j];
+        n = pi + 1u;
+    }
+    for (i = 0; i < 102u; i++)
+        sector_buf[phys(slot, prog_at(slot, pi) + i)] = prog_raw[i];
+    sector_buf[0] = 0x53; sector_buf[1] = 0x51; sector_buf[2] = 0x42; sector_buf[3] = 0x4B;   /* "SQBK" */
+    sector_buf[4] = (uint8_t)n;
+    sector_buf[5] = sector_buf[6] = sector_buf[7] = 0;
+    if (plat_data_erase(base) != 0)
+        return -2;
+    if (slot >= 4u) {                        /* round the gap: it stays erased */
+        if (plat_data_write(base, sector_buf, GAP) != 0 ||
+            plat_data_write(base + GAP + 8u, sector_buf + GAP + 8u, SECTOR - GAP - 8u) != 0)
+            return -3;
+    } else if (plat_data_write(base, sector_buf, SECTOR) != 0) {
+        return -3;
+    }
+    return 0;
+}
+
+static void save_begin(void)
+{
+    ed.back = ed.sec == ED_SAVE ? ED_PLAY : ed.sec;
+    ed.to_bank = (uint8_t)(set.bank ? set.bank : 1u);
+    ed.to_prog = set.prog;
+    ed.sec = ED_SAVE;
+    ui.msg_until = 0;
+    ui.redraw = 1;
+}
+
+static void save_commit(void)
+{
+    char t[24], n[12];
+    if (program_store(ed.to_bank, ed.to_prog) != 0) {
+        app_say("SAVE", "FAILED");
+        ed.sec = ed.back;
+        return;
+    }
+    set.bank = ed.to_bank;
+    set.prog = ed.to_prog;
+    edited = 0;
+    plat_store_save(OBJ_SETTINGS, &set, sizeof set);   /* (and where it is: the next power-on starts there) */
+    set_dirty = 0;
+    ed.sec = ed.back;
+    t[0] = 0;
+    bank_text(t);
+    text_cat(t, "-");
+    if (set.prog + 1u < 10u)
+        text_cat(t, "0");
+    int_text(set.prog + 1, n);
+    text_cat(t, n);
+    app_say("SAVED", t);
 }
 
 static void input(void)
@@ -919,23 +1087,39 @@ static void input(void)
         uint32_t bit = 1u << k;
         if (!(btn & bit) || (ui.btn & bit))
             continue;
+        if (ed.sec == ED_SAVE && k != B_SAVE && k != B_HOME && k != B_OCTDN && k != B_OCTUP)
+            continue;                        /* (choosing where to save: SAVE or HOME) */
         if (k == B_OCTDN)
             octave_step(-1);
         else if (k == B_OCTUP)
             octave_step(1);
+        else if (k == B_SEL)
+            section(ED_OSC, 3);
+        else if (k == B_ENV)
+            section(ED_ENV, 4);
+        else if (k == B_LFO)
+            section(ED_LFO, 3);
+        else if (k == B_EDIT)
+            section(ED_PROG, 1);
         else if (k == B_ARP)
             stress_set(!ui.stress);
         else if (k == B_HOME) {
-            uint32_t i;
-            for (i = 0; i < 4; i++)
-                knob[i] = 0;
-            edited = 0;
-            apply_knobs();
-            post(Q_EDIT, play_ix, 0);
-            ui.peak = 0;
-            app_say("PROGRAM", "AS STORED");
+            if (ed.sec == ED_SAVE) {         /* not saved: back where it was */
+                ed.sec = ed.back;
+                ui.redraw = 1;
+            } else if (ed.sec != ED_PLAY) {  /* the editor: back to playing (the edits kept) */
+                ed.sec = ED_PLAY;
+                ui.redraw = 1;
+            } else if (edited) {             /* playing: the program as stored */
+                program_load(1);
+                app_say("PROGRAM", "AS STORED");
+            }
         } else if (k == B_SAVE) {
-            if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
+            if (ed.sec == ED_SAVE)
+                save_commit();
+            else if (edited || ed.sec != ED_PLAY)
+                save_begin();
+            else if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
                 set_dirty = 0;
                 app_say("SAVED", "");
             } else {
@@ -943,14 +1127,31 @@ static void input(void)
             }
         }
     }
-    if ((e = plat_enc(EN_PRESET)) != 0)
-        program_step(e > 0 ? 1 : -1);
-    if ((e = plat_enc(EN_SELECT)) != 0)
-        bank_step(e > 0 ? 1 : -1);
-    (void)plat_enc(EN_ALGO);
-    for (k = 0; k < 4u; k++)
-        if ((e = plat_enc((int)(EN_K1 + k))) != 0)
-            knob_turn(k, e);
+    if (ed.sec == ED_SAVE) {                 /* where to: PRESET the program, SELECT the bank */
+        if ((e = plat_enc(EN_PRESET)) != 0)
+            ed.to_prog = (uint8_t)((ed.to_prog + (uint32_t)(e > 0 ? 1 : (int32_t)NPROG - 1)) % NPROG);
+        if ((e = plat_enc(EN_SELECT)) != 0)
+            ed.to_bank = (uint8_t)((ed.to_bank - 1u + (uint32_t)(e > 0 ? 1 : (int32_t)NBANK - 1)) % NBANK + 1u);
+        if (e || plat_enc(EN_ALGO))
+            ui.redraw = 1;
+        for (k = 0; k < 4u; k++)
+            (void)plat_enc((int)(EN_K1 + k));
+        ui.redraw = 1;
+    } else {
+        if ((e = plat_enc(EN_PRESET)) != 0)
+            program_step(e > 0 ? 1 : -1);
+        if ((e = plat_enc(EN_SELECT)) != 0)
+            bank_step(e > 0 ? 1 : -1);
+        if ((e = plat_enc(EN_ALGO)) != 0 && ed.sec != ED_PLAY) {   /* the section's pages */
+            uint32_t n;
+            ed_pages(ed.sec, &n);
+            ed.page[ed.sec] = (uint8_t)((ed.page[ed.sec] + (uint32_t)(e > 0 ? 1 : (int32_t)n - 1)) % n);
+            ui.redraw = 1;
+        }
+        for (k = 0; k < 4u; k++)
+            if ((e = plat_enc((int)(EN_K1 + k))) != 0)
+                knob_turn(k, e);
+    }
     if (pc_req != 0xFFFFFFFFu) {             /* MIDI program change: 0..39 in this bank */
         uint32_t pc = pc_req;
         pc_req = 0xFFFFFFFFu;
@@ -965,8 +1166,11 @@ static void input(void)
     ui.keys = keys;
     ui.btn = btn;
     plat_glow(1);
-    plat_leds(btn | (set_dirty ? 1u << B_SAVE : 0u) | (ui.stress ? 1u << B_ARP : 0u) |
-              (edited ? 1u << B_HOME : 0u), keys);
+    {
+        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_SAVE};
+        uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u;
+        plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (ui.stress ? 1u << B_ARP : 0u), keys);
+    }
 }
 
 void app_input_only(void) { input(); }
@@ -981,10 +1185,40 @@ static void note_name(int32_t note, char *b)
     text_cat(b, o);
 }
 
+static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, value, a bar for numbers */
+{
+    uint32_t k;
+    char t[16];
+    cv_begin(240, 46, C_BLACK);
+    for (k = 0; k < 4u; k++) {
+        int32_t x = 4 + (int32_t)k * 59, id = ed_param(k);
+        const sq80_param_info *in;
+        if (id < 0)
+            continue;
+        in = sq80_param(id);
+        cv_text(x, 0, &FONT_XS, names ? names[k] : in->name, C_GRAY);
+        value_text(id, t);
+        cv_text(x, 14, &FONT_B, t, C_WHITE);
+        if (in->kind == SQ80_K_NUM || in->kind == SQ80_K_SIGNED) {
+            int32_t v = sq80_param_get(prog_raw, id), span = in->max - in->min;
+            cv_rect(x, 36, 54, 4, C_LINE);
+            if (in->min < 0) {               /* signed: from the middle */
+                int32_t w = 27 * (v < 0 ? -v : v) / in->max;
+                cv_rect(v < 0 ? x + 27 - w : x + 27, 36, w, 4, C_ACCENT);
+            } else {
+                cv_rect(x, 36, 54 * (v - in->min) / (span ? span : 1), 4, C_ACCENT);
+            }
+        }
+    }
+    cv_blit(0, y);
+}
+
 static void draw(void)
 {
+    static const char *const PLAY_NAMES[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
+    static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM"};
     char t[32], n[12];
-    uint32_t now = plat_ms(), k;
+    uint32_t now = plat_ms();
     /* the header: the name, or a message for a moment */
     cv_begin(240, 32, C_BLACK);
     if (now < ui.msg_until) {
@@ -992,13 +1226,15 @@ static void draw(void)
         cv_text(ui.msg[0][0] ? x + 8 : 10, 6, &FONT_B, ui.msg[1], C_ACCENT);
     } else {
         cv_text(10, 6, &FONT_B, APP_NAME, C_WHITE);
+        if (ed.sec != ED_PLAY)
+            cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : "EDIT", C_ACCENT);
         if (last_note >= 0) {
             note_name(last_note, t);
             cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_ACCENT);
         }
     }
     cv_blit(0, 0);
-    /* the program */
+    /* the program: bank, number, name (cyan while changed and not saved) */
     cv_begin(240, 64, C_BLACK);
     cv_text(10, 2, &FONT_XS, "BANK", C_GRAY);
     bank_text(t);
@@ -1009,41 +1245,87 @@ static void draw(void)
     int_text((int32_t)bank_count(set.bank), n);
     text_cat(t, n);
     cv_text(124, 2, &FONT_XS, t, C_ACCENT);
-    cv_text(10, 20, &FONT_L, set.bank ? prog_name : "NO BANKS", edited ? C_ACCENT : C_WHITE);
+    if (edited)
+        cv_text(196, 2, &FONT_XS, "EDITED", C_ACCENT);
+    cv_text(10, 20, &FONT_L, set.bank || edited ? prog_name : "NO BANKS", edited ? C_ACCENT : C_WHITE);
     cv_blit(0, 34);
-    /* the knobs */
-    cv_begin(240, 46, C_BLACK);
-    for (k = 0; k < 4u; k++) {
-        int32_t x = 4 + (int32_t)k * 59, v = knob_value(k), lim = k == 0 ? 127 : k == 1 ? 31 : 63;
-        cv_text(x, 0, &FONT_XS, KNOB_NAME[k], C_GRAY);
-        int_text(v, t);
-        cv_text(x, 14, &FONT_B, t, knob[k] ? C_ACCENT : C_WHITE);
-        cv_rect(x, 36, 54, 4, C_LINE);
-        cv_rect(x, 36, 54 * v / lim, 4, knob[k] ? C_ACCENT : C_GRAY);
+    if (ed.sec == ED_SAVE) {                 /* where to save */
+        uint8_t there[102];
+        cv_begin(240, 140, C_BLACK);
+        cv_text(10, 4, &FONT_XS, "SAVE TO", C_GRAY);
+        t[0] = 0;
+        text_cat(t, "BANK ");
+        int_text(ed.to_bank, n);
+        text_cat(t, n);
+        text_cat(t, "  PROGRAM ");
+        int_text(ed.to_prog + 1, n);
+        text_cat(t, n);
+        cv_text(10, 20, &FONT_B, t, C_ACCENT);
+        if (ed.to_prog < bank_count(ed.to_bank) && bank_read(ed.to_bank - 1u, ed.to_prog, there) == 0) {
+            uint32_t i;
+            for (i = 0; i < 6u; i++)
+                n[i] = there[i] >= 32 && there[i] < 127 ? (char)there[i] : ' ';
+            n[6] = 0;
+            cv_text(10, 44, &FONT_XS, "REPLACES", C_GRAY);
+            cv_text(76, 44, &FONT_XS, n, C_WHITE);
+        } else {
+            cv_text(10, 44, &FONT_XS, "AN EMPTY PLACE", C_GRAY);
+        }
+        cv_text(10, 84, &FONT_XS, "SELECT: BANK   PRESET: PROGRAM", C_DIM);
+        cv_text(10, 104, &FONT_XS, "SAVE: WRITE IT   HOME: CANCEL", C_DIM);
+        cv_blit(0, 100);
+        return;
     }
-    cv_blit(0, 100);
+    if (ed.sec != ED_PLAY) {                 /* an editor page */
+        uint32_t np;
+        ed_pages(ed.sec, &np);
+        cv_begin(240, 28, C_BLACK);            /* (all of it from the program block down: nothing of the play screen
+                                                * stays) */
+        t[0] = 0;
+        text_cat(t, SEC_NAME[ed.sec]);
+        if (ed.sec != ED_PROG) {
+            text_cat(t, " ");
+            int_text(ed.inst + 1, n);
+            text_cat(t, n);
+        }
+        cv_text(10, 2, &FONT_B, t, C_ACCENT);
+        cv_text(20 + text_w(&FONT_B, t), 2, &FONT_B, ed_pages(ed.sec, &np)[ed.page[ed.sec] % np].title, C_WHITE);
+        int_text(ed.page[ed.sec] % np + 1, t);
+        text_cat(t, "/");
+        int_text((int32_t)np, n);
+        text_cat(t, n);
+        cv_text(230 - text_w(&FONT_XS, t), 6, &FONT_XS, t, C_GRAY);
+        cv_blit(0, 100);
+        knob_cells(128, 0);
+        cv_begin(240, 66, C_BLACK);
+        cv_text(10, 20, &FONT_XS, "ALGO: PAGE   HOME: PLAY", C_DIM);
+        cv_text(10, 40, &FONT_XS, "SAVE: STORE THE PROGRAM", C_DIM);
+        cv_blit(0, 174);
+        return;
+    }
+    knob_cells(100, PLAY_NAMES);
     /* the octave, MIDI in, and a load under way (or no ROM pack yet) */
-    cv_begin(240, 92, C_BLACK);
-    cv_text(10, 20, &FONT_XS, "OCT", C_GRAY);
+    cv_begin(240, 94, C_BLACK);
+    cv_text(10, 22, &FONT_XS, "OCT", C_GRAY);
     t[0] = set.octave < 0 ? '-' : '+';
     t[1] = (char)('0' + (set.octave < 0 ? -set.octave : set.octave));
     t[2] = 0;
-    cv_text(44, 20, &FONT_XS, t, C_ACCENT);
+    cv_text(44, 22, &FONT_XS, t, C_ACCENT);
     if (midi_count) {
         static const char *const PORT[NPORTS] = {"USB", "BLE", "TRS"};
-        cv_text(120, 20, &FONT_XS, "MIDI", C_GRAY);
-        cv_text(156, 20, &FONT_XS, midi_last_port < NPORTS ? PORT[midi_last_port] : "", C_ACCENT);
+        cv_text(120, 22, &FONT_XS, "MIDI", C_GRAY);
+        cv_text(156, 22, &FONT_XS, midi_last_port < NPORTS ? PORT[midi_last_port] : "", C_ACCENT);
     }
     if (ld.active) {
         int_text((int32_t)(ld.got * 100u / (ld.size ? ld.size : 1u)), t);
         text_cat(t, "%");
-        cv_text(10, 46, &FONT_XS, "LOADING ROM PACK", C_ACCENT);
-        cv_text(140, 46, &FONT_XS, t, C_WHITE);
+        cv_text(10, 48, &FONT_XS, "LOADING ROM PACK", C_ACCENT);
+        cv_text(140, 48, &FONT_XS, t, C_WHITE);
     } else if (!rom_real) {
-        cv_text(10, 46, &FONT_XS, "NO ROM PACK: TEST WAVES", C_GRAY);
+        cv_text(10, 48, &FONT_XS, "NO ROM PACK: TEST WAVES", C_GRAY);
     }
-    cv_text(10, 74, &FONT_XS, "SELECT: BANK   PRESET: PROGRAM", C_DIM);
-    cv_blit(0, 148);
+    cv_text(10, 76, &FONT_XS, "SEL ENV LFO EDIT: EDIT THE SOUND", C_DIM);
+    cv_blit(0, 146);
 }
 
 /* the boot screen: SQ-80 in block letters of our own (6 x 9 cells, strokes two cells thick, the last row only
@@ -1154,6 +1436,16 @@ int app_expect(const char *what, int *got)
         *got = last_note;
     else if (!strcmp(what, "dirty"))
         *got = set_dirty;
+    else if (!strncmp(what, "raw", 3))       /* rawN: byte N of the playing program */
+        *got = prog_raw[atoi(what + 3) % 102];
+    else if (!strcmp(what, "sec"))
+        *got = ed.sec;
+    else if (!strcmp(what, "inst"))
+        *got = ed.inst;
+    else if (!strcmp(what, "page"))
+        *got = ed.page[ed.sec < 5 ? ed.sec : 0];
+    else if (!strcmp(what, "edited"))
+        *got = edited;
     else if (!strcmp(what, "cutoff"))
         *got = play_patch[play_ix].cutoff;
     else if (!strcmp(what, "name0"))         /* the program name's first letter */

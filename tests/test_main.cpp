@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "sq80/sq80.h"
+#include "sq80/sq80_params.h"
 #include "sq80/sq80_cal.h"
 #include "synthetic_rom.h"
 
@@ -240,6 +241,56 @@ int main() {
                 worst = std::max(worst, std::max(std::fabs(la[i] - (l1[i] + l2[i])), std::fabs(ra[i] - (r1[i] + r2[i]))));
         }
         CHECK(worst < 1e-5f, "parts differ from the whole by %g", worst);
+    }
+
+    {
+        // the editor's values: each one writes only itself, reads back what was written, and agrees with the decoder
+        uint32_t seed = 12345;
+        auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return seed >> 24; };
+        int crosstalk = 0, readback = 0, disagree = 0;
+        for (int trial = 0; trial < 200; ++trial) {
+            uint8_t p[102];
+            for (auto& b : p) b = (uint8_t)rnd();
+            for (int id = 0; id < SQ80_PARAMS; ++id) {
+                const sq80_param_info* in = sq80_param(id);
+                int v = in->min + (int)(rnd() % (uint32_t)(in->max - in->min + 1));
+                uint8_t q[102];
+                std::memcpy(q, p, 102);
+                sq80_param_set(q, id, v);
+                if (sq80_param_get(q, id) != v) ++readback;
+                for (int o = 0; o < SQ80_PARAMS; ++o)
+                    if (o != id && sq80_param_get(q, o) != sq80_param_get(p, o)) ++crosstalk;
+            }
+            sq80_patch d;
+            sq80_decode_patch(p, &d);
+            for (int n = 0; n < 3; ++n) {
+                disagree += sq80_param_get(p, SQ80_PARAM_OSC(n, SQ80_P_OSC_WAVE)) != d.osc[n].wave;
+                disagree += sq80_param_get(p, SQ80_PARAM_OSC(n, SQ80_P_OSC_OCT)) != d.osc[n].octave;
+                disagree += sq80_param_get(p, SQ80_PARAM_OSC(n, SQ80_P_OSC_LEVEL)) != d.osc[n].level;
+                disagree += sq80_param_get(p, SQ80_PARAM_OSC(n, SQ80_P_OSC_DEPTH1)) != d.osc[n].pitch_mod[0].depth;
+                disagree += sq80_param_get(p, SQ80_PARAM_LFO(n, SQ80_P_LFO_MOD)) != d.lfo[n].mod;
+            }
+            for (int n = 0; n < 4; ++n) {
+                disagree += sq80_param_get(p, SQ80_PARAM_ENV(n, SQ80_P_ENV_L2)) != d.env[n].l2;
+                disagree += sq80_param_get(p, SQ80_PARAM_ENV(n, SQ80_P_ENV_LV)) != d.env[n].lv;
+                disagree += sq80_param_get(p, SQ80_PARAM_ENV(n, SQ80_P_ENV_R2)) != d.env[n].second_release;
+            }
+            disagree += sq80_param_get(p, SQ80_PARAM_PROG(SQ80_P_FREQ)) != d.cutoff;
+            disagree += sq80_param_get(p, SQ80_PARAM_PROG(SQ80_P_FDEPTH2)) != d.filter_mod[1].depth;
+            disagree += sq80_param_get(p, SQ80_PARAM_PROG(SQ80_P_PANDEPTH)) != d.pan_mod.depth;
+            disagree += sq80_param_get(p, SQ80_PARAM_PROG(SQ80_P_MONO)) != d.mono;
+            disagree += sq80_param_get(p, SQ80_PARAM_PROG(SQ80_P_KEYBD)) != d.key_track;
+        }
+        CHECK(readback == 0 && crosstalk == 0 && disagree == 0, "params: %d read back wrong, %d crosstalk, %d disagree",
+              readback, crosstalk, disagree);
+        uint8_t ip[102];
+        sq80_init_program(ip);
+        sq80_patch d, want;
+        sq80_decode_patch(ip, &d);
+        sq80_default_patch(&want);
+        CHECK(d.osc[0].level == 63 && d.osc[0].output && !d.osc[1].output && d.cutoff == 127 && d.final_level == 63 &&
+              d.env[3].l3 == 63 && d.pan == 8 && d.osc[0].octave == 0 && d.osc[1].pitch_mod[0].source == SQ80_OFF &&
+              d.lfo[2].mod == SQ80_OFF && std::memcmp(d.name, "INIT  ", 6) == 0, "init program");
     }
 
     std::printf(failures ? "%d FAILED\n" : "all tests passed\n", failures);
