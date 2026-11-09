@@ -81,6 +81,28 @@ Instruments), ported as they are: DRIVE (SOFT, TUBE), CHORUS (STEREO, JUNO, MULT
 P-PONG, MULTI, SLAP, REVERSE) and REVERB (ROOM, HALL, PLATE, SPRING, CLOUD), on FX. They are GPL-3.0-only, so the
 firmware as a whole is too: see [LICENSING.md](LICENSING.md).
 
+## Arpeggiator, sequencer, recording
+
+The arpeggiator, the step sequencer and live recording are SLOOP's (https://github.com/isod89/sloop-fm1, by Leo
+Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq/sloop_seq.c`:
+
+- **ARP** (tap: on / off; hold: its pages): 14 modes (UP, DOWN, UP/DN, RANDOM, ORDER, REPEAT, DN/UP, UP+8, CONV,
+  DIVG, PINKY, THUMB, WALK, CHORD), RATE 1/4 to 1/32 and triplets, 1-4 octaves, gate, swing, HOLD, ORDER (sorted or
+  as played), CHANCE. While the sequencer plays it locks to its grid; while recording, its notes are recorded.
+- **SEQ** opens its pages: LENGTH (1-64 steps), DIV (1/4 to 2 bars), GATE, SWING; TEMPO and MIDI CLK. **Hold SEQ**
+  (or tap it again on its page: KEYS: STEPS) and the 16 white keys are steps 1-16 of the page, the first four black
+  keys (or OCT- / OCT+) the pages 1-4. An empty step pressed is set at once with the last note or chord you played; a
+  set step pressed and let go is cleared; hold it and turn K1 its notes, K2 its velocity, K3 its ratchets (x1-x4),
+  K4 its type (NOTE, ACCENT, SLIDE, TIE).
+- **PLAY** starts and stops it (on GLO it is still the 8-voice load test). **REC**: playing, records what you play
+  into the nearest step (as you heard it), chords up to 4 notes, held notes as ties, overdubbing pass after pass;
+  stopped, arms it, and your first note starts the loop as step 1. **Hold REC 2 s** clears the pattern;
+  **EDIT + OCT- / OCT+** undo / redo. It follows a MIDI clock (start, stop, tempo) when MIDI CLK is on.
+- The pattern and these settings are the instrument's: kept by SAVE on ARP or SEQ, and by themselves 3 s after the
+  sequencer stops.
+
+Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills, rolls, the free take and count-in.
+
 ## Layout
 
 - `src/sq80/`: the engine (portable C99, single-precision float, no OS calls, no allocation), the same source for the desktop tools and the FM-1

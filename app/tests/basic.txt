@@ -180,10 +180,11 @@ shot system.png
 tap HOME
 wait 30
 expect sec 0
-# the arpeggiator: ARP on, two keys held (the octave +1 from above): UP at 1/16 and 120 BPM (a step 125 ms); held, its page; DOWN; LATCH
+# the arpeggiator (SLOOP's): ARP on, two keys held (the octave +1 from above): UP at 1/16 and 120 BPM (a step 125 ms);
+# held, its page; DOWN; HOLD
 tap ARP
 wait 30
-expect arp0 1
+expect sl0 1
 key 7 down
 key 11 down
 wait 40
@@ -197,10 +198,10 @@ wait 600
 release ARP
 wait 30
 expect sec 8
-expect arp0 1
+expect sl0 1
 turn K1 1
 wait 160
-expect arp1 1
+expect sl1 2
 shot arp.png
 key 7 up
 key 11 up
@@ -220,7 +221,7 @@ turn ALGO 1
 wait 30
 turn K2 1
 wait 30
-expect arp6 1
+expect sl6 1
 key 7 down
 wait 50
 key 7 up
@@ -231,7 +232,119 @@ wait 400
 expect voices 0
 tap ARP
 wait 30
-expect arp0 0
+expect sl0 0
+tap HOME
+wait 30
+expect sec 0
+# the sequencer (SLOOP's): SEQ its page; held, the white keys are steps 1-16 (set with the last note played), a set
+# step pressed and let go is cleared; EDIT + OCT- undo; PLAY; REC armed: the first note starts and records (held: a
+# tie); REC held 2 s: the pattern cleared
+tap SEQ
+wait 30
+expect sec 9
+key 0 down
+wait 30
+key 0 up
+wait 30
+expect note 65
+press SEQ
+wait 30
+key 0 down
+wait 30
+key 0 up
+key 4 down
+wait 30
+key 4 up
+wait 30
+release SEQ
+wait 30
+expect step0 65
+expect step2 65
+expect stepn1 0
+shot seq.png
+press SEQ
+wait 30
+key 4 down
+wait 30
+key 4 up
+wait 30
+release SEQ
+wait 30
+expect step2 0
+press EDIT
+wait 30
+tap OCT-
+wait 30
+release EDIT
+wait 30
+expect sec 9
+expect step2 65
+press SEQ
+wait 30
+key 6 down
+wait 30
+turn K1 2
+wait 30
+turn K4 1
+wait 30
+shot seq_step.png
+key 6 up
+wait 30
+release SEQ
+wait 30
+expect step3 67
+tap PLAY
+wait 30
+expect seqstate 1
+expect note 65
+wait 250
+expect seqpos 2
+wait 150
+expect note 67
+shot seq_play.png
+tap PLAY
+wait 30
+expect seqstate 0
+tap REC
+wait 30
+expect seqstate 4
+key 9 down
+wait 30
+expect seqstate 3
+wait 270
+key 9 up
+wait 30
+expect stepn0 2
+expect stepn1 -1
+expect step2 65
+tap REC
+wait 30
+expect seqstate 1
+tap HOME
+wait 30
+shot play_seq.png
+tap SEQ
+wait 30
+tap PLAY
+wait 30
+expect seqstate 0
+expect voices 0
+press REC
+wait 2100
+release REC
+wait 30
+expect seqstate 0
+expect stepn0 0
+press EDIT
+wait 30
+tap OCT-
+wait 30
+release EDIT
+wait 30
+expect stepn0 2
+turn K1 -8
+wait 30
+expect sl9 8
 tap HOME
 wait 30
 expect sec 0

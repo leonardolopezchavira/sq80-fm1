@@ -16,5 +16,5 @@
     "flash": ["856014", "B36014"],
     "features": ["bluetooth-midi", "usb-audio-in", "usb-audio-out", "second-core", "velocity", "pressure", "screen-reader"]
   },
-  "credits": "Built on fm1-base (MPL-2.0); the effects are FMini-1's by Ruppert, after Felucca by Leo Kuroshita, Hügelton Instruments (GPL-3.0)."
+  "credits": "Built on fm1-base (MPL-2.0); the effects are FMini-1's by Ruppert, after Felucca by Leo Kuroshita, Hügelton Instruments; the arpeggiator, sequencer and recording are SLOOP's, by Leo Kuroshita, Hügelton Instruments (GPL-3.0)."
 }

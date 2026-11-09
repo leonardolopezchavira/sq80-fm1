@@ -11,8 +11,10 @@
  * without a bank, a plain INIT program.
  *
  * The panel: PRESET picks the program, SELECT the bank, K1..K4 change the playing program's cutoff, resonance,
- * attack and release (HOME puts them back), OCT- / OCT+ the octave, SAVE keeps bank, program and octave, ARP holds
- * all eight voices (a load test). The second core renders voices 4..7 (fm1.toml cpu2).
+ * attack and release (HOME puts them back), OCT- / OCT+ the octave, SAVE keeps bank, program and octave; SEL, ENV,
+ * LFO, EDIT edit the program, FX the effects (FMini-1's), ARP and SEQ SLOOP's arpeggiator and step sequencer
+ * (seq/sloop_seq.c, GPL-3.0: PLAY, REC, the steps on the keys while SEQ is held), GLO the load (PLAY there: a load
+ * test). The second core renders voices 4..7 (fm1.toml cpu2).
  *
  * Part of the unity build (device/unity.c, host/plat_host.c), after the platform: gfx.c and announce.c are in
  * scope. The engine is compiled apart at -O2 (fm1.toml o2). */
@@ -20,6 +22,7 @@
 #include "sq80_params.h"
 #include "sq80_cal.h"                      /* (SQ80_ENV_TICKS: the envelope drawing's times) */
 #include "fmini_fx.h"
+#include "sloop_seq.h"
 
 #define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
 
@@ -37,10 +40,12 @@
 #define NPROG 40u
 
 /* --------------------------------------------------------------- settings --- */
-#define SET_MAGIC 0x53513832u            /* "SQ82": the arpeggiator too (0.8); "SQ81": the effects (0.7); "SQ80": neither */
+#define SET_MAGIC 0x53513833u            /* "SQ83": SLOOP's arpeggiator and the pattern (0.9); "SQ82": 0.8's arpeggiator;
+                                          * "SQ81": the effects (0.7); "SQ80": neither */
 #define SET_MAGIC_0 0x53513830u
 #define SET_MAGIC_1 0x53513831u
-enum { ARP_ON, ARP_MODE, ARP_RATE, ARP_OCT, ARP_GATE, ARP_TEMPO, ARP_LATCH, ARP_SWING, ARP_N };
+#define SET_MAGIC_2 0x53513832u
+#define SET_ARP_08 8u                    /* 0.8's arpeggiator settings: 8 bytes (its tempo: byte 5, BPM - 40) */
 typedef struct {
     uint32_t magic;
     int8_t octave;                       /* -2 .. +2 */
@@ -48,8 +53,8 @@ typedef struct {
     uint8_t prog;                        /* 0 .. 39 */
     uint8_t rsv;
     uint8_t fx[FXP_N];                   /* the effects (fmini_fx.h): the instrument's, not a program's */
-    uint8_t arp[ARP_N];                  /* the arpeggiator (ARP_*): on, mode, rate, octaves, gate %, tempo - 40 (BPM),
-                                          * latch, swing % */
+    uint8_t rsv2[3];
+    sl_song sl;                          /* the arpeggiator's and the sequencer's settings, and the pattern */
 } settings_t;
 static settings_t set;
 static uint8_t set_dirty;
@@ -127,7 +132,7 @@ static uint32_t first_bank(void)             /* the first loaded bank, 0 for non
 }
 
 /* the main loop's events for the audio interrupt: one writer (the main loop), one reader (app_render) */
-enum { Q_ON, Q_OFF, Q_PATCH, Q_EDIT, Q_ALLOFF };
+enum { Q_ON, Q_OFF, Q_PATCH, Q_EDIT, Q_ALLOFF, Q_SEQ };
 #define NEV 64u
 static volatile uint32_t ev_q[NEV];
 static volatile uint32_t ev_w, ev_r;
@@ -185,249 +190,34 @@ static void last_note_set(int32_t n) { last_note = n; }
 static volatile uint32_t midi_last_port, midi_count;
 static volatile uint32_t pc_req = 0xFFFFFFFFu;   /* a MIDI program change for the main loop */
 
-/* ------------------------------------------------------------- arpeggiator --- */
-/* ARP: the held notes (the keys' and MIDI's), played one after another: MODE UP, DOWN, UP/DN, RANDOM, ORDER (as
- * played) or CHORD (all at once); over 1 .. 4 octaves; one step every RATE (a note value at TEMPO, or at the MIDI
- * clock's when one comes in: the steps follow its ticks); each note sounding GATE % of its step (100: tied to the
- * next); SWING lengthens the first of every two steps and shortens the second; LATCH keeps the notes after the keys
- * are let go (a new key after all were let go starts a new set). It runs in the audio interrupt, its notes placed to
- * the sample within the block (app_render renders up to each one). */
-typedef struct {
-    const char *name;
-    uint8_t max, def;
-    const char *const *names;
-} arp_info;
-static const char *const ARP_MODES[] = {"UP", "DOWN", "UP/DN", "RANDOM", "ORDER", "CHORD"};
-static const char *const ARP_RATES[] = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"};
-static const char *const ARP_ONOFF[] = {"OFF", "ON"};
-static const arp_info ARP_INFO[ARP_N] = {
-    {"ARP", 1, 0, ARP_ONOFF}, {"MODE", 5, 0, ARP_MODES}, {"RATE", 5, 3, ARP_RATES}, {"OCTAVES", 3, 0, 0},
-    {"GATE", 100, 50, 0},     {"TEMPO", 200, 80, 0},     {"LATCH", 1, 0, ARP_ONOFF}, {"SWING", 75, 0, 0}};
-static const uint8_t RATE_TICKS[6] = {24, 12, 8, 6, 4, 3};   /* MIDI clock ticks a step (24 a quarter) */
+/* ---------------------------------------------- the arpeggiator, the sequencer --- */
+/* SLOOP's (seq/sloop_seq.c, GPL-3.0): the keys' and MIDI's notes go through it (the arpeggiator takes them when on,
+ * the recording writes them), and its notes come back here. A note two of them play at once (a key and a step)
+ * sounds once and ends when the last of them lets it go. */
+static uint8_t note_cnt[128];
 
-static void arp_defaults(void)
+void sl_out_on(uint32_t note, uint32_t vel)
 {
-    uint32_t i;
-    for (i = 0; i < ARP_N; i++)
-        set.arp[i] = ARP_INFO[i].def;
+    note &= 127u;
+    if (note_cnt[note])
+        sq80_note_off(&syn, (int)note);      /* (sounding already: again) */
+    if (note_cnt[note] < 255u)
+        note_cnt[note]++;
+    sq80_note_on(&syn, (int)note, (int)(vel ? vel : 1u));
+    last_note = (int32_t)note;
 }
 
-#define ARP_HELD 16u
-static struct {
-    volatile uint8_t want[ARP_N], seq;   /* the main loop's settings; the block takes them */
-    uint8_t took, p[ARP_N];
-    uint8_t held[ARP_HELD], vel[ARP_HELD], nheld;   /* the notes, in the order played */
-    uint8_t down;                        /* keys and MIDI notes down now (LATCH: 0 = the set is kept) */
-    uint8_t snd[ARP_HELD], nsnd;         /* sounding */
-    uint32_t pos, nstep;                 /* the pattern's place; steps since it started (SWING's pairs) */
-    int32_t to_step, to_off;             /* samples to the next step, to the notes' end (-1 none) */
-    uint32_t rng;
-    uint32_t clk_ticks, clk_ms;          /* MIDI clock: ticks since its start; when the last came */
-    int32_t clk_period;                  /* .. samples a tick (smoothed), 0 none yet */
-    uint8_t clk_step;                    /* a step due at this tick (the next render point) */
-    uint8_t running;
-} arp;
-
-static uint32_t arp_clocked(void) { return arp.clk_period && plat_ms() - arp.clk_ms < 500u; }
-
-static int32_t arp_step_len(void)            /* the step in samples, SWING applied to this one */
+void sl_out_off(uint32_t note)
 {
-    int32_t tick = arp_clocked() ? arp.clk_period : (int32_t)(44100u * 60u / ((uint32_t)arp.p[ARP_TEMPO] + 40u) / 24u);
-    int32_t len = tick * RATE_TICKS[arp.p[ARP_RATE] % 6u], sw = len * arp.p[ARP_SWING] / 200;
-    return len + ((arp.nstep & 1u) ? -sw : sw);
-}
-
-static void arp_release(void)                /* the sounding notes off */
-{
-    uint32_t i;
-    for (i = 0; i < arp.nsnd; i++)
-        sq80_note_off(&syn, arp.snd[i]);
-    arp.nsnd = 0;
-    arp.to_off = -1;
-}
-
-static void arp_sound(int32_t note, uint32_t vel)
-{
-    note = note < 0 ? 0 : note > 127 ? 127 : note;
-    if (arp.nsnd < ARP_HELD)
-        arp.snd[arp.nsnd++] = (uint8_t)note;
-    sq80_note_on(&syn, (int)note, (int)vel);
-    last_note_set(note);
-}
-
-static void arp_step(void)                   /* a step: the last notes off, the next on */
-{
-    uint8_t order[ARP_HELD], ov[ARP_HELD];
-    uint32_t n = arp.nheld, oct = arp.p[ARP_OCT] + 1u, len, i, j, k, mode = arp.p[ARP_MODE];
-    int32_t steplen;
-    arp_release();
-    if (!n) {                                /* nothing held (LATCH off, the keys let go): it stops */
-        arp.running = 0;
+    note &= 127u;
+    if (!note_cnt[note] || --note_cnt[note])
         return;
-    }
-    for (i = 0; i < n; i++) {
-        order[i] = arp.held[i];
-        ov[i] = arp.vel[i];
-    }
-    if (mode != 4u)                          /* (ORDER keeps the order played; the others go by pitch) */
-        for (i = 1; i < n; i++)
-            for (j = i; j > 0 && order[j - 1] > order[j]; j--) {
-                uint8_t a = order[j], b = ov[j];
-                order[j] = order[j - 1];
-                ov[j] = ov[j - 1];
-                order[j - 1] = a;
-                ov[j - 1] = b;
-            }
-    len = n * oct;
-    if (mode == 5u) {                        /* CHORD: all of them, an octave further each step */
-        k = arp.pos % oct;
-        for (i = 0; i < n; i++)
-            arp_sound(order[i] + 12 * (int32_t)k, ov[i]);
-    } else {
-        uint32_t s = arp.pos;
-        if (mode == 0u || mode == 4u)
-            k = s % len;
-        else if (mode == 1u)
-            k = len - 1u - s % len;
-        else if (mode == 2u) {
-            uint32_t per = len > 1u ? 2u * len - 2u : 1u, m = s % per;
-            k = m < len ? m : per - m;
-        } else {
-            arp.rng = arp.rng * 1664525u + 1013904223u;
-            k = (arp.rng >> 16) % len;
-        }
-        arp_sound(order[k % n] + 12 * (int32_t)(k / n), ov[k % n]);
-    }
-    arp.pos++;
-    steplen = arp_step_len();
-    arp.nstep++;
-    arp.to_off = arp.p[ARP_GATE] >= 100u ? -1 : (steplen * (arp.p[ARP_GATE] ? arp.p[ARP_GATE] : 1)) / 100;
-    if (arp.to_off == 0)
-        arp.to_off = 1;
-    if (!arp_clocked())
-        arp.to_step = steplen;
+    sq80_note_off(&syn, (int)note);
 }
 
-static void arp_take(void)                   /* main loop: the settings for the audio interrupt */
+static void notes_forget(void)               /* the engine let every note go */
 {
-    uint32_t i;
-    for (i = 0; i < ARP_N; i++)
-        arp.want[i] = set.arp[i];
-    arp.seq++;
-    fx_tempo((int32_t)set.arp[ARP_TEMPO] + 40);   /* (A-SYNC delay: the same tempo) */
-}
-
-static void arp_sync(void)                   /* audio: the settings taken; turned off: its notes go */
-{
-    uint32_t i;
-    if (arp.took == arp.seq)
-        return;
-    arp.took = arp.seq;
-    for (i = 0; i < ARP_N; i++)
-        arp.p[i] = arp.want[i];
-    if (!arp.p[ARP_ON] && arp.running) {
-        arp_release();
-        arp.nheld = arp.down = 0;
-        arp.running = 0;
-    }
-    if (!arp.p[ARP_LATCH] && !arp.down)
-        arp.nheld = 0;
-}
-
-static void arp_key(uint32_t note, uint32_t vel)   /* a note on (vel) or off (0) for the arpeggiator */
-{
-    uint32_t i;
-    if (vel) {
-        if (!arp.down && arp.p[ARP_LATCH])   /* LATCH: a new set */
-            arp.nheld = 0;
-        arp.down++;
-        for (i = 0; i < arp.nheld && arp.held[i] != note; i++)
-            ;
-        if (i == arp.nheld && arp.nheld < ARP_HELD) {
-            arp.held[arp.nheld] = (uint8_t)note;
-            arp.vel[arp.nheld++] = (uint8_t)vel;
-        }
-        if (!arp.running) {                  /* the first note: at once */
-            arp.running = 1;
-            arp.pos = arp.nstep = 0;
-            arp.to_step = 0;
-        }
-    } else {
-        if (arp.down)
-            arp.down--;
-        if (!arp.p[ARP_LATCH]) {
-            for (i = 0; i < arp.nheld && arp.held[i] != note; i++)
-                ;
-            if (i < arp.nheld) {
-                for (; i + 1u < arp.nheld; i++) {
-                    arp.held[i] = arp.held[i + 1u];
-                    arp.vel[i] = arp.vel[i + 1u];
-                }
-                arp.nheld--;
-            }
-            if (!arp.nheld) {                /* all let go: it stops (the last note keeps its gate) */
-                arp.running = 0;
-            }
-        }
-    }
-}
-
-static void arp_clock(uint32_t st)          /* audio: MIDI clock (F8 ticks, FA start, FC stop) */
-{
-    uint32_t now = plat_ms();
-    if (st == 0xFAu) {
-        arp.clk_ticks = 0;
-        arp.pos = arp.nstep = 0;
-        return;
-    }
-    if (st != 0xF8u)
-        return;
-    if (arp.clk_ms && now - arp.clk_ms < 500u) {   /* the period, smoothed: samples a tick */
-        int32_t p = (int32_t)((now - arp.clk_ms) * 441u / 10u);
-        arp.clk_period = arp.clk_period ? arp.clk_period + (p - arp.clk_period) / 8 : p;
-    }
-    arp.clk_ms = now;
-    if (arp.clk_ticks % RATE_TICKS[arp.p[ARP_RATE] % 6u] == 0u)
-        arp.clk_step = 1;
-    arp.clk_ticks++;
-    if (arp.clk_period)
-        fx_tempo((int32_t)(44100u * 60u / 24u / (uint32_t)arp.clk_period));
-}
-
-static int32_t arp_next(void)                /* samples to the arpeggiator's next event (a large number: none) */
-{
-    int32_t n = 1 << 30;
-    if (!arp.p[ARP_ON])
-        return n;
-    if (arp.running && (arp_clocked() ? arp.clk_step : 1) && arp.to_step < n)
-        n = arp_clocked() ? 0 : arp.to_step;
-    if (arp.to_off >= 0 && arp.to_off < n)
-        n = arp.to_off;
-    return n < 0 ? 0 : n;
-}
-
-static void arp_advance(int32_t m)           /* m samples went by: what falls due now happens */
-{
-    if (!arp.p[ARP_ON])
-        return;
-    if (arp.to_off >= 0) {
-        arp.to_off -= m;
-        if (arp.to_off <= 0)
-            arp_release();
-    }
-    if (!arp.running) {
-        return;
-    }
-    if (arp_clocked()) {
-        if (arp.clk_step) {
-            arp.clk_step = 0;
-            arp_step();
-        }
-    } else {
-        arp.to_step -= m;
-        if (arp.to_step <= 0)
-            arp_step();
-    }
+    memset(note_cnt, 0, sizeof note_cnt);
 }
 
 static void midi_in(void)                    /* audio interrupt */
@@ -440,26 +230,16 @@ static void midi_in(void)                    /* audio interrupt */
             midi_last_port = (uint32_t)port;
             midi_count++;
         }
-        if (st >= 0xF8u) {                   /* real time: the clock for the arpeggiator */
-            arp_clock(st);
+        if (st >= 0xF8u) {                   /* real time: the clock, start, stop for the sequencer */
+            sl_realtime(st, plat_ms());
             continue;
         }
         switch (st & 0xF0u) {
         case 0x90u:
-            if (arp.p[ARP_ON]) {
-                arp_key(d1, d2);
-            } else if (d2) {
-                sq80_note_on(&syn, (int)d1, (int)d2);
-                last_note = (int32_t)d1;
-            } else {
-                sq80_note_off(&syn, (int)d1);
-            }
+            sl_key(d1, d2);
             break;
         case 0x80u:
-            if (arp.p[ARP_ON])
-                arp_key(d1, 0);
-            else
-                sq80_note_off(&syn, (int)d1);
+            sl_key(d1, 0);
             break;
         case 0xB0u:
             sq80_control_change(&syn, (int)d1, (int)d2);
@@ -485,21 +265,25 @@ static void events(void)                     /* audio interrupt */
         uint32_t e = ev_q[ev_r % NEV], a = (e >> 8) & 0xFFu, b = e >> 16;
         switch (e & 0xFFu) {
         case Q_ON:                           /* (velocity + 128: past the arpeggiator, the load test's) */
-            if (arp.p[ARP_ON] && b < 128u) {
-                arp_key(a, b);
+            if (b < 128u) {
+                sl_key(a, b);
             } else {
                 sq80_note_on(&syn, (int)a, (int)(b & 127u));
                 last_note = (int32_t)a;
             }
             break;
         case Q_OFF:
-            if (arp.p[ARP_ON] && b < 128u)
-                arp_key(a, 0);
+            if (b < 128u)
+                sl_key(a, 0);
             else
                 sq80_note_off(&syn, (int)a);
             break;
+        case Q_SEQ:                          /* the sequencer's commands: a = SC_*, b = step | change << 8 */
+            sl_cmd(a, b & 0xFFu, (int32_t)(int8_t)(b >> 8));
+            break;
         case Q_PATCH:
             sq80_all_notes_off(&syn);
+            notes_forget();
             sq80_set_patch(&syn, &play_patch[a & 1u]);
             break;
         case Q_EDIT:                         /* the knobs: the notes go on */
@@ -507,6 +291,7 @@ static void events(void)                     /* audio interrupt */
             break;
         case Q_ALLOFF:
             sq80_all_notes_off(&syn);
+            notes_forget();
             break;
         }
         ev_r = ev_r + 1u;
@@ -552,16 +337,15 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             lr[i] = 0;
         return;
     }
-    arp_sync();
     events();
     midi_in();
-    for (i = 0; off < n && i < 64u; i++) {   /* up to each of the arpeggiator's notes, then the note */
-        int32_t due = arp_next();
-        uint32_t m = due < (int32_t)(n - off) ? (uint32_t)due : n - off;
+    sl_block(n, plat_ms());
+    for (i = 0; off < n && i < 64u; i++) {   /* up to each note of the arpeggiator and the sequencer, then the note */
+        uint32_t due = sl_next(), m = due < n - off ? due : n - off;
         if (m)
             render_span(off, m);
         off += m;
-        arp_advance((int32_t)m);
+        sl_run(m);
     }
     if (off < n)                             /* (never: a guard against an event that does not move on) */
         render_span(off, n - off);
@@ -574,6 +358,7 @@ void app_panic(void)
     uint32_t i;
     for (i = 0; i < SQ80_VOICES; i++)
         syn.voices[i].active = 0;
+    notes_forget();
 }
 
 /* the waves: the player's ROM pack, else the test pack (written to TEST_LO the first time) */
@@ -612,7 +397,7 @@ static void settings_defaults(void)          /* (the flash is mapped from app_in
     set.bank = (uint8_t)first_bank();
     set.prog = 0;
     fx_defaults(set.fx);
-    arp_defaults();
+    sl_defaults(&set.sl);
 }
 
 void app_init(void)
@@ -625,10 +410,16 @@ void app_init(void)
         if (got == 8 && set.magic == SET_MAGIC_0) {   /* 0.3 .. 0.6's: bank, program, octave kept, the effects new */
             set.magic = SET_MAGIC;
             fx_defaults(set.fx);
-            arp_defaults();
+            sl_defaults(&set.sl);
         } else if (got == (int)(8 + FXP_N) && set.magic == SET_MAGIC_1) {   /* 0.7's: the arpeggiator new */
             set.magic = SET_MAGIC;
-            arp_defaults();
+            sl_defaults(&set.sl);
+        } else if (got == (int)(8 + FXP_N + SET_ARP_08) && set.magic == SET_MAGIC_2) {   /* 0.8's: its tempo kept */
+            uint32_t bpm = ((const uint8_t *)&set)[8 + FXP_N + 5] + 40u;
+            set.magic = SET_MAGIC;
+            sl_defaults(&set.sl);
+            if (bpm >= 40u && bpm <= 240u)
+                set.sl.p[SL_BPM] = (uint8_t)bpm;
         } else if (got != (int)sizeof set || set.magic != SET_MAGIC) {
             settings_defaults();
         }
@@ -637,13 +428,12 @@ void app_init(void)
         for (i = 0; i < FXP_N; i++)
             if (set.fx[i] > fx_param(i)->max)
                 set.fx[i] = fx_param(i)->def;
-        for (i = 0; i < ARP_N; i++)
-            if (set.arp[i] > ARP_INFO[i].max)
-                set.arp[i] = ARP_INFO[i].def;
-        set.arp[ARP_ON] = 0;                 /* (it starts off: the keys play notes at power-on) */
+        sl_clamp(&set.sl);
+        set.sl.p[SL_AON] = 0;                /* (it starts off: the keys play notes at power-on) */
     }
-    arp_take();
+    sl_init(&set.sl);
     fx_init();
+    fx_tempo((int32_t)set.sl.p[SL_BPM]);
     fx_set(set.fx);
     program_load(1);
     events();                                /* (no audio yet: the program in place before the first render) */
@@ -997,6 +787,20 @@ static struct {
     uint8_t stress;
     uint32_t arp_t;                      /* when ARP went down */
     uint8_t arp_down;                    /* ARP held, its hold not acted on yet */
+    uint32_t note_keys;                  /* keys that sent a note (their release ends it, whatever the mode) */
+    uint8_t step_lock;                   /* SEQ page: the keys are the steps (SEQ tapped there) */
+    uint8_t step_page;                   /* steps 1-16, 17-32, 33-48, 49-64 */
+    uint8_t seq_used;                    /* SEQ held: a step or a knob used (no tap) */
+    uint32_t seq_t;                      /* when SEQ went down */
+    uint8_t seq_tap;                     /* .. on its page (a tap there: the keys' mode) */
+    uint32_t step_held, step_new, step_turned;   /* step keys down; set by this press; edited by a knob */
+    uint32_t rec_t;                      /* when REC went down (0: not down) */
+    uint8_t rec_done;                    /* REC held: the pattern cleared */
+    uint8_t rec_down;                    /* REC down, not acted on */
+    uint8_t edit_used;                   /* EDIT held: undo / redo used (no tap) */
+    uint32_t touched;                    /* the last key, button or knob (autosave waits) */
+    int32_t pos_shown;
+    uint32_t state_shown, chg_shown, chg_saved, bpm_sent;
     uint32_t peak;
     uint32_t cpu_shown, voices_shown, peak_shown, loads_shown;
     uint8_t redraw;
@@ -1165,7 +969,7 @@ static void bank_step(int32_t d)             /* SELECT: the next bank that has p
  * values, HOME goes back to the play screen. On the play screen K1..K4 change cutoff, resonance and ENV4's attack
  * and release. SAVE stores the program: PRESET and SELECT choose where (program and bank), SAVE again writes it,
  * HOME leaves it. */
-enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE, ED_SYS, ED_ARP };   /* SYS: GLO, the load */
+enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE, ED_SYS, ED_ARP, ED_SEQ, ED_N };   /* SYS: GLO, the load */
 typedef struct {
     const char *title;
     int8_t p[4];                         /* parameter in the group (sq80_params.h), -1 none */
@@ -1199,14 +1003,19 @@ static const ed_page FX_PAGES[] = {
     {"CHORUS", {FXP_CTYPE, FXP_CDEPTH, FXP_CRATE, FXP_CHO}},
     {"DRIVE", {FXP_DRTYPE, FXP_DRTONE, FXP_DROUT, FXP_DRIVE}}};
 static const char *const FX_LEVEL_NAME[4] = {"REVERB", "DELAY", "CHORUS", "DRIVE"};
-/* ARP (held): the arpeggiator's settings (ARP_*) */
+/* ARP (held) and SEQ: SLOOP's settings (sloop_seq.h SL_*) */
 static const ed_page ARP_PAGES[] = {
-    {"PATTERN", {ARP_MODE, ARP_RATE, ARP_OCT, ARP_GATE}},
-    {"TIMING", {ARP_TEMPO, ARP_LATCH, ARP_SWING, ARP_ON}}};
+    {"PATTERN", {SL_AMODE, SL_ARATE, SL_AOCT, SL_AGATE}},
+    {"FEEL", {SL_ASWING, SL_AHOLD, SL_AORDER, SL_APROB}},
+    {"TEMPO", {SL_BPM, SL_SYNC, SL_AON, NONE}}};
+static const ed_page SEQ_PAGES[] = {
+    {"PATTERN", {SL_SLEN, SL_SDIV, SL_SGATE, SL_SSWING}},
+    {"TEMPO", {SL_BPM, SL_SYNC, NONE, NONE}}};
+static const char *const STEP_KNOB[4] = {"NOTE", "VELOCITY", "RATCHET", "TYPE"};
 static const ed_page PLAY_PAGE = {"", {SQ80_P_FREQ, SQ80_P_RES, NONE, NONE}};   /* (K3, K4: ENV4 T1, T4) */
 
 static struct {
-    uint8_t sec, inst, page[9];          /* the section, its instance, each section's page */
+    uint8_t sec, inst, page[ED_N];       /* the section, its instance, each section's page */
     uint8_t to_bank, to_prog;            /* SAVE: where to */
     uint8_t back;                        /* SAVE: the section to go back to */
 } ed;
@@ -1220,6 +1029,7 @@ static const ed_page *ed_pages(uint32_t sec, uint32_t *n)
     case ED_PROG: *n = sizeof PROG_PAGES / sizeof PROG_PAGES[0]; return PROG_PAGES;
     case ED_FX: *n = sizeof FX_PAGES / sizeof FX_PAGES[0]; return FX_PAGES;
     case ED_ARP: *n = sizeof ARP_PAGES / sizeof ARP_PAGES[0]; return ARP_PAGES;
+    case ED_SEQ: *n = sizeof SEQ_PAGES / sizeof SEQ_PAGES[0]; return SEQ_PAGES;
     default: *n = 1; return &PLAY_PAGE;
     }
 }
@@ -1227,14 +1037,14 @@ static const ed_page *ed_pages(uint32_t sec, uint32_t *n)
 static int ed_param(uint32_t k)              /* the parameter id K1..K4 change now, -1 none */
 {
     uint32_t n;
-    const ed_page *pg = ed_pages(ed.sec, &n) + (ed.sec <= ED_FX || ed.sec == ED_ARP ? ed.page[ed.sec] % n : 0);
+    const ed_page *pg = ed_pages(ed.sec, &n) + (ed.sec <= ED_FX || ed.sec >= ED_ARP ? ed.page[ed.sec] % n : 0);
     int q;
     if (ed.sec == ED_PLAY)
         return k == 0 ? SQ80_PARAM_PROG(SQ80_P_FREQ) : k == 1 ? SQ80_PARAM_PROG(SQ80_P_RES) :
                SQ80_PARAM_ENV(3, k == 2 ? SQ80_P_ENV_T1 : SQ80_P_ENV_T4);
-    if ((ed.sec > ED_FX && ed.sec != ED_ARP) || (q = pg->p[k]) < 0)
+    if ((ed.sec > ED_FX && ed.sec < ED_ARP) || (q = pg->p[k]) < 0)
         return -1;
-    if (ed.sec == ED_FX || ed.sec == ED_ARP) /* (an effect's or the arpeggiator's setting, not the program's) */
+    if (ed.sec == ED_FX || ed.sec >= ED_ARP) /* (an effect's, the arpeggiator's or the sequencer's: not the program's) */
         return q;
     switch (ed.sec) {
     case ED_OSC: return SQ80_PARAM_OSC(ed.inst, q);
@@ -1284,24 +1094,23 @@ static void fx_turn(int id, int32_t e)       /* an effect's setting: the instrum
     ui.redraw = 1;
 }
 
-static void arp_turn(int id, int32_t e)      /* an arpeggiator setting: the instrument's (SAVE keeps it) */
+static void sl_turn(int id, int32_t e)       /* an arpeggiator or sequencer setting: the instrument's (SAVE keeps it) */
 {
-    int v = (int)set.arp[id] + e, max = ARP_INFO[id].max;
-    set.arp[id] = (uint8_t)(v < 0 ? 0 : v > max ? max : v);
-    arp_take();
+    const sl_param_info *in = sl_param((uint32_t)id);
+    int v = (int)set.sl.p[id] + e;
+    set.sl.p[id] = (uint8_t)(v < in->min ? in->min : v > in->max ? in->max : v);
     set_dirty = 1;
     ui.redraw = 1;
 }
 
-static const char *arp_text(int id, char *t)   /* an arpeggiator setting as the screen shows it */
+static int steps_on(void)                    /* the keys are the steps: SEQ held, or its page locked to them */
 {
-    int v = set.arp[id];
-    if (ARP_INFO[id].names)
-        return ARP_INFO[id].names[v % (ARP_INFO[id].max + 1)];
-    int_text(id == ARP_TEMPO ? v + 40 : id == ARP_OCT ? v + 1 : v, t);
-    if (id == ARP_GATE || id == ARP_SWING)
-        text_cat(t, "%");
-    return t;
+    return (ui.btn >> B_SEQ & 1u) || (ed.sec == ED_SEQ && ui.step_lock);
+}
+
+static void seq_post(uint32_t cmd, uint32_t step, int32_t d)
+{
+    post(Q_SEQ, cmd, (step & 0xFFu) | ((uint32_t)d & 0xFFu) << 8);
 }
 
 static void knob_turn(uint32_t k, int32_t e)
@@ -1315,8 +1124,8 @@ static void knob_turn(uint32_t k, int32_t e)
         fx_turn(id, e);
         return;
     }
-    if (ed.sec == ED_ARP) {
-        arp_turn(id, e);
+    if (ed.sec >= ED_ARP) {
+        sl_turn(id, e);
         return;
     }
     in = sq80_param(id);
@@ -1418,33 +1227,168 @@ static void save_commit(void)
     app_say("SAVED", t);
 }
 
+/* the keys, from F3: the white ones are the steps 1-16 of the page, the first four black ones the pages */
+static const uint8_t WHITE_KEY[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
+static const uint8_t BLACK_KEY[4] = {1, 3, 5, 8};
+static int white_of(uint32_t k)
+{
+    uint32_t w;
+    for (w = 0; w < 16u; w++)
+        if (WHITE_KEY[w] == k)
+            return (int)w;
+    return -1;
+}
+static int black_of(uint32_t k)
+{
+    uint32_t b;
+    for (b = 0; b < 4u; b++)
+        if (BLACK_KEY[b] == k)
+            return (int)b;
+    return -1;
+}
+static uint32_t seq_len(void) { return set.sl.p[SL_SLEN] ? set.sl.p[SL_SLEN] : 1u; }
+static int step_empty(uint32_t idx)
+{
+    const sl_step *st = &set.sl.step[idx % SL_NSTEP];
+    return st->time == SL_ST_REST || (st->time == SL_ST_NOTE && !st->n);
+}
+
+static void step_down(uint32_t w)            /* a step key: an empty step is set at once */
+{
+    uint32_t idx = ui.step_page * 16u + w, bit = 1u << w;
+    ui.seq_used = 1;
+    if (idx >= seq_len()) {
+        app_say("STEP", "PAST THE END");
+        return;
+    }
+    if (!ui.step_held)
+        seq_post(SC_MARK, 0, 0);             /* (the steps of one hold: one undo) */
+    ui.step_held |= bit;
+    ui.step_turned &= ~bit;
+    if (step_empty(idx)) {
+        seq_post(SC_SET, idx, 0);
+        ui.step_new |= bit;
+    } else {
+        ui.step_new &= ~bit;
+    }
+}
+
+static void step_up(uint32_t w)              /* a set step pressed and let go (no knob turned): cleared */
+{
+    uint32_t bit = 1u << w;
+    if (!(ui.step_held & bit))
+        return;
+    if (!((ui.step_new | ui.step_turned) & bit))
+        seq_post(SC_CLEAR, ui.step_page * 16u + w, 0);
+    ui.step_held &= ~bit;
+    ui.step_new &= ~bit;
+    ui.step_turned &= ~bit;
+}
+
+static void step_turn(uint32_t k, int32_t e) /* a step held: K1 its notes, K2 velocity, K3 ratchets, K4 its type */
+{
+    static const uint8_t CMD[4] = {SC_NOTE, SC_VEL, SC_RAT, SC_TYPE};
+    uint32_t w;
+    if (e > 100)
+        e = 100;
+    if (e < -100)
+        e = -100;
+    for (w = 0; w < 16u; w++)
+        if (ui.step_held >> w & 1u) {
+            seq_post(CMD[k], ui.step_page * 16u + w, e);
+            ui.step_turned |= 1u << w;
+        }
+    ui.redraw = 1;
+}
+
+static void settings_save(const char *what)
+{
+    if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
+        set_dirty = 0;
+        ui.chg_saved = sl_changes();
+        app_say(what, "SAVED");
+    } else {
+        app_say("SAVE", "FAILED");
+    }
+}
+
 static void input(void)
 {
-    uint32_t keys, btn = plat_buttons(), k;
+    uint32_t keys, btn = plat_buttons(), k, now = plat_ms(), prev = ui.btn;
     int32_t e;
     touch_poll();
     keys = touch_keys();
+    ui.btn = btn;                            /* (steps_on reads SEQ held from here) */
     for (k = 0; k < NKEYS; k++) {            /* key 0 is F3 (MIDI 53) */
         uint32_t bit = 1u << k, v;
         int32_t note = 53 + (int32_t)k + 12 * set.octave;
         if ((keys & bit) && !(ui.keys & bit)) {
+            ui.touched = now;
+            if (steps_on()) {                /* the steps, the pages */
+                int w = white_of(k), b = black_of(k);
+                if (w >= 0)
+                    step_down((uint32_t)w);
+                else if (b >= 0) {
+                    ui.step_page = (uint8_t)b;
+                    ui.seq_used = 1;
+                }
+                continue;
+            }
             v = touch_vel(k);
             if (v < 1u)
                 v = 1u;
             post(Q_ON, (uint32_t)note, v);
+            ui.note_keys |= bit;
             plat_midi_send(0x09u | 0x90u << 8 | (uint32_t)note << 16 | v << 24, TO_USB | TO_BLE);
         } else if (!(keys & bit) && (ui.keys & bit)) {
-            post(Q_OFF, (uint32_t)note, 0);
-            plat_midi_send(0x08u | 0x80u << 8 | (uint32_t)note << 16, TO_USB | TO_BLE);
+            int w = white_of(k);
+            ui.touched = now;
+            if (ui.note_keys & bit) {
+                ui.note_keys &= ~bit;
+                post(Q_OFF, (uint32_t)(53 + (int32_t)k + 12 * set.octave), 0);
+                plat_midi_send(0x08u | 0x80u << 8 | (uint32_t)(53 + (int32_t)k + 12 * set.octave) << 16, TO_USB | TO_BLE);
+            } else if (w >= 0) {
+                step_up((uint32_t)w);
+            }
+        }
+    }
+    for (k = 0; k < NB; k++) {               /* let go: EDIT, SEQ, REC act on a tap */
+        uint32_t bit = 1u << k;
+        if ((btn & bit) || !(prev & bit))
+            continue;
+        ui.touched = now;
+        if (k == B_EDIT && !ui.edit_used && ed.sec != ED_SAVE)
+            section(ED_PROG, 1);
+        else if (k == B_SEQ && !ui.seq_used && ed.sec == ED_SEQ && ui.seq_tap && now - ui.seq_t < 400u) {
+            ui.step_lock ^= 1u;              /* SEQ tapped on its page: the keys are the steps, or the notes */
+            app_say("KEYS", ui.step_lock ? "STEPS" : "NOTES");
+        } else if (k == B_REC) {
+            if (ui.rec_down && !ui.rec_done && now - ui.rec_t < 700u)
+                seq_post(SC_REC, 0, 0);
+            ui.rec_down = 0;
         }
     }
     for (k = 0; k < NB; k++) {
         uint32_t bit = 1u << k;
-        if (!(btn & bit) || (ui.btn & bit))
+        if (!(btn & bit) || (prev & bit))
             continue;
+        ui.touched = now;
         if (ed.sec == ED_SAVE && k != B_SAVE && k != B_HOME && k != B_OCTDN && k != B_OCTUP)
             continue;                        /* (choosing where to save: SAVE or HOME) */
-        if (k == B_OCTDN)
+        if ((k == B_OCTDN || k == B_OCTUP) && (btn >> B_EDIT & 1u) && ed.sec != ED_SAVE) {
+            uint32_t st = sl_state();        /* EDIT held: undo / redo (the pattern) */
+            ui.edit_used = 1;
+            if (k == B_OCTDN ? (st & SL_S_UNDO) : (st & SL_S_REDO)) {
+                seq_post(k == B_OCTDN ? SC_UNDO : SC_REDO, 0, 0);
+                app_say(k == B_OCTDN ? "UNDO" : "REDO", "");
+            } else {
+                app_say(k == B_OCTDN ? "UNDO" : "REDO", "NOTHING");
+            }
+        } else if ((k == B_OCTDN || k == B_OCTUP) && steps_on()) {
+            ui.step_page = (uint8_t)((ui.step_page + (k == B_OCTUP ? 1u : 3u)) % 4u);
+            ui.seq_used = 1;
+            ui.redraw = 1;
+        } else if (k == B_OCTDN)
             octave_step(-1);
         else if (k == B_OCTUP)
             octave_step(1);
@@ -1455,7 +1399,7 @@ static void input(void)
         else if (k == B_LFO)
             section(ED_LFO, 3);
         else if (k == B_EDIT)
-            section(ED_PROG, 1);
+            ui.edit_used = 0;                /* (its page when let go: EDIT + OCT is undo) */
         else if (k == B_FX)
             section(ED_FX, 1);
         else if (k == B_GLO) {               /* the load: CPU now, its peak, under-runs; GLO again: the peak from 0 */
@@ -1470,8 +1414,28 @@ static void input(void)
             ui.arp_t = plat_ms();            /* a tap turns it on or off, a hold opens its page (below) */
             ui.arp_down = 1;
         }
-        else if (k == B_PLAY && ed.sec == ED_SYS)
-            stress_set(!ui.stress);          /* the load test: eight notes held */
+        else if (k == B_SEQ) {               /* its page; held, the keys are the steps */
+            ui.seq_used = 0;
+            ui.seq_t = now;
+            ui.seq_tap = ed.sec == ED_SEQ;   /* (a tap there: the keys' mode, when let go) */
+            if (ed.sec != ED_SEQ) {
+                ed.sec = ED_SEQ;
+                ui.step_lock = 0;
+                ui.msg_until = 0;
+            }
+            ui.redraw = 1;
+        }
+        else if (k == B_PLAY) {
+            if (ed.sec == ED_SYS)
+                stress_set(!ui.stress);      /* the load test: eight notes held */
+            else
+                seq_post(SC_PLAY, 0, 0);
+        }
+        else if (k == B_REC) {
+            ui.rec_t = now;                  /* a tap: record / arm; held 2 s: the pattern cleared */
+            ui.rec_down = 1;
+            ui.rec_done = 0;
+        }
         else if (k == B_HOME) {
             if (ed.sec == ED_SAVE) {         /* not saved: back where it was */
                 ed.sec = ed.back;
@@ -1486,22 +1450,18 @@ static void input(void)
         } else if (k == B_SAVE) {
             if (ed.sec == ED_SAVE)
                 save_commit();
-            else if (ed.sec == ED_FX || ed.sec == ED_ARP) {   /* the effects, the arpeggiator: the settings */
-                if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
-                    set_dirty = 0;
-                    app_say(ed.sec == ED_ARP ? "ARP" : "EFFECTS", "SAVED");
-                } else {
-                    app_say("SAVE", "FAILED");
-                }
-            } else if (edited || (ed.sec != ED_PLAY && ed.sec != ED_SYS && ed.sec != ED_ARP))
+            else if (ed.sec == ED_FX || ed.sec == ED_ARP || ed.sec == ED_SEQ)   /* the instrument's settings */
+                settings_save(ed.sec == ED_ARP ? "ARP" : ed.sec == ED_SEQ ? "PATTERN" : "EFFECTS");
+            else if (edited || (ed.sec != ED_PLAY && ed.sec != ED_SYS))
                 save_begin();
-            else if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
-                set_dirty = 0;
-                app_say("SAVED", "");
-            } else {
-                app_say("SAVE", "FAILED");
-            }
+            else
+                settings_save("SETTINGS");
         }
+    }
+    if (ui.rec_down && (btn >> B_REC & 1u) && !ui.rec_done && now - ui.rec_t >= 2000u) {
+        ui.rec_done = 1;                     /* REC held 2 s: the pattern cleared (undo brings it back) */
+        seq_post(SC_WIPE, 0, 0);
+        app_say("PATTERN", "CLEARED");
     }
     if (ui.arp_down) {                       /* ARP: held half a second, its page; let go before, on / off */
         if (btn >> B_ARP & 1u) {
@@ -1513,9 +1473,8 @@ static void input(void)
             }
         } else {
             ui.arp_down = 0;
-            set.arp[ARP_ON] ^= 1u;
-            arp_take();
-            app_say("ARP", set.arp[ARP_ON] ? "ON" : "OFF");
+            set.sl.p[SL_AON] ^= 1u;
+            app_say("ARP", set.sl.p[SL_AON] ? "ON" : "OFF");
         }
     }
     if (ed.sec == ED_SAVE) {                 /* where to: PRESET the program, SELECT the bank */
@@ -1540,8 +1499,15 @@ static void input(void)
             ui.redraw = 1;
         }
         for (k = 0; k < 4u; k++)
-            if ((e = plat_enc((int)(EN_K1 + k))) != 0)
-                knob_turn(k, e);
+            if ((e = plat_enc((int)(EN_K1 + k))) != 0) {
+                ui.touched = now;
+                if (steps_on() && ui.step_held) {
+                    ui.seq_used = 1;
+                    step_turn(k, e);
+                } else {
+                    knob_turn(k, e);
+                }
+            }
     }
     if (pc_req != 0xFFFFFFFFu) {             /* MIDI program change: 0..39 in this bank */
         uint32_t pc = pc_req;
@@ -1552,16 +1518,31 @@ static void input(void)
             ui.redraw = 1;
         }
     }
-    if (keys != ui.keys || btn != ui.btn)
+    if (keys != ui.keys || btn != prev)
         ui.redraw = 1;
     ui.keys = keys;
-    ui.btn = btn;
     plat_glow(1);
     {
-        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO, B_ARP};
-        uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u;
-        plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (set.arp[ARP_ON] ? 1u << B_ARP : 0u) |
-                  (ui.stress ? 1u << B_PLAY : 0u), keys);
+        static const uint8_t LIT[ED_N] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO, B_ARP, B_SEQ};
+        uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u, st = sl_state(), kl = keys, w;
+        if (st & SL_S_BEAT)
+            lit |= 1u << B_PLAY;             /* PLAY flashes on the beats */
+        if ((st & SL_S_REC) || ((st & SL_S_ARMED) && (now / 250u) & 1u))
+            lit |= 1u << B_REC;              /* REC: lit recording, blinking armed */
+        if (steps_on()) {                    /* the keys: the page's steps, the playhead, the page's black key */
+            int32_t pos = sl_pos();
+            lit |= 1u << B_SEQ;
+            kl = 1u << BLACK_KEY[ui.step_page % 4u];
+            for (w = 0; w < 16u; w++) {
+                uint32_t idx = ui.step_page * 16u + w, on = idx < seq_len() && !step_empty(idx);
+                if ((int32_t)idx == pos)
+                    on ^= 1u;
+                if (on)
+                    kl |= 1u << WHITE_KEY[w];
+            }
+        }
+        plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (set.sl.p[SL_AON] ? 1u << B_ARP : 0u) |
+                  (ui.stress ? 1u << B_PLAY : 0u), kl);
     }
 }
 
@@ -1582,18 +1563,51 @@ static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, v
     uint32_t k;
     char t[16];
     cv_begin(240, 46, C_BLACK);
+    if (steps_on() && ui.step_held) {        /* a step held: its notes, velocity, ratchets, type */
+        uint32_t w;
+        const sl_step *st = 0;
+        for (w = 0; w < 16u && !st; w++)
+            if (ui.step_held >> w & 1u)
+                st = &set.sl.step[(ui.step_page * 16u + w) % SL_NSTEP];
+        for (k = 0; k < 4u && st; k++) {
+            int32_t x = 4 + (int32_t)k * 59;
+            t[0] = 0;
+            if (k == 0) {
+                if (st->time == SL_ST_NOTE && st->n) {
+                    note_name(st->note[0], t);
+                    if (st->n > 1u)
+                        text_cat(t, "+");
+                } else {
+                    text_cat(t, "-");
+                }
+            } else if (k == 1) {
+                int_text(st->time == SL_ST_NOTE && st->n ? (st->flags & SL_SF_ACCENT ? 127 : st->vel ? st->vel : 96) : 0, t);
+            } else if (k == 2) {
+                text_cat(t, "X");
+                int_text(1 + (st->rat & 3u), t + 1);
+            } else {
+                text_cat(t, st->time == SL_ST_TIE ? "TIE" : st->time == SL_ST_REST ? "REST" :
+                         st->flags & SL_SF_SLIDE ? "SLIDE" : st->flags & SL_SF_ACCENT ? "ACCENT" : "NOTE");
+            }
+            cv_text(x, 0, &FONT_XS, STEP_KNOB[k], C_GRAY);
+            cv_text(x, 14, &FONT_B, t, C_WHITE);
+        }
+        cv_blit(0, y);
+        return;
+    }
     for (k = 0; k < 4u; k++) {
         int32_t x = 4 + (int32_t)k * 59, id = ed_param(k);
         const sq80_param_info *in;
         if (id < 0)
             continue;
-        if (ed.sec == ED_ARP) {              /* an arpeggiator setting: name, value, a bar for numbers */
-            int32_t v = set.arp[id], max = ARP_INFO[id].max;
-            cv_text(x, 0, &FONT_XS, ARP_INFO[id].name, C_GRAY);
-            cv_text(x, 14, &FONT_B, arp_text(id, t), C_WHITE);
-            if (!ARP_INFO[id].names) {
+        if (ed.sec >= ED_ARP) {              /* an arpeggiator or sequencer setting: name, value, a bar for numbers */
+            const sl_param_info *si = sl_param((uint32_t)id);
+            int32_t v = set.sl.p[id];
+            cv_text(x, 0, &FONT_XS, si->name, C_GRAY);
+            cv_text(x, 14, &FONT_B, sl_value_text((uint32_t)id, v, t), C_WHITE);
+            if (!si->names) {
                 cv_rect(x, 36, 54, 4, C_LINE);
-                cv_rect(x, 36, 54 * v / max, 4, C_ACCENT);
+                cv_rect(x, 36, 54 * (v - si->min) / (si->max - si->min), 4, C_ACCENT);
             }
             continue;
         }
@@ -1782,10 +1796,54 @@ static void lfo_draw(int32_t x, int32_t y, int32_t w, int32_t h)
     }
 }
 
+/* SEQ: the 16 steps of the page as tiles (a note cyan, an accent white, a slide with a tail, a tie joined to the
+ * step before, past the length dim), the playhead framed; under them the page, the keys' mode, the transport */
+static void seq_draw(void)
+{
+    uint32_t w, len = seq_len(), st = sl_state();
+    int32_t pos = sl_pos();
+    char t[32], n[12];
+    for (w = 0; w < 16u; w++) {
+        uint32_t idx = ui.step_page * 16u + w;
+        const sl_step *sp = &set.sl.step[idx % SL_NSTEP];
+        int32_t x = 10 + (int32_t)w * 14;
+        if (idx >= len) {
+            cv_rect(x, 6, 12, 26, RGB(24, 24, 24));
+            continue;
+        }
+        if (sp->time == SL_ST_NOTE && sp->n) {
+            cv_rect(x, 6, 12, 26, sp->flags & SL_SF_ACCENT ? C_WHITE : C_ACCENT);
+            if (sp->flags & SL_SF_SLIDE)
+                cv_rect(x + 12, 16, 2, 6, C_ACCENT);
+            if (sp->rat)
+                cv_rect(x + 3, 26, 6, 3, C_BLACK);
+        } else if (sp->time == SL_ST_TIE) {
+            cv_rect(x - 2, 14, 14, 10, C_ACCENT);
+        } else {
+            cv_rect(x, 6, 12, 26, C_LINE);
+            cv_rect(x + 1, 7, 10, 24, C_BLACK);
+        }
+        if ((int32_t)idx == pos) {
+            cv_rect(x, 2, 12, 2, C_WHITE);
+            cv_rect(x, 34, 12, 2, C_WHITE);
+        }
+    }
+    t[0] = 0;
+    text_cat(t, "PAGE ");
+    int_text(ui.step_page + 1, n);
+    text_cat(t, n);
+    text_cat(t, steps_on() ? "  KEYS: STEPS" : "  KEYS: NOTES");
+    cv_text(10, 44, &FONT_XS, t, C_GRAY);
+    if (st & (SL_S_PLAY | SL_S_REC | SL_S_ARMED))
+        cv_text(230 - text_w(&FONT_XS, st & SL_S_REC ? "REC" : st & SL_S_ARMED ? "READY" : "PLAY"), 44, &FONT_XS,
+                st & SL_S_REC ? "REC" : st & SL_S_ARMED ? "READY" : "PLAY",
+                st & (SL_S_REC | SL_S_ARMED) ? RGB(230, 70, 60) : C_ACCENT);
+}
+
 static void draw(void)
 {
     static const char *const PLAY_NAMES[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
-    static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM", "FX", "", "", "ARP"};
+    static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM", "FX", "", "", "ARP", "SEQ"};
     char t[32], n[12];
     uint32_t now = plat_ms();
     /* the header: the name, or a message for a moment */
@@ -1797,7 +1855,7 @@ static void draw(void)
         cv_text(10, 6, &FONT_B, APP_NAME, C_WHITE);
         if (ed.sec != ED_PLAY)
             cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : ed.sec == ED_FX ? "FX" :
-                    ed.sec == ED_SYS ? "SYSTEM" : ed.sec == ED_ARP ? "ARP" : "EDIT", C_ACCENT);
+                    ed.sec == ED_SYS ? "SYSTEM" : ed.sec == ED_ARP ? "ARP" : ed.sec == ED_SEQ ? "SEQ" : "EDIT", C_ACCENT);
         if (last_note >= 0) {
             note_name(last_note, t);
             cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_ACCENT);
@@ -1882,7 +1940,7 @@ static void draw(void)
                                                 * stays) */
         t[0] = 0;
         text_cat(t, SEC_NAME[ed.sec]);
-        if (ed.sec != ED_PROG && ed.sec != ED_FX && ed.sec != ED_ARP) {
+        if (ed.sec != ED_PROG && ed.sec != ED_FX && ed.sec < ED_ARP) {
             text_cat(t, " ");
             int_text(ed.inst + 1, n);
             text_cat(t, n);
@@ -1904,6 +1962,11 @@ static void draw(void)
                 env_draw(10, 8, 220, 52);
             else
                 lfo_draw(10, 8, 220, 52);
+            cv_blit(0, 174);
+            return;
+        }
+        if (ed.sec == ED_SEQ) {              /* the page's 16 steps, the playhead, where the keys go */
+            seq_draw();
             cv_blit(0, 174);
             return;
         }
@@ -1934,7 +1997,26 @@ static void draw(void)
     } else if (!rom_real) {
         cv_text(10, 48, &FONT_XS, "NO ROM PACK: TEST WAVES", C_GRAY);
     }
-    cv_text(10, 76, &FONT_XS, "SEL ENV LFO EDIT: EDIT THE SOUND", C_DIM);
+    {
+        uint32_t st = sl_state();
+        if (st & (SL_S_PLAY | SL_S_REC | SL_S_ARMED)) {   /* the transport */
+            t[0] = 0;
+            text_cat(t, st & SL_S_REC ? "REC" : st & SL_S_ARMED ? "REC READY" : "PLAY");
+            cv_text(10, 76, &FONT_XS, t, st & (SL_S_REC | SL_S_ARMED) ? RGB(230, 70, 60) : C_ACCENT);
+            int_text(set.sl.p[SL_BPM], t);
+            text_cat(t, st & SL_S_SYNC ? " BPM MIDI" : " BPM");
+            cv_text(100, 76, &FONT_XS, t, C_WHITE);
+            if (sl_pos() >= 0) {
+                int_text(sl_pos() + 1, t);
+                text_cat(t, "/");
+                int_text((int32_t)seq_len(), n);
+                text_cat(t, n);
+                cv_text(230 - text_w(&FONT_XS, t), 76, &FONT_XS, t, C_GRAY);
+            }
+        } else {
+            cv_text(10, 76, &FONT_XS, "SEL ENV LFO EDIT: EDIT THE SOUND", C_DIM);
+        }
+    }
     cv_blit(0, 146);
 }
 
@@ -2022,6 +2104,26 @@ void app_frame(void)
         ui.msg_until = 0;
         ui.redraw = 1;
     }
+    {   /* the sequencer: the screen follows its steps; the delay its tempo; a changed pattern kept once it rests */
+        uint32_t st = sl_state() & ~(uint32_t)SL_S_BEAT, chg = sl_changes();
+        int32_t pos = sl_pos();
+        if (st != ui.state_shown || chg != ui.chg_shown ||
+            (pos != ui.pos_shown && (ed.sec == ED_SEQ || ed.sec == ED_PLAY))) {
+            ui.state_shown = st;
+            ui.chg_shown = chg;
+            ui.pos_shown = pos;
+            ui.redraw = 1;
+        }
+        if (set.sl.p[SL_BPM] != ui.bpm_sent) {
+            ui.bpm_sent = set.sl.p[SL_BPM];
+            fx_tempo((int32_t)ui.bpm_sent);
+        }
+        if (chg != ui.chg_saved && !(st & (SL_S_PLAY | SL_S_REC)) && !ui.step_held && now - ui.touched >= 3000u) {
+            ui.chg_saved = chg;              /* (stopped, nothing touched for 3 s: the pattern to flash) */
+            if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0)
+                set_dirty = 0;
+        }
+    }
     if (ui.redraw) {
         ui.redraw = 0;
         draw();
@@ -2055,14 +2157,26 @@ int app_expect(const char *what, int *got)
         *got = (int)ui.btn;
     else if (!strcmp(what, "holdt"))         /* ARP held, its hold not acted on yet */
         *got = ui.arp_down;
-    else if (!strncmp(what, "arp", 3))       /* arpN: arpeggiator setting N (ARP_*) */
-        *got = set.arp[atoi(what + 3) % ARP_N];
+    else if (!strncmp(what, "sl", 2) && what[2] >= '0' && what[2] <= '9')   /* slN: SLOOP setting N (SL_*) */
+        *got = set.sl.p[atoi(what + 2) % SL_NP];
+    else if (!strcmp(what, "seqstate"))      /* SL_S_*, the beat left out */
+        *got = (int)(sl_state() & ~(uint32_t)SL_S_BEAT & ~(uint32_t)SL_S_UNDO & ~(uint32_t)SL_S_REDO);
+    else if (!strcmp(what, "seqpos"))
+        *got = sl_pos();
+    else if (!strcmp(what, "steppage"))
+        *got = ui.step_page;
+    else if (!strncmp(what, "stepn", 5))     /* stepnN: how many notes step N holds (-1 a tie) */
+        *got = set.sl.step[atoi(what + 5) % SL_NSTEP].time == SL_ST_TIE ? -1 :
+               set.sl.step[atoi(what + 5) % SL_NSTEP].time == SL_ST_REST ? 0 : set.sl.step[atoi(what + 5) % SL_NSTEP].n;
+    else if (!strncmp(what, "step", 4))      /* stepN: step N's first note (0: none) */
+        *got = set.sl.step[atoi(what + 4) % SL_NSTEP].time == SL_ST_NOTE ? set.sl.step[atoi(what + 4) % SL_NSTEP].note[0] : 0;
+
     else if (!strcmp(what, "sec"))
         *got = ed.sec;
     else if (!strcmp(what, "inst"))
         *got = ed.inst;
     else if (!strcmp(what, "page"))
-        *got = ed.page[ed.sec < 9 ? ed.sec : 0];
+        *got = ed.page[ed.sec < ED_N ? ed.sec : 0];
     else if (!strcmp(what, "edited"))
         *got = edited;
     else if (!strcmp(what, "cutoff"))

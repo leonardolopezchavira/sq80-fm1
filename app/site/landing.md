@@ -18,16 +18,20 @@ This is version {{VERSION}}. You install it at your own risk, and the installer 
 - [Download {{PKG}}](firmware/{{PKG}}).
 - The [Source](https://github.com/leonardolopezchavira/sq80-fm1): the firmware is GPL-3.0-only (the engine MIT). It's
   built on fm1-base (MPL-2.0) and felucca-bsp, which come from Felucca by Leo Kuroshita, Hügelton Instruments; its
-  effects are FMini-1's, by Ruppert, after Felucca's.
+  effects are FMini-1's, by Ruppert, after Felucca's; its arpeggiator, sequencer and recording are SLOOP's.
 
 On the FM-1: SELECT picks the bank (1–8), PRESET the program, K1–K4 change cutoff, resonance,
 attack and release (HOME puts them back), OCT- / OCT+ the octave. Every value of a program can be edited: SEL for
 the oscillators, ENV for the envelopes, LFO for the LFOs, EDIT for the filter, output, modes and name (press again
 for the next one, ALGO for the pages, K1–K4 for the values, HOME to play); SAVE stores it into any of the eight
 banks, a new one too. FX opens the effects, FMini-1's: reverb, delay, chorus and drive, their levels on the first page
-and each one's TYPE and settings on the next (FX again, or ALGO); SAVE keeps them. ARP turns the arpeggiator on and
-off (UP, DOWN, UP/DN, RANDOM, ORDER, CHORD; 1/4 to 1/32 and triplets; 1–4 octaves; gate, tempo, latch, swing; it
-follows MIDI clock); hold ARP for its pages. GLO shows the audio load. MIDI in
+and each one's TYPE and settings on the next (FX again, or ALGO); SAVE keeps them. ARP turns SLOOP's arpeggiator on and
+off (14 modes, 1/4 to 1/32 and triplets, 1–4 octaves, gate, swing, hold, order, chance); hold ARP for its pages.
+SEQ opens the step sequencer's pages (length up to 64 steps, division, gate, swing, tempo, MIDI clock); hold SEQ and
+the white keys are the steps (an empty one is set with the last note or chord played, a set one tapped is cleared,
+held with K1–K4 its notes, velocity, ratchets and type), the first black keys the pages. PLAY starts and stops it,
+REC records what you play into it (stopped: the first note starts it), REC held 2 s clears it, EDIT + OCT- / OCT+
+undo and redo. GLO shows the audio load. MIDI in
 over USB, Bluetooth and TRS plays it, program changes too, and an ESQ-1 / SQ-80 single-program dump sent to it
 plays at once.
 
