@@ -37,7 +37,8 @@ held with K1–K4 its notes, velocity, ratchets and type), the first black keys 
 REC records what you play into it (stopped: the first note starts it), REC held 2 s clears it, EDIT + OCT- / OCT+
 undo and redo. HOME's screens: playing, with the output's waveform under the knobs; the waveform alone, the
 program's name at the foot; RANDOM, new programs from the one playing (K1 how far, K2 which parts, K3 a new one or
-the one before, K4 back to the stored one; SAVE keeps one you like). GLO shows the audio load, and its K1 sets the metronome click: off, while recording, or always. MIDI in
+the one before, K4 back to the stored one; SAVE keeps one you like). GLO shows the audio load, its K1 sets the metronome click (off, while recording, or always) and its K2 the keys' minimum velocity
+(0–127), for an even touch. MIDI in
 over USB, Bluetooth and TRS plays it, program changes too, and an ESQ-1 / SQ-80 single-program dump sent to it
 plays at once.
 

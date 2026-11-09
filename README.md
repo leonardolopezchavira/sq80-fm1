@@ -116,7 +116,8 @@ Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq
   into the nearest step (as you heard it), chords up to 4 notes, held notes as ties, overdubbing pass after pass;
   stopped, arms it, and your first note starts the loop as step 1. **Hold REC 2 s** clears the pattern;
   **EDIT + OCT- / OCT+** undo / redo. It follows a MIDI clock (start, stop, tempo) when MIDI CLK is on. **GLO + K1** sets the
-  metronome: CLICK OFF, REC (on the beats while recording) or ON (whenever the sequencer plays).
+  metronome: CLICK OFF, REC (on the beats while recording) or ON (whenever the sequencer plays); **GLO + K2** the
+  keys' MIN VEL (0-127: the softest velocity a key plays, the rest of the range above it as played).
 - The pattern and these settings are the instrument's: they keep themselves, 3 s after the last change once the
   sequencer is stopped.
 

@@ -213,7 +213,11 @@ expect sec 7
 turn K1 1
 wait 30
 expect sl15 1
+turn K2 40
+wait 30
+expect minvel 40
 shot system.png
+wait 3500
 tap HOME
 wait 30
 expect sec 0
@@ -237,7 +241,7 @@ wait 30
 expect sec 8
 expect sl0 1
 turn K1 1
-wait 160
+wait 3500
 expect sl1 2
 shot arp.png
 key 7 up

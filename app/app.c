@@ -54,7 +54,8 @@ typedef struct {
     uint8_t prog;                        /* 0 .. 39 */
     uint8_t rsv;
     uint8_t fx[FXP_N];                   /* the effects (fmini_fx.h): the instrument's, not a program's */
-    uint8_t rsv2[3];
+    uint8_t minvel;                      /* the keys' softest velocity, 0..127 (GLO K2; 0: as played) */
+    uint8_t rsv2[2];
     sl_song sl;                          /* the arpeggiator's and the sequencer's settings, and the pattern */
 } settings_t;
 static settings_t set;
@@ -467,6 +468,8 @@ void app_init(void)
         } else if (got != (int)sizeof set || set.magic != SET_MAGIC) {
             settings_defaults();
         }
+        if (set.minvel > 127u)
+            set.minvel = 0;
         if (set.octave < -2 || set.octave > 2 || set.bank > NBANK || set.prog >= NPROG)
             settings_defaults();
         if (set.bank == 0)                   /* (0.9.3 and before: no bank loaded) */
@@ -1533,6 +1536,9 @@ static void input(void)
                 continue;
             }
             v = touch_vel(k);
+            if (v > 127u)
+                v = 127u;
+            v = set.minvel + v * (127u - set.minvel) / 127u;   /* (GLO MIN VEL: the range above it, as played) */
             if (v < 1u)
                 v = 1u;
             post(Q_ON, (uint32_t)note, v);
@@ -1715,6 +1721,11 @@ static void input(void)
                     if (k == 0u) {           /* GLO K1: the metronome (kept by itself, as the pattern) */
                         sl_turn(SL_CLICK, e > 0 ? 1 : -1);
                         ui.autosave = 1;
+                    } else if (k == 1u) {    /* K2: the keys' softest velocity */
+                        int v = (int)set.minvel + e;
+                        set.minvel = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+                        ui.autosave = 1;
+                        ui.redraw = 1;
                     }
                 } else {
                     knob_turn(k, e);
@@ -2260,8 +2271,10 @@ static void draw(void)
         cv_text(70, 88, &FONT_XS, two_cores && plat_cpu2_on() ? "2" : "1", C_WHITE);
         cv_text(130, 88, &FONT_XS, "CLICK", C_GRAY);
         cv_text(190, 88, &FONT_XS, sl_value_text(SL_CLICK, set.sl.p[SL_CLICK], t), C_ACCENT);
-        cv_text(10, 112, &FONT_XS, "GLO: PEAK FROM 0   PLAY: 8 VOICES", C_DIM);
-        cv_text(10, 126, &FONT_XS, "K1: CLICK OFF / REC / ON   HOME: PLAY", C_DIM);
+        cv_text(10, 104, &FONT_XS, "MIN VEL", C_GRAY);
+        int_text(set.minvel, t);
+        cv_text(70, 104, &FONT_XS, set.minvel ? t : "OFF", C_ACCENT);
+        cv_text(10, 122, &FONT_XS, "K1 CLICK  K2 MIN VEL  PLAY: 8 VOICES", C_DIM);
         cv_blit(0, 100);
         return;
     }
@@ -2537,6 +2550,8 @@ int app_expect(const char *what, int *got)
         *got = (int)(sl_state() & ~(uint32_t)SL_S_BEAT & ~(uint32_t)SL_S_UNDO & ~(uint32_t)SL_S_REDO);
     else if (!strcmp(what, "seqpos"))
         *got = sl_pos();
+    else if (!strcmp(what, "minvel"))
+        *got = set.minvel;
     else if (!strcmp(what, "view"))
         *got = ui.view;
     else if (!strcmp(what, "cursor"))
