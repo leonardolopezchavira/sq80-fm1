@@ -1521,7 +1521,6 @@ static void input(void)
     if (keys != ui.keys || btn != prev)
         ui.redraw = 1;
     ui.keys = keys;
-    plat_glow(1);
     {
         static const uint8_t LIT[ED_N] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO, B_ARP, B_SEQ};
         uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u, st = sl_state(), kl = keys, w;
@@ -1541,8 +1540,14 @@ static void input(void)
                     kl |= 1u << WHITE_KEY[w];
             }
         }
-        plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (set.sl.p[SL_AON] ? 1u << B_ARP : 0u) |
-                  (ui.stress ? 1u << B_PLAY : 0u), kl);
+        {   /* the unlit buttons and keys all glow (plat_leds lets only the buttons glow: the seven lowest keys then
+             * caught some of it, the others none), PLAY green */
+            uint32_t on = btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (set.sl.p[SL_AON] ? 1u << B_ARP : 0u) |
+                          (ui.stress ? 1u << B_PLAY : 0u), play = 1u << B_PLAY, dimb = ((1u << NB) - 1u) & ~on;
+            on = (on & ~play) | (on & play ? LED_PLAY_GREEN : 0u);
+            dimb = (dimb & ~play) | (dimb & play ? LED_PLAY_GREEN : 0u);
+            plat_lights(on, kl, dimb, ((1u << NKEYS) - 1u) & ~kl, 2);
+        }
     }
 }
 
