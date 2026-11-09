@@ -16,6 +16,7 @@ This is version {{VERSION}}. You install it at your own risk, and the installer 
 - [Install](install/) it from Chrome or Edge, with the FM-1 connected by USB.
 - [Load](load/) your ROM pack and programs (Chrome or Edge).
 - [Make your ROM pack](rompack/) from your SQ-80's ROM dumps (in the browser: nothing is uploaded).
+- [Make a wave pack](wavepack/) from your own sounds (WAV, AIFF, FLAC, MP3): into any of the 75 wave slots.
 - [Edit programs](edit/): every value, heard as you change it, in the page and live on the FM-1 (Chrome or Edge).
 - [Try it in the browser](emu/) (its own waves; "Your ROM pack and banks…" there loads yours).
 - [Download {{PKG}}](firmware/{{PKG}}).

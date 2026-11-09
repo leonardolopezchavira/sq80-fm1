@@ -6,7 +6,7 @@ name: firmware
 on:
   push:
     branches: [main]
-    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml', 'tools/site_theme.py', 'tools/build_editor.sh']
+    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml', 'tools/site_theme.py', 'tools/build_editor.sh', 'tools/waves_pack.py']
     tags: ['v*']
   workflow_dispatch:
 
@@ -61,6 +61,8 @@ jobs:
           mkdir -p app/build/site/load && cp app/loader/index.html app/build/site/load/
           sh tools/build_editor.sh app/build/site/edit
           mkdir -p app/build/site/rompack && cp app/rompack/index.html app/build/site/rompack/
+          mkdir -p app/build/site/wavepack && cp app/wavepack/index.html app/build/site/wavepack/
+          python3 tools/waves_pack.py app/waves/sq80_waves.h app/build/site/wavepack/builtin.rompack
           python3 tools/site_theme.py app/build/site
       - uses: actions/upload-pages-artifact@v3
         with:

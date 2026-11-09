@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the FM-1: make a wave pack from your own sounds. WAV (or any audio the browser reads) into the 75 wave
+     slots of a .rompack (docs/rompack.md): looped slots (0-53) get one cycle found in the sound, band-limited for
+     each key range as the built-in set is (tools/gen_waves.py); one-shot slots (54-74) get the sound itself, at
+     24 kHz (or less, to fit), tuned to play at its own pitch on its root key. The rest comes from a base pack: the
+     built-in waves, your ROM pack, or nothing. Heard through the editor's engine (../edit/sq80_editor.wasm).
+     Everything happens in this browser: nothing is uploaded. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Make a wave pack · SQ-80 for the FM-1</title>
+<style>
+  :root { --bg: #111312; --panel: #1b1e1d; --line: #2c312f; --fg: #e9ece9; --dim: #8b938f; --hi: #5ac8a0;
+          --bad: #e6463c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 28px 18px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .02em; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 10px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin-bottom: 12px; }
+  p { margin: 0 0 8px; }
+  a { color: var(--hi); }
+  button { font: inherit; background: var(--hi); color: #0b1310; border: 0; border-radius: 4px; padding: 6px 12px; font-weight: 600; cursor: pointer; }
+  button.plain { background: none; color: var(--fg); border: 1px solid #555; padding: 3px 9px; }
+  button:disabled { background: var(--line); color: var(--dim); cursor: default; border-color: var(--line); }
+  select, input[type=text], input[type=number] { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .small { font-size: 12px; color: var(--dim); }
+  .ok { color: var(--hi); } .bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; padding: 4px; }
+  td { padding: 3px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  td.n { color: var(--dim); font-variant-numeric: tabular-nums; width: 2.5em; }
+  td input.nm { width: 6.5em; font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; }
+  tr.mine td { background: #16241f; }
+  tr.drag td { outline: 1px dashed var(--hi); }
+  canvas.cy { width: 120px; height: 28px; background: #000; border-radius: 2px; vertical-align: middle; }
+  .meter { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; width: 260px; display: inline-block; vertical-align: middle; }
+  .meter i { display: block; height: 100%; background: var(--hi); }
+  .drop { border: 2px dashed var(--line); border-radius: 6px; padding: 14px; text-align: center; color: var(--dim); cursor: pointer; }
+  .drop.over { border-color: var(--hi); color: var(--fg); }
+  details summary { cursor: pointer; color: var(--dim); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+<h1>SQ-80 wave pack maker</h1>
+<p class="small">Your own sounds as SQ-80 waves: WAV files (or AIFF, MP3, FLAC: what this browser reads) into a
+<code>.rompack</code> that the FM-1, the editor and the emulator play like any other. Everything happens in this
+browser: nothing is uploaded. Use sounds you have the right to share if you will share the pack: your own,
+public domain / CC0, or licensed for it.</p>
+
+<section>
+  <h2>1 · Start from</h2>
+  <div class="row">
+    <label><input type="radio" name="base" value="builtin" checked> SQ-80's built-in waves</label>
+    <label><input type="radio" name="base" value="mine"> your ROM pack <button class="plain" id="baseBtn">choose…</button></label>
+    <input type="file" id="baseFile" accept=".rompack" hidden>
+    <label><input type="radio" name="base" value="empty"> nothing (the slots you leave empty play a sine)</label>
+  </div>
+  <p class="small" id="baseState" style="margin-top:6px"></p>
+</section>
+
+<section>
+  <h2>2 · Your sounds</h2>
+  <div class="drop" id="drop" tabindex="0">Drop sounds here (or click): they go into the slots from the one selected below, in name order</div>
+  <input type="file" id="files" multiple accept="audio/*,.wav,.aif,.aiff,.flac,.mp3" hidden>
+  <div class="row" style="margin-top:10px">
+    <label>Next slot <select id="next"></select></label>
+    <span class="small">Slots 0–53 loop (a cycle of the sound: give it a steady, pitched sound); 54–74 play once
+      (drums, plucks, attacks). Drop a file on a row to put it there.</span>
+  </div>
+  <details style="margin-top:10px">
+    <summary>How the sounds are made into waves</summary>
+    <p class="small" style="margin-top:6px"><b>Looped slots:</b> AUTO finds the sound's pitch in its steady part and
+      takes one cycle; WHOLE takes the whole file as one cycle (a single-cycle file); FRAME takes one frame of a
+      wavetable file (2048 samples a frame, e.g. from Serum or Vital). The cycle becomes four tables, one for each key
+      range, with only the harmonics that range can play cleanly, as the original waves are. <b>One-shot slots:</b>
+      the sound from its start (silence trimmed), at 24 kHz (lower when it is long, to fit 32,768 samples), tuned to
+      play at its own speed on its ROOT key. All are 8-bit, as the SQ-80's are.</p>
+  </details>
+</section>
+
+<section>
+  <h2>3 · The 75 slots</h2>
+  <div class="row" style="margin-bottom:8px">
+    <span>Memory <span class="meter"><i id="meter" style="width:0"></i></span> <span id="mem" class="small"></span></span>
+    <button class="plain" id="playBtn" title="Sound on for the play buttons">Sound on</button>
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Name</th><th>Sound</th><th>Mode</th><th>Cycle</th><th></th></tr></thead>
+    <tbody id="slots"></tbody>
+  </table>
+</section>
+
+<section>
+  <h2>4 · Your wave pack</h2>
+  <div class="row">
+    <label>File name <input type="text" id="outName" value="my-waves" style="width:12em">.rompack</label>
+    <button id="dl">Download</button>
+    <button class="plain" id="keep" title="The installer, the editor and the emulator find it here">Keep it in this browser for the installer</button>
+  </div>
+  <p class="small" id="outState" style="margin-top:8px"></p>
+  <p class="small">Then the <a href="../install/">installer</a> or the <a href="../load/">loader</a> puts it on your FM-1
+    (in place of the waves it has), and the <a href="../edit/">editor</a> and <a href="../emu/">emulator</a> play it.
+    Programs choose waves by slot number: a program that used PIANO plays whatever is in slot 9.</p>
+</section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const DOC = 38455.855, RS = 24000, NW = 75, ONESHOT = 54;
+const RANGES = [[[0, 1, 2, 3, 4, 5], 127], [[6, 7, 8], 54], [[9, 10], 18], [[11, 12, 13, 14, 15], 8]];
+const BUILTIN_NAMES = ["SAW", "BELL", "SINE", "SQUARE", "PULSE", "NOISE1", "NOISE2", "NOISE3", "BASS", "PIANO", "EL PNO",
+  "VOICE1", "VOICE2", "KICK", "REED", "ORGAN", "SYNTH1", "SYNTH2", "SYNTH3", "FORMT1", "FORMT2", "FORMT3", "FORMT4",
+  "FORMT5", "PULSE2", "SQR 2", "4 OCTS", "PRIME", "BASS 2", "E PNO2", "OCTAVE", "OCT+5", "SAW 2", "TRIANG", "REED 2",
+  "REED 3", "GRIT 1", "GRIT 2", "GRIT 3", "GLINT1", "GLINT2", "GLINT3", "CLAV", "BRASS", "STRING", "DIGIT1", "DIGIT2",
+  "BELL 2", "ALIEN", "BREATH", "VOICE3", "STEAM", "METAL", "CHIME", "BOWING", "PICK 1", "PICK 2", "MALLET", "SLAP",
+  "PLINK", "PLUCK", "PLUNK", "CLICK", "CHIFF", "THUMP", "LOGDRM", "KICK 2", "SNARE", "TOMTOM", "HI-HAT", "DRUMS1",
+  "DRUMS2", "DRUMS3", "DRUMS4", "DRUMS5"];
+
+/* ------------------------------------------------------------------ packs */
+function parsePack(d) {
+  const ascii = (b) => String.fromCharCode(...b);
+  if (d.length < 32 || ascii(d.subarray(0, 8)) !== "SQ80PACK") return null;
+  const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  const hdr = dv.getUint32(12, true), nraw = dv.getUint32(20, true), romSize = dv.getUint32(24, true);
+  let body = 6 * NW + 16 * NW + 4 * nraw;
+  body += (16 - body % 16) % 16;
+  const names = d.subarray(hdr, hdr + 6 * NW), zones = d.subarray(hdr + 6 * NW, hdr + 22 * NW);
+  const raws = d.subarray(hdr + 22 * NW, hdr + 22 * NW + 4 * nraw), rom = d.subarray(hdr + body, hdr + body + romSize);
+  if (rom.length !== romSize) return null;
+  return { names: [...Array(NW)].map((_, w) => ascii(names.subarray(6 * w, 6 * w + 6)).trim()),
+           zones, raws, rom, nraw };
+}
+let base = null;   // parsed pack, or null for nothing
+async function loadBuiltin() {
+  try {
+    const r = await fetch("builtin.rompack");
+    base = parsePack(new Uint8Array(await r.arrayBuffer()));
+    $("baseState").textContent = base ? "The built-in waves: the slots you do not fill keep them." : "The built-in waves could not be read.";
+  } catch (_) { base = null; $("baseState").textContent = "The built-in waves could not be loaded."; }
+}
+document.querySelectorAll("input[name=base]").forEach((r) => r.onchange = async () => {
+  if (r.value === "builtin") await loadBuiltin();
+  else if (r.value === "empty") { base = null; $("baseState").textContent = "Nothing: the slots you do not fill play a sine (looped) or a short tick (one-shots)."; }
+  else $("baseFile").click();
+  refreshNames(); rebuild();
+});
+$("baseBtn").onclick = (e) => { e.preventDefault(); $("baseFile").click(); };
+$("baseFile").onchange = async () => {
+  const f = $("baseFile").files[0];
+  $("baseFile").value = "";
+  if (!f) return;
+  const p = parsePack(new Uint8Array(await f.arrayBuffer()));
+  if (!p) { $("baseState").textContent = "That is not a ROM pack."; return; }
+  base = p;
+  document.querySelector("input[name=base][value=mine]").checked = true;
+  $("baseState").textContent = `${f.name}: the slots you do not fill keep its waves (they stay in your pack: keep it to yourself if they are not yours to share).`;
+  refreshNames(); rebuild();
+};
+
+/* ------------------------------------------------------------------ the slots */
+const slots = [...Array(NW)].map((_, i) => ({ i, name: "", file: null, audio: null, rate: 0, mode: i < ONESHOT ? "auto" : "shot",
+                                               frame: 0, root: 60, tables: null, note: "" }));
+function defaultName(i) { return base ? base.names[i] : (i < ONESHOT ? "SINE" : "TICK"); }
+function refreshNames() {
+  for (const s of slots) if (!s.file) { s.name = defaultName(s.i); const el = document.querySelector(`#row${s.i} input.nm`); if (el) el.value = s.name; }
+}
+function buildRows() {
+  const tb = $("slots");
+  tb.replaceChildren();
+  for (const s of slots) {
+    const tr = document.createElement("tr");
+    tr.id = "row" + s.i;
+    tr.innerHTML = `<td class="n">${s.i}</td><td><input class="nm" type="text" maxlength="6"></td>
+      <td><button class="plain pick">${s.i < ONESHOT ? "a sound…" : "a sound…"}</button> <span class="small fn"></span></td>
+      <td class="md"></td><td><canvas class="cy" width="240" height="56"></canvas></td>
+      <td><button class="plain play" title="Hear it (C3, C4, C5)">▶</button> <button class="plain clr" title="Back to the base pack's wave">✕</button></td>`;
+    const nm = tr.querySelector("input.nm");
+    nm.value = s.name;
+    nm.oninput = () => { s.name = nm.value.toUpperCase().slice(0, 6); rebuild(); };
+    tr.querySelector(".pick").onclick = () => { pickFor = s.i; $("files").click(); };
+    tr.querySelector(".clr").onclick = () => { Object.assign(s, { file: null, audio: null, tables: null, note: "" }); s.name = defaultName(s.i); nm.value = s.name; showRow(s); rebuild(); };
+    tr.querySelector(".play").onclick = () => play(s.i);
+    tr.ondragover = (e) => { e.preventDefault(); tr.classList.add("drag"); };
+    tr.ondragleave = () => tr.classList.remove("drag");
+    tr.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); tr.classList.remove("drag"); if (e.dataTransfer.files[0]) assign(s.i, e.dataTransfer.files[0]); };
+    tb.append(tr);
+    showRow(s);
+  }
+  const nx = $("next");
+  nx.replaceChildren(...slots.map((s) => new Option(`${s.i} ${s.name}`, s.i)));
+}
+function showRow(s) {
+  const tr = $("row" + s.i);
+  tr.classList.toggle("mine", !!s.file);
+  tr.querySelector(".fn").textContent = s.file ? `${s.file}${s.note ? " · " + s.note : ""}` : "";
+  const md = tr.querySelector(".md");
+  md.replaceChildren();
+  if (s.file) {
+    if (s.i < ONESHOT) {
+      const sel = document.createElement("select");
+      [["auto", "AUTO"], ["whole", "WHOLE"], ["frame", "FRAME"]].forEach(([v, t]) => sel.append(new Option(t, v)));
+      sel.value = s.mode;
+      sel.onchange = () => { s.mode = sel.value; make(s); };
+      md.append(sel);
+      if (s.mode === "frame") {
+        const f = document.createElement("input");
+        f.type = "number"; f.min = 0; f.value = s.frame; f.style.width = "4em"; f.title = "frame";
+        f.onchange = () => { s.frame = Math.max(0, +f.value | 0); make(s); };
+        md.append(" ", f);
+      }
+    } else {
+      const r = document.createElement("select");
+      for (let k = 24; k <= 96; k++) r.append(new Option("ROOT " + noteName(k), k));
+      r.value = s.root;
+      r.onchange = () => { s.root = +r.value; make(s); };
+      md.append(r);
+    }
+  }
+  drawCycle(s);
+}
+const noteName = (k) => ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][k % 12] + (Math.floor(k / 12) - 1);
+
+/* ------------------------------------------------------------------ reading sounds */
+let pickFor = -1;
+async function decode(file, rate) {
+  const ctx = new OfflineAudioContext(1, 1, rate);
+  const buf = await ctx.decodeAudioData(await file.arrayBuffer());   // (resampled to rate by the browser)
+  const out = new Float32Array(buf.length);
+  for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) out[i] += d[i] / buf.numberOfChannels; }
+  return out;
+}
+async function assign(i, file) {
+  const s = slots[i];
+  try {
+    s.audio = await decode(file, i < ONESHOT ? 48000 : RS);
+    s.rate = i < ONESHOT ? 48000 : RS;
+  } catch (e) { s.note = "not a sound this browser reads"; s.file = file.name; showRow(s); return; }
+  s.file = file.name;
+  s.name = file.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9 +#-]/g, "").toUpperCase().slice(0, 6) || "WAVE";
+  $("row" + i).querySelector("input.nm").value = s.name;
+  make(s);
+}
+$("files").onchange = async () => {
+  const list = [...$("files").files].sort((a, b) => a.name.localeCompare(b.name));
+  $("files").value = "";
+  if (pickFor >= 0) { if (list[0]) await assign(pickFor, list[0]); pickFor = -1; return; }
+  await bulk(list);
+};
+async function bulk(list) {
+  let i = +$("next").value;
+  for (const f of list) { if (i >= NW) break; await assign(i, f); i++; }
+  $("next").value = Math.min(NW - 1, i);
+}
+const drop = $("drop");
+drop.onclick = () => { pickFor = -1; $("files").click(); };
+drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") drop.click(); };
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); bulk([...e.dataTransfer.files].sort((a, b) => a.name.localeCompare(b.name))); };
+
+/* ------------------------------------------------------------------ making waves */
+function findPeriod(x, sr) {   // the sound's period (samples), from its steady part: a normalised difference (YIN's)
+  const n = Math.min(x.length, 8192), start = Math.max(0, Math.min(x.length - n, Math.floor(x.length * 0.3)));
+  const w = x.subarray(start, start + n), maxLag = Math.min(Math.floor(sr / 25), n >> 1), minLag = Math.floor(sr / 2500);
+  const d = new Float32Array(maxLag + 1);
+  let sum = 0, best = -1;
+  for (let lag = 1; lag <= maxLag; lag++) {
+    let s = 0;
+    for (let i = 0; i + lag < n - maxLag; i++) { const v = w[i] - w[i + lag]; s += v * v; }
+    sum += s;
+    d[lag] = s * lag / (sum || 1);
+  }
+  for (let lag = minLag; lag <= maxLag; lag++) if (d[lag] < 0.15 && d[lag] <= d[lag - 1] && d[lag] <= d[lag + 1]) { best = lag; break; }
+  if (best < 0) { let m = Infinity; for (let lag = minLag; lag <= maxLag; lag++) if (d[lag] < m) { m = d[lag]; best = lag; } }
+  // (a parabola through the three around it: a fraction of a sample)
+  const a = d[best - 1], b = d[best], c = d[best + 1], den = a - 2 * b + c;
+  return { period: best + (den ? 0.5 * (a - c) / den : 0), start, clarity: 1 - Math.min(1, d[best]) };
+}
+function resampleCycle(x, from, len, n) {   // len (fractional) samples from from, as n samples (cubic)
+  const out = new Float32Array(n), at = (i) => x[Math.max(0, Math.min(x.length - 1, i))];
+  for (let k = 0; k < n; k++) {
+    const p = from + k * len / n, i = Math.floor(p), t = p - i;
+    const y0 = at(i - 1), y1 = at(i), y2 = at(i + 1), y3 = at(i + 2);
+    out[k] = y1 + 0.5 * t * (y2 - y0 + t * (2 * y0 - 5 * y1 + 4 * y2 - y3 + t * (3 * (y1 - y2) + y3 - y0)));
+  }
+  return out;
+}
+function harmonics(cycle) {   // its DFT: amplitude and phase of harmonics 1..n/2-1
+  const n = cycle.length, H = n / 2 - 1, re = new Float32Array(H + 1), im = new Float32Array(H + 1);
+  for (let k = 1; k <= H; k++) {
+    let a = 0, b = 0;
+    for (let i = 0; i < n; i++) { const ph = 2 * Math.PI * k * i / n; a += cycle[i] * Math.cos(ph); b -= cycle[i] * Math.sin(ph); }
+    re[k] = a; im[k] = b;
+  }
+  return { re, im, H };
+}
+function synth(h, limit, n) {
+  const out = new Float32Array(n);
+  for (let k = 1; k <= Math.min(limit, h.H); k++) {
+    const a = h.re[k], b = h.im[k];
+    if (!a && !b) continue;
+    for (let i = 0; i < n; i++) { const ph = 2 * Math.PI * k * i / n; out[i] += (a * Math.cos(ph) - b * Math.sin(ph)) * 2 / n; }
+  }
+  return out;
+}
+function to8(x, peak = 120) {
+  let m = 0;
+  for (const v of x) m = Math.max(m, Math.abs(v));
+  const g = m ? peak / m : 0, out = new Uint8Array(x.length);
+  for (let i = 0; i < x.length; i++) out[i] = Math.max(1, Math.min(255, Math.round(128 + x[i] * g)));
+  return out;
+}
+function make(s) {
+  s.note = ""; s.tables = null;
+  const x = s.audio;
+  if (!x || !x.length) { s.note = "empty"; showRow(s); rebuild(); return; }
+  if (s.i < ONESHOT) {
+    let cycle;
+    if (s.mode === "whole") cycle = resampleCycle(x, 0, x.length, 256);
+    else if (s.mode === "frame") {
+      const frames = Math.max(1, Math.floor(x.length / 2048)), f = Math.min(s.frame, frames - 1);
+      cycle = resampleCycle(x, f * 2048, 2048, 256);
+      s.note = `frame ${f + 1} of ${frames}`;
+    } else {
+      const { period, start, clarity } = findPeriod(x, s.rate);
+      let from = start;   // (from a rising zero crossing)
+      for (let i = start; i < start + period && i + 1 < x.length; i++) if (x[i] <= 0 && x[i + 1] > 0) { from = i + (-x[i]) / (x[i + 1] - x[i]); break; }
+      cycle = resampleCycle(x, from, period, 256);
+      s.note = `${(s.rate / period).toFixed(1)} Hz cycle${clarity < 0.7 ? " (not clearly pitched: try WHOLE)" : ""}`;
+    }
+    let mean = 0; for (const v of cycle) mean += v / cycle.length;
+    for (let i = 0; i < cycle.length; i++) cycle[i] -= mean;
+    const h = harmonics(cycle);
+    s.cycle = cycle;
+    s.tables = RANGES.map(([zones, limit]) => ({ zones, data: to8(synth(h, limit, 256)), tune: 0 }));
+  } else {
+    let a = 0;   // the start: past silence
+    while (a < x.length && Math.abs(x[a]) < 0.005) a++;
+    let y = x.subarray(Math.max(0, a - 8));
+    let b = y.length;   // the end: before silence
+    while (b > 1 && Math.abs(y[b - 1]) < 0.002) b--;
+    y = y.subarray(0, b);
+    let rate = RS, size = 256;
+    if (y.length > 32768) { rate = RS * 32768 / y.length; y = resampleCycle(y, 0, y.length, 32768); size = 32768; s.note = `${(32768 / rate).toFixed(2)} s at ${Math.round(rate)} Hz`; }
+    else { while (size < y.length) size *= 2; s.note = `${(y.length / RS).toFixed(2)} s`; }
+    const buf = new Float32Array(size);
+    buf.set(y.subarray(0, size));
+    const fade = Math.min(96, y.length >> 2);
+    for (let i = 0; i < fade; i++) buf[Math.min(y.length, size) - 1 - i] *= i / fade;
+    s.cycle = buf;
+    // one pass of size samples at rate, on the root key: passes a second = rate / size
+    const tune = 12 * Math.log2(rate / size / (440 * Math.pow(2, (s.root - 69) / 12)));
+    s.tables = [{ zones: [...Array(16).keys()], data: to8(buf, 118), tune }];
+  }
+  showRow(s);
+  rebuild();
+}
+function drawCycle(s) {
+  const c = $("row" + s.i).querySelector("canvas"), x = c.getContext("2d");
+  x.clearRect(0, 0, c.width, c.height);
+  let d = null;
+  if (s.cycle && s.file) d = s.cycle;
+  else if (packed) {   // the base's wave, as the pack being made has it (its middle range)
+    const z = packed.zones[s.i * 16 + 7], r = packed.raws.subarray(4 * z, 4 * z + 4), start = ((r[1] >> 6) << 16) | (r[0] << 8);
+    const len = Math.min(2048, 1 << (8 + ((r[1] >> 3) & 7)));
+    d = Array.from(packed.rom.subarray(start, start + len), (v) => (v - 128) / 127);
+  }
+  if (!d) return;
+  x.strokeStyle = s.file ? "#40dce6" : "#8b938f"; x.lineWidth = 1.5; x.beginPath();
+  for (let i = 0; i < c.width; i++) {
+    const v = d[Math.floor(i * d.length / c.width)] || 0, yy = c.height / 2 - v * (c.height / 2 - 2);
+    i ? x.lineTo(i, yy) : x.moveTo(i, yy);
+  }
+  x.stroke();
+}
+
+/* ------------------------------------------------------------------ the pack */
+let packed = null, packBytes = null;
+function sineTable() { const t = new Float32Array(256); for (let i = 0; i < 256; i++) t[i] = Math.sin(2 * Math.PI * i / 256); return to8(t); }
+function tickTable() { const t = new Float32Array(256); for (let i = 0; i < 256; i++) t[i] = Math.sin(2 * Math.PI * i / 32) * Math.exp(-i / 40); return to8(t); }
+function rebuild() {
+  const rom = [], raws = [], zones = new Uint8Array(NW * 16), names = new Uint8Array(6 * NW).fill(32);
+  let romLen = 0;
+  const place = (bytes) => {   // a table into the ROM, on a 256-byte page
+    romLen = Math.ceil(romLen / 256) * 256;
+    const start = romLen;
+    rom.push([start, bytes]);
+    romLen += bytes.length;
+    return start;
+  };
+  const rawOf = new Map(), baseStart = new Map();
+  const addRaw = (start, size, res, tune) => {
+    const key = `${start}:${size}:${res}:${tune.toFixed(4)}`;
+    if (rawOf.has(key)) return rawOf.get(key);
+    raws.push([start, size, res, tune]);
+    rawOf.set(key, raws.length - 1);
+    return raws.length - 1;
+  };
+  let sine = -1, tick = -1;
+  for (const s of slots) {
+    const nm = (s.name || defaultName(s.i)).toUpperCase().slice(0, 6).padStart(6, " ");
+    for (let k = 0; k < 6; k++) names[6 * s.i + k] = Math.max(32, Math.min(126, nm.charCodeAt(k)));
+    if (s.tables) {
+      for (const t of s.tables) {
+        let tune = t.tune, res = 1;
+        while (tune < -120 && res < 7) { res++; tune += 12; }
+        const raw = addRaw(place(t.data), t.data.length, res, tune);
+        for (const z of t.zones) zones[s.i * 16 + z] = raw;
+      }
+    } else if (base) {   // the base pack's tables for this slot, copied once
+      for (let z = 0; z < 16; z++) {
+        const old = base.zones[s.i * 16 + z], r = base.raws.subarray(4 * old, 4 * old + 4);
+        const ostart = ((r[1] >> 6) << 16) | (r[0] << 8), size = 1 << (8 + ((r[1] >> 3) & 7));
+        if (!baseStart.has(ostart + ":" + size)) baseStart.set(ostart + ":" + size, place(base.rom.subarray(ostart, ostart + size)));
+        const semi = r[2] > 127 ? r[2] - 256 : r[2];
+        zones[s.i * 16 + z] = addRaw(baseStart.get(ostart + ":" + size), size, r[1] & 7, semi + r[3] / 256);
+      }
+    } else {
+      if (s.i < ONESHOT) { if (sine < 0) sine = addRaw(place(sineTable()), 256, 1, 0); zones.fill(sine, s.i * 16, s.i * 16 + 16); }
+      else { if (tick < 0) tick = addRaw(place(tickTable()), 256, 1, 0); zones.fill(tick, s.i * 16, s.i * 16 + 16); }
+    }
+  }
+  let size = 4096;
+  while (size < romLen) size *= 2;
+  const LIMIT = 262144, over = romLen > LIMIT || raws.length > 255;
+  $("meter").style.width = Math.min(100, 100 * romLen / LIMIT) + "%";
+  $("meter").style.background = over ? "var(--bad)" : "var(--hi)";
+  $("mem").textContent = `${Math.round(romLen / 1024)} KB of 256 · ${raws.length} tables of 255`;
+  if (over) {
+    packed = packBytes = null;
+    $("outState").textContent = romLen > LIMIT ? "Too much for one pack: shorten some one-shots, or start from nothing." : "Too many tables: fewer looped sounds, or start from nothing.";
+    $("outState").className = "small bad";
+    $("dl").disabled = $("keep").disabled = true;
+    return;
+  }
+  const romBuf = new Uint8Array(size).fill(128);
+  for (const [start, b] of rom) romBuf.set(b, start);
+  const rawBuf = new Uint8Array(4 * raws.length);
+  raws.forEach(([start, sz, res, tune], i) => {
+    let semi = Math.floor(tune), frac = Math.round((tune - semi) * 256);
+    if (frac === 256) { semi++; frac = 0; }
+    rawBuf.set([(start >> 8) & 0xFF, (start >> 16) << 6 | (Math.log2(sz) - 8) << 3 | res, semi & 0xFF, frac], 4 * i);
+  });
+  let bodyLen = names.length + zones.length + rawBuf.length;
+  bodyLen += (16 - bodyLen % 16) % 16;
+  const out = new Uint8Array(32 + bodyLen + size), dv = new DataView(out.buffer);
+  out.set([..."SQ80PACK"].map((c) => c.charCodeAt(0)));
+  dv.setUint32(8, 1, true); dv.setUint32(12, 32, true); dv.setUint32(16, NW, true); dv.setUint32(20, raws.length, true); dv.setUint32(24, size, true);
+  out.set(names, 32); out.set(zones, 32 + names.length); out.set(rawBuf, 32 + names.length + zones.length);
+  out.set(romBuf, 32 + bodyLen);
+  packBytes = out;
+  packed = { zones, raws: rawBuf, rom: romBuf };
+  const mine = slots.filter((s) => s.tables).length;
+  $("outState").textContent = `${mine} of your sounds, ${out.length.toLocaleString()} bytes.`;
+  $("outState").className = "small ok";
+  $("dl").disabled = $("keep").disabled = false;
+  for (const s of slots) if (!s.file) drawCycle(s);
+  enginePack();
+  const nv = $("next").value;
+  $("next").replaceChildren(...slots.map((s) => new Option(`${s.i} ${s.name}`, s.i)));
+  $("next").value = nv || 0;
+}
+
+$("dl").onclick = () => {
+  if (!packBytes) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([packBytes], { type: "application/octet-stream" }));
+  a.download = ($("outName").value.trim() || "my-waves").replace(/[^A-Za-z0-9_+-]+/g, "_") + ".rompack";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$("keep").onclick = async () => {   // the installer's kept files (app/install_app.js: sq80-setup / files / last)
+  try {
+    const d = await new Promise((res, rej) => { const r = indexedDB.open("sq80-setup", 1); r.onupgradeneeded = () => r.result.createObjectStore("files"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const last = await new Promise((res) => { const q = d.transaction("files").objectStore("files").get("last"); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+    const name = ($("outName").value.trim() || "my-waves") + ".rompack";
+    await new Promise((res, rej) => { const tx = d.transaction("files", "readwrite"); tx.objectStore("files").put({ pack: { name, bytes: packBytes }, banks: (last && last.banks) || [] }, "last"); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    $("outState").textContent = "Kept in this browser: the installer will offer it next time.";
+  } catch (e) { $("outState").textContent = "Not kept: " + (e.message || e); }
+};
+
+/* ------------------------------------------------------------------ hearing it: the editor's engine */
+let E = null, ac = null;
+async function engine() {
+  if (E) return E;
+  const mod = await WebAssembly.compile(await (await fetch("../edit/sq80_editor.wasm")).arrayBuffer()), imports = {};
+  for (const im of WebAssembly.Module.imports(mod)) (imports[im.module] ||= {})[im.name] = () => 0;
+  E = (await WebAssembly.instantiate(mod, imports)).exports;
+  return E;
+}
+async function soundOn() {
+  if (ac) return;
+  await engine();
+  ac = new AudioContext();
+  E.init(ac.sampleRate);
+  enginePack();
+  const node = ac.createScriptProcessor(1024, 0, 2);
+  node.onaudioprocess = (ev) => {
+    const n = ev.outputBuffer.length;
+    E.render(n);
+    const L = new Float32Array(E.memory.buffer, E.left(), n), R = new Float32Array(E.memory.buffer, E.right(), n);
+    const ol = ev.outputBuffer.getChannelData(0), or = ev.outputBuffer.getChannelData(1);
+    for (let i = 0; i < n; i++) { ol[i] = Math.tanh(L[i] * 0.35); or[i] = Math.tanh(R[i] * 0.35); }
+  };
+  node.connect(ac.destination);
+  $("playBtn").textContent = "Sound off";
+}
+function enginePack() {
+  if (!E || !ac || !packBytes || packBytes.length > E.pack_max()) return;
+  new Uint8Array(E.memory.buffer, E.pack_buf(), packBytes.length).set(packBytes);
+  E.use_pack(packBytes.length);
+}
+$("playBtn").onclick = async () => {
+  if (!ac) { await soundOn(); return; }
+  if (ac.state === "running") { ac.suspend(); $("playBtn").textContent = "Sound on"; } else { ac.resume(); $("playBtn").textContent = "Sound off"; }
+};
+let playing = 0;
+async function play(i) {
+  await soundOn();
+  if (ac.state !== "running") await ac.resume();
+  const my = ++playing;
+  E.all_off();
+  E.init_program();
+  E.param_set(68 + 3, i);   // OSC 1's WAVE (sq80_params.h)
+  E.apply(1);
+  for (const k of [48, 60, 72]) {
+    if (my !== playing) return;
+    E.note_on(k, 100);
+    await new Promise((r) => setTimeout(r, 650));
+    E.note_off(k);
+    await new Promise((r) => setTimeout(r, 120));
+  }
+}
+
+/* ------------------------------------------------------------------ start */
+(async () => {
+  await loadBuiltin();
+  refreshNames();
+  buildRows();
+  rebuild();
+})();
+</script>
+</body>
+</html>

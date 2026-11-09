@@ -94,6 +94,17 @@ https://leonardolopezchavira.github.io/sq80-fm1/rompack/ (`app/rompack/index.htm
 the two halves of the OS ROM (or one 64 KB file) become `sq80.rompack`, byte for byte the same, to download or to
 keep in the browser for the installer. Nothing is uploaded.
 
+## Your own waves
+
+https://leonardolopezchavira.github.io/sq80-fm1/wavepack/ (`app/wavepack/index.html`) makes a `.rompack` from
+your own sounds: drop audio files into any of the 75 slots. Looped slots (0-53) take one cycle of the sound (its
+pitch found in its steady part; or the whole file as one cycle; or a frame of a 2048-sample wavetable), made into
+four band-limited tables across the keyboard as the built-in set's are; one-shot slots (54-74) take the sound from
+its start at 24 kHz (lower when long), tuned to play at its own speed on its root key. The other slots keep a base
+pack's waves: the built-in set (`tools/waves_pack.py` writes it out for the page), your ROM pack, or a sine. It
+plays each slot through the editor's engine, keeps to the 256 KB / 255-table limits, and downloads the pack or
+keeps it for the installer. Nothing is uploaded.
+
 ## The program editor
 
 https://leonardolopezchavira.github.io/sq80-fm1/edit/ (`app/editor/`): every value of a program (the three
