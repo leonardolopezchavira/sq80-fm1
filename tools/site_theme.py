@@ -90,16 +90,44 @@ EMU_CSS = f"""<style id="sq80-emu">
   html body .hit:focus-visible {{ outline-color: {CYAN}; }}
   html body kbd {{ background: #161616; border-color: #2a2a2a; color: {CREAM}; }}
   html body input {{ accent-color: {CYAN}; }}
+  html body > nav.sq80-nav {{ margin: -28px -16px 22px; }}   /* (the page's body has padding: the menu across it) */
 </style>
 """
 
 
-def theme(html, sub, home=False, extra=""):
-    """the page with the theme's style, and the wordmark (and a line under it) in place of its first h1's name"""
+# every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
+BASE = "/sq80-fm1/"
+NAV = [("", "Home"), ("install/", "Install"), ("load/", "Load"), ("edit/", "Editor"), ("emu/", "Emulator"),
+       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack")]
+NAV_CSS = f"""<style id="sq80-nav">
+  nav.sq80-nav {{ display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; padding: 10px 16px;
+    border-bottom: 1px solid #2a2a2a; background: {BLACK}; font: 600 13px/1.2 system-ui, -apple-system, sans-serif;
+    letter-spacing: .08em; text-transform: uppercase; position: relative; z-index: 10; }}
+  nav.sq80-nav a {{ color: {CREAM}; text-decoration: none; padding: 6px 10px; border-radius: 2px; }}
+  nav.sq80-nav a:hover {{ color: {CYAN}; }}
+  nav.sq80-nav a[aria-current="page"] {{ color: #001215; background: {CYAN}; }}
+  a.sq80-home {{ display: inline-block; }}
+  a.sq80-home:focus-visible {{ outline: 2px solid {CYAN}; outline-offset: 4px; }}
+</style>
+"""
+
+
+def nav(current):
+    items = "".join(f'<a href="{BASE}{href}"' + (' aria-current="page"' if href == current else "") + f">{label}</a>"
+                    for href, label in NAV)
+    return f'<nav class="sq80-nav" aria-label="SQ-80 pages">{items}</nav>'
+
+
+def theme(html, sub, home=False, extra="", current=""):
+    """the page with the theme's style, the menu at the top, and the wordmark (a link to the installer, and a line
+    under it) in place of its first h1's name"""
     if 'id="sq80-theme"' in html:
         return html
-    html = html.replace("</head>", CSS + extra + ('<style>a.home { display: none; }</style>\n' if home else "") + "</head>", 1)
-    head = logo_svg() + (f'<p class="sq80-sub">{sub}</p>' if sub else "")
+    html = html.replace("</head>", CSS + NAV_CSS + extra + ('<style>a.home { display: none; }</style>\n' if home else "")
+                        + "</head>", 1)
+    html = re.sub(r"(<body[^>]*>)", lambda k: k.group(1) + nav(current), html, count=1)
+    head = (f'<a class="sq80-home" href="{BASE}install/" title="Install SQ-80">{logo_svg()}</a>'
+            + (f'<p class="sq80-sub">{sub}</p>' if sub else ""))
     m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S)
     if m:
         inner = m.group(1)
@@ -124,7 +152,8 @@ def main():
             continue
         sub = SUBS.get(rel[0], "for the FM-1") if len(rel) > 1 else "for the FM-1"
         p.write_text(theme(p.read_text(encoding="utf-8"), sub, home=len(rel) == 1,
-                           extra=EMU_CSS if rel[0] == "emu" else ""), encoding="utf-8")
+                           extra=EMU_CSS if rel[0] == "emu" else "",
+                           current=rel[0] + "/" if len(rel) > 1 else ""), encoding="utf-8")
         print("themed", p.relative_to(root))
 
 
