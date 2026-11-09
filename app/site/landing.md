@@ -27,7 +27,9 @@ for the next one, ALGO for the pages, K1–K4 for the values, HOME to play); SAV
 banks, a new one too. FX opens the effects, FMini-1's: reverb, delay, chorus and drive, their levels on the first page
 and each one's TYPE and settings on the next (FX again, or ALGO); SAVE keeps them. ARP turns SLOOP's arpeggiator on and
 off (14 modes, 1/4 to 1/32 and triplets, 1–4 octaves, gate, swing, hold, order, chance); hold ARP for its pages.
-SEQ opens the step sequencer's pages (length up to 64 steps, division, gate, swing, tempo, MIDI clock); hold SEQ and
+SEQ opens the step sequencer: on its STEP page the notes you play are written into the steps one after another
+(a chord when held together; K1 moves the cursor, K2–K4 the step's notes, tie / rest and accent / slide), and ALGO
+goes on to length (up to 64 steps), division, gate, swing, tempo and MIDI clock; hold SEQ and
 the white keys are the steps (an empty one is set with the last note or chord played, a set one tapped is cleared,
 held with K1–K4 its notes, velocity, ratchets and type), the first black keys the pages. PLAY starts and stops it,
 REC records what you play into it (stopped: the first note starts it), REC held 2 s clears it, EDIT + OCT- / OCT+

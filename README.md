@@ -89,7 +89,10 @@ Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq
 - **ARP** (tap: on / off; hold: its pages): 14 modes (UP, DOWN, UP/DN, RANDOM, ORDER, REPEAT, DN/UP, UP+8, CONV,
   DIVG, PINKY, THUMB, WALK, CHORD), RATE 1/4 to 1/32 and triplets, 1-4 octaves, gate, swing, HOLD, ORDER (sorted or
   as played), CHANCE. While the sequencer plays it locks to its grid; while recording, its notes are recorded.
-- **SEQ** opens its pages: LENGTH (1-64 steps), DIV (1/4 to 2 bars), GATE, SWING; TEMPO and MIDI CLK. **Hold SEQ**
+- **SEQ** opens its STEP page: **step entry**, as on SLOOP: the notes you play (keys or MIDI) write the cursor's
+  step (notes held together: a chord of up to 4), and when you let go the cursor moves to the next step; K1 moves
+  the cursor, K2 changes the step's notes, K3 its time (NOTE, TIE, REST), K4 its flag (accent, slide). ALGO goes on
+  to LENGTH (1-64 steps), DIV (1/4 to 2 bars), GATE, SWING, then TEMPO and MIDI CLK. **Hold SEQ**
   (or tap it again on its page: KEYS: STEPS) and the 16 white keys are steps 1-16 of the page, the first four black
   keys (or OCT- / OCT+) the pages 1-4. An empty step pressed is set at once with the last note or chord you played; a
   set step pressed and let go is cleared; hold it and turn K1 its notes, K2 its velocity, K3 its ratchets (x1-x4),

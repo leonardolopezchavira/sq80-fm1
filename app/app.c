@@ -1009,9 +1009,11 @@ static const ed_page ARP_PAGES[] = {
     {"FEEL", {SL_ASWING, SL_AHOLD, SL_AORDER, SL_APROB}},
     {"TEMPO", {SL_BPM, SL_SYNC, SL_AON, NONE}}};
 static const ed_page SEQ_PAGES[] = {
+    {"STEP", {NONE, NONE, NONE, NONE}},  /* (step entry: K1 the cursor, K2 its note, K3 its time, K4 its flag) */
     {"PATTERN", {SL_SLEN, SL_SDIV, SL_SGATE, SL_SSWING}},
     {"TEMPO", {SL_BPM, SL_SYNC, NONE, NONE}}};
 static const char *const STEP_KNOB[4] = {"NOTE", "VELOCITY", "RATCHET", "TYPE"};
+static const char *const ENTRY_KNOB[4] = {"STEP", "NOTE", "TIME", "FLAG"};
 static const ed_page PLAY_PAGE = {"", {SQ80_P_FREQ, SQ80_P_RES, NONE, NONE}};   /* (K3, K4: ENV4 T1, T4) */
 
 static struct {
@@ -1111,6 +1113,22 @@ static int steps_on(void)                    /* the keys are the steps: SEQ held
 static void seq_post(uint32_t cmd, uint32_t step, int32_t d)
 {
     post(Q_SEQ, cmd, (step & 0xFFu) | ((uint32_t)d & 0xFFu) << 8);
+}
+
+static int entry_page(void)                  /* SEQ's STEP page, the keys playing (not the steps): step entry */
+{
+    return ed.sec == ED_SEQ && ed.page[ED_SEQ] % 3u == 0u && !steps_on();
+}
+
+static void entry_turn(uint32_t k, int32_t e)   /* STEP page: K1 the cursor, K2 its notes, K3 its time, K4 its flag */
+{
+    static const uint8_t CMD[4] = {SC_CURSOR, SC_NOTE, SC_TIME, SC_FLAG};
+    if (e > 100)
+        e = 100;
+    if (e < -100)
+        e = -100;
+    seq_post(CMD[k], sl_cursor(), e);
+    ui.redraw = 1;
 }
 
 static void knob_turn(uint32_t k, int32_t e)
@@ -1504,6 +1522,8 @@ static void input(void)
                 if (steps_on() && ui.step_held) {
                     ui.seq_used = 1;
                     step_turn(k, e);
+                } else if (ed.sec == ED_SEQ && ed.page[ED_SEQ] % 3u == 0u) {
+                    entry_turn(k, e);
                 } else {
                     knob_turn(k, e);
                 }
@@ -1595,6 +1615,34 @@ static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, v
                          st->flags & SL_SF_SLIDE ? "SLIDE" : st->flags & SL_SF_ACCENT ? "ACCENT" : "NOTE");
             }
             cv_text(x, 0, &FONT_XS, STEP_KNOB[k], C_GRAY);
+            cv_text(x, 14, &FONT_B, t, C_WHITE);
+        }
+        cv_blit(0, y);
+        return;
+    }
+    if (ed.sec == ED_SEQ && ed.page[ED_SEQ] % 3u == 0u) {   /* STEP: the cursor's step */
+        uint32_t c = sl_cursor();
+        const sl_step *st = &set.sl.step[c % SL_NSTEP];
+        int note = st->time == SL_ST_NOTE && st->n;
+        for (k = 0; k < 4u; k++) {
+            int32_t x = 4 + (int32_t)k * 59;
+            t[0] = 0;
+            if (k == 0)
+                int_text((int32_t)c + 1, t);
+            else if (k == 1) {
+                if (note) {
+                    note_name(st->note[0], t);
+                    if (st->n > 1u)
+                        text_cat(t, "+");
+                } else {
+                    text_cat(t, "-");
+                }
+            } else if (k == 2)
+                text_cat(t, st->time == SL_ST_TIE ? "TIE" : note ? "NOTE" : "REST");
+            else
+                text_cat(t, !note ? "-" : (st->flags & 3u) == 3u ? "ACC+SLD" : st->flags & SL_SF_SLIDE ? "SLIDE" :
+                         st->flags & SL_SF_ACCENT ? "ACCENT" : "-");
+            cv_text(x, 0, &FONT_XS, ENTRY_KNOB[k], C_GRAY);
             cv_text(x, 14, &FONT_B, t, C_WHITE);
         }
         cv_blit(0, y);
@@ -1832,12 +1880,14 @@ static void seq_draw(void)
             cv_rect(x, 2, 12, 2, C_WHITE);
             cv_rect(x, 34, 12, 2, C_WHITE);
         }
+        if (entry_page() && idx == sl_cursor())   /* step entry: the cursor */
+            cv_rect(x, 36, 12, 3, RGB(230, 70, 60));
     }
     t[0] = 0;
     text_cat(t, "PAGE ");
     int_text(ui.step_page + 1, n);
     text_cat(t, n);
-    text_cat(t, steps_on() ? "  KEYS: STEPS" : "  KEYS: NOTES");
+    text_cat(t, steps_on() ? "  KEYS: STEPS" : entry_page() ? "  KEYS: STEP ENTRY" : "  KEYS: NOTES");
     cv_text(10, 44, &FONT_XS, t, C_GRAY);
     if (st & (SL_S_PLAY | SL_S_REC | SL_S_ARMED))
         cv_text(230 - text_w(&FONT_XS, st & SL_S_REC ? "REC" : st & SL_S_ARMED ? "READY" : "PLAY"), 44, &FONT_XS,
@@ -2109,6 +2159,11 @@ void app_frame(void)
         ui.msg_until = 0;
         ui.redraw = 1;
     }
+    sl_entry(entry_page());                  /* (STEP page: the notes played write the cursor's step) */
+    if (entry_page() && ui.step_page != sl_cursor() / 16u) {
+        ui.step_page = (uint8_t)(sl_cursor() / 16u);   /* (the page shown follows the cursor) */
+        ui.redraw = 1;
+    }
     {   /* the sequencer: the screen follows its steps; the delay its tempo; a changed pattern kept once it rests */
         uint32_t st = sl_state() & ~(uint32_t)SL_S_BEAT, chg = sl_changes();
         int32_t pos = sl_pos();
@@ -2168,6 +2223,8 @@ int app_expect(const char *what, int *got)
         *got = (int)(sl_state() & ~(uint32_t)SL_S_BEAT & ~(uint32_t)SL_S_UNDO & ~(uint32_t)SL_S_REDO);
     else if (!strcmp(what, "seqpos"))
         *got = sl_pos();
+    else if (!strcmp(what, "cursor"))
+        *got = (int)sl_cursor();
     else if (!strcmp(what, "steppage"))
         *got = ui.step_page;
     else if (!strncmp(what, "stepn", 5))     /* stepnN: how many notes step N holds (-1 a tie) */

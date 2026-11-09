@@ -83,7 +83,10 @@ enum {
     SC_UNDO,
     SC_REDO,
     SC_WIPE,     /* the pattern cleared */
-    SC_STOP
+    SC_STOP,
+    SC_CURSOR,   /* step entry: the cursor d steps on */
+    SC_TIME,     /* step a: NOTE, TIE, REST in turn */
+    SC_FLAG      /* step a: -, ACCENT, SLIDE, both in turn */
 };
 void sl_cmd(uint32_t cmd, uint32_t a, int32_t d);
 
@@ -92,3 +95,8 @@ enum { SL_S_PLAY = 1, SL_S_REC = 2, SL_S_ARMED = 4, SL_S_BEAT = 8, SL_S_SYNC = 1
 uint32_t sl_state(void);
 int32_t sl_pos(void);                          /* the step playing, -1 stopped */
 uint32_t sl_changes(void);                     /* the pattern's changes so far (a count) */
+
+/* step entry (SLOOP's STEP page): while on, the notes played (keys and MIDI) write the cursor's step, those held
+ * together a chord of up to 4; all let go, the cursor moves to the next step. Not while recording or armed */
+void sl_entry(int on);                         /* main loop */
+uint32_t sl_cursor(void);

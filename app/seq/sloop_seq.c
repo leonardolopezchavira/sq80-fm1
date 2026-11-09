@@ -303,6 +303,8 @@ static struct {
     uint8_t down, last[4], nlast, last_vel;
 } T;
 static volatile uint32_t changes;
+static volatile uint8_t entry_on, cursor;            /* step entry: on (the UI's STEP page), the step it writes */
+static uint8_t entry_open;                           /* .. a chord being written (the keys not all let go) */
 
 static struct {
     uint8_t valid, undone;
@@ -311,6 +313,7 @@ static struct {
     sl_step st[SL_NSTEP];
 } undo;
 static uint32_t undo_sess = 1;
+static uint32_t undo_sess_next(void) { return undo_sess += 4u; }
 static void undo_mark(uint32_t sess)
 {
     if (undo.valid && !undo.undone && undo.sess == sess)
@@ -833,6 +836,28 @@ static void seq_tick(uint32_t adv)
 }
 
 /* ---------------------------------------------------------------- input --- */
+static void undo_mark(uint32_t sess);
+static uint32_t undo_sess_next(void);
+
+/* step entry, acid style (SLOOP's seq_entry): the notes held together become the cursor's step */
+static void entry_note(uint32_t note, uint32_t vel)
+{
+    sl_step *st = &sg->step[cursor % trk_len()];
+    if (!entry_open) {
+        entry_open = 1;
+        undo_mark(undo_sess_next());
+        st->n = 0;
+        st->lvl = st->rat = 0;
+        st->vel = 0;
+        st->time = SL_ST_NOTE;
+    }
+    if (st->n < 4u)
+        st->note[st->n++] = (uint8_t)note;
+    if (vel > st->vel)
+        st->vel = (uint8_t)vel;
+    changes++;
+}
+
 void sl_key(uint32_t note, uint32_t vel)
 {
     if (!sg || note > 127u)
@@ -844,6 +869,8 @@ void sl_key(uint32_t note, uint32_t vel)
             T.last[T.nlast++] = (uint8_t)note;
         T.last_vel = (uint8_t)vel;
         T.down++;
+        if (entry_on && !recording && !armed)
+            entry_note(note, vel);
         if (armed && !playing) {                       /* armed: the first note is the downbeat */
             armed = 0;
             seq_start();
@@ -860,6 +887,11 @@ void sl_key(uint32_t note, uint32_t vel)
     } else {
         if (T.down)
             T.down--;
+        if (entry_open && !T.down) {           /* all let go: the next step */
+            entry_open = 0;
+            cursor = (uint8_t)((cursor + 1u) % trk_len());
+            changes++;
+        }
         rec_release(note);
         if (P(SL_AON)) {
             arp_remove(note);
@@ -999,6 +1031,31 @@ void sl_cmd(uint32_t cmd, uint32_t a, int32_t d)
     case SC_TYPE:
         step_type(s, d);
         break;
+    case SC_CURSOR: {
+        int32_t len = (int32_t)trk_len(), c = ((int32_t)cursor + d) % len;
+        cursor = (uint8_t)(c < 0 ? c + len : c);
+        entry_open = 0;
+        changes++;
+        return;
+    }
+    case SC_TIME: {                                    /* NOTE, TIE, REST */
+        uint32_t t = (s->time + (uint32_t)(d > 0 ? 1 : 2)) % 3u;
+        if (t == SL_ST_NOTE && !s->n) {
+            s->n = 1;
+            s->note[0] = T.nlast ? T.last[0] : 60u;
+            s->vel = T.last_vel;
+        }
+        s->time = (uint8_t)t;
+        break;
+    }
+    case SC_FLAG: {                                    /* -, ACCENT, SLIDE, both */
+        uint32_t f = (uint32_t)(s->flags & (SL_SF_ACCENT | SL_SF_SLIDE));
+        if (s->time != SL_ST_NOTE || !s->n)
+            return;
+        f = (f + (uint32_t)(d > 0 ? 1 : 3)) % 4u;
+        s->flags = (uint8_t)((s->flags & ~(SL_SF_ACCENT | SL_SF_SLIDE)) | f);
+        break;
+    }
     default:
         return;
     }
@@ -1130,6 +1187,12 @@ uint32_t sl_state(void)
         s |= SL_S_REDO;
     return s;
 }
+
+void sl_entry(int on)
+{
+    entry_on = (uint8_t)(on != 0);
+}
+uint32_t sl_cursor(void) { return sg ? cursor % trk_len() : 0u; }
 
 int32_t sl_pos(void) { return playing && T.seq_abs != SEQ_NONE ? (int32_t)T.seq_idx : -1; }
 uint32_t sl_changes(void) { return changes; }

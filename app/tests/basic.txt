@@ -242,6 +242,8 @@ expect sec 0
 tap SEQ
 wait 30
 expect sec 9
+turn ALGO 1
+wait 30
 key 0 down
 wait 30
 key 0 up
@@ -345,6 +347,52 @@ expect stepn0 2
 turn K1 -8
 wait 30
 expect sl9 8
+# step entry (SLOOP's STEP page, SEQ's first): the notes played write the cursor's step, held together a chord;
+# all let go, the next step; K1 the cursor, K2 the notes, K3 NOTE / TIE / REST, K4 the flags
+press REC
+wait 2100
+release REC
+wait 30
+expect stepn0 0
+turn ALGO -1
+wait 30
+expect cursor 0
+key 0 down
+wait 30
+key 0 up
+wait 30
+expect step0 65
+expect cursor 1
+key 2 down
+key 4 down
+wait 30
+key 2 up
+wait 30
+expect cursor 1
+key 4 up
+wait 30
+expect stepn1 2
+expect cursor 2
+turn K3 1
+wait 30
+expect step2 67
+turn K1 -2
+wait 30
+expect cursor 0
+turn K2 1
+wait 30
+expect step0 66
+shot seq_entry.png
+press SEQ
+wait 30
+key 0 down
+wait 30
+key 0 up
+wait 30
+release SEQ
+wait 30
+expect cursor 0
+expect step0 0
 tap HOME
 wait 30
 expect sec 0
