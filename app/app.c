@@ -869,7 +869,7 @@ static void bank_step(int32_t d)             /* SELECT: the next bank that has p
  * values, HOME goes back to the play screen. On the play screen K1..K4 change cutoff, resonance and ENV4's attack
  * and release. SAVE stores the program: PRESET and SELECT choose where (program and bank), SAVE again writes it,
  * HOME leaves it. */
-enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE };
+enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE, ED_SYS };   /* SYS: GLO, the load */
 typedef struct {
     const char *title;
     int8_t p[4];                         /* parameter in the group (sq80_params.h), -1 none */
@@ -1133,6 +1133,13 @@ static void input(void)
             section(ED_PROG, 1);
         else if (k == B_FX)
             section(ED_FX, 1);
+        else if (k == B_GLO) {               /* the load: CPU now, its peak, under-runs; GLO again: the peak from 0 */
+            if (ed.sec == ED_SYS)
+                ui.peak = 0;
+            ed.sec = ED_SYS;
+            ui.msg_until = 0;
+            ui.redraw = 1;
+        }
         else if (k == B_ARP)
             stress_set(!ui.stress);
         else if (k == B_HOME) {
@@ -1156,7 +1163,7 @@ static void input(void)
                 } else {
                     app_say("SAVE", "FAILED");
                 }
-            } else if (edited || ed.sec != ED_PLAY)
+            } else if (edited || (ed.sec != ED_PLAY && ed.sec != ED_SYS))
                 save_begin();
             else if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
                 set_dirty = 0;
@@ -1206,7 +1213,7 @@ static void input(void)
     ui.btn = btn;
     plat_glow(1);
     {
-        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE};
+        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO};
         uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u;
         plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (ui.stress ? 1u << B_ARP : 0u), keys);
     }
@@ -1277,7 +1284,8 @@ static void draw(void)
     } else {
         cv_text(10, 6, &FONT_B, APP_NAME, C_WHITE);
         if (ed.sec != ED_PLAY)
-            cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : ed.sec == ED_FX ? "FX" : "EDIT", C_ACCENT);
+            cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : ed.sec == ED_FX ? "FX" :
+                    ed.sec == ED_SYS ? "SYSTEM" : "EDIT", C_ACCENT);
         if (last_note >= 0) {
             note_name(last_note, t);
             cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_ACCENT);
@@ -1323,6 +1331,35 @@ static void draw(void)
         }
         cv_text(10, 84, &FONT_XS, "SELECT: BANK   PRESET: PROGRAM", C_DIM);
         cv_text(10, 104, &FONT_XS, "SAVE: WRITE IT   HOME: CANCEL", C_DIM);
+        cv_blit(0, 100);
+        return;
+    }
+    if (ed.sec == ED_SYS) {                  /* GLO: the audio load (as SQ-80 TEST showed it) */
+        uint32_t cpu = plat_cpu_pct(), x = plat_xruns();
+        cv_begin(240, 140, C_BLACK);
+        cv_text(10, 2, &FONT_B, "SYSTEM", C_ACCENT);
+        cv_text(10, 30, &FONT_XS, "CPU", C_GRAY);
+        int_text((int32_t)cpu, t);
+        text_cat(t, "%");
+        cv_text(70, 26, &FONT_B, t, cpu >= 85u ? RGB(230, 70, 60) : C_WHITE);
+        cv_text(130, 30, &FONT_XS, "PEAK", C_GRAY);
+        int_text((int32_t)ui.peak, t);
+        text_cat(t, "%");
+        cv_text(170, 26, &FONT_B, t, ui.peak >= 85u ? RGB(230, 70, 60) : C_ACCENT);
+        cv_rect(10, 50, 220, 6, C_LINE);
+        cv_rect(10, 50, 220 * (int32_t)(cpu > 100u ? 100u : cpu) / 100, 6, C_ACCENT);
+        if (ui.peak > 1u && ui.peak <= 100u)
+            cv_rect(10 + 220 * (int32_t)ui.peak / 100 - 2, 48, 2, 10, C_WHITE);
+        cv_text(10, 70, &FONT_XS, "XRUN", C_GRAY);
+        int_text((int32_t)x, t);
+        cv_text(70, 70, &FONT_XS, t, x ? RGB(230, 70, 60) : C_WHITE);
+        cv_text(130, 70, &FONT_XS, "VOICES", C_GRAY);
+        int_text((int32_t)voices_now, t);
+        cv_text(190, 70, &FONT_XS, t, C_WHITE);
+        cv_text(10, 88, &FONT_XS, "CORES", C_GRAY);
+        cv_text(70, 88, &FONT_XS, two_cores && plat_cpu2_on() ? "2" : "1", C_WHITE);
+        cv_text(10, 112, &FONT_XS, "GLO: PEAK FROM 0   ARP: 8 VOICES", C_DIM);
+        cv_text(10, 126, &FONT_XS, "HOME: PLAY", C_DIM);
         cv_blit(0, 100);
         return;
     }
@@ -1449,7 +1486,8 @@ void app_frame(void)
         ui.redraw = 1;
     }
     if (now - last_tick >= 250u &&
-        loads != ui.loads_shown) {
+        (loads != ui.loads_shown || (ed.sec == ED_SYS && (cpu != ui.cpu_shown || ui.peak != ui.peak_shown ||
+                                                          v != ui.voices_shown)))) {
         last_tick = now;
         ui.cpu_shown = cpu;
         ui.voices_shown = v;

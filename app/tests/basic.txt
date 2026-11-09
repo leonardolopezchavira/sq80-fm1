@@ -168,3 +168,11 @@ reboot
 wait 600
 expect fx0 100
 expect fx1 0
+# GLO: the load page
+tap GLO
+wait 300
+expect sec 7
+shot system.png
+tap HOME
+wait 30
+expect sec 0
