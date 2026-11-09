@@ -1270,6 +1270,45 @@ static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, v
     cv_blit(0, y);
 }
 
+/* SEL: the oscillator's wave as the SQ-80 plays it at middle C (its octave and semitone moving the key: the ROM's
+ * zones change the sample across the keyboard), drawn from the ROM pack: each column the lowest and highest byte of
+ * its share of the table, up to the end or the first zero (where the DOC stops); w x h at x, y of the canvas */
+static void wave_draw(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    uint32_t o = ed.inst % 3u, n, i, len, c;
+    int32_t wave = sq80_param_get(prog_raw, SQ80_PARAM_OSC(o, SQ80_P_OSC_WAVE));
+    int32_t key = 60 + 12 * sq80_param_get(prog_raw, SQ80_PARAM_OSC(o, SQ80_P_OSC_OCT)) +
+                  sq80_param_get(prog_raw, SQ80_PARAM_OSC(o, SQ80_P_OSC_SEMI));
+    sq80_raw_wave rw;
+    const uint8_t *src;
+    int32_t prev = h / 2, mid = h / 2;
+    key = key < 0 ? 0 : key > 127 ? 127 : key;
+    rw = sq80_rompack_raw(&rom, rom.zones[wave * SQ80_ZONES + (key >> 3)]);
+    n = 1u << rw.size_log2;
+    src = rom.rom;
+    for (len = 0; len < n && src[(rw.start + len) & rom.rom_mask]; len++)
+        ;                                    /* (to its end, or the zero that stops it) */
+    cv_rect(x, y + mid, w, 1, C_LINE);
+    if (!len)
+        return;
+    for (c = 0; c < (uint32_t)w; c++) {
+        uint32_t a = (uint32_t)((uint64_t)c * len / (uint32_t)w), b = (uint32_t)((uint64_t)(c + 1u) * len / (uint32_t)w);
+        int32_t lo = prev, hi = prev;
+        if (b <= a)
+            b = a + 1u;
+        for (i = a; i < b && i < len; i++) {
+            int32_t v = (int32_t)src[(rw.start + i) & rom.rom_mask];
+            int32_t py = (h - 1) - (v * (h - 1)) / 255;
+            if (py < lo)
+                lo = py;
+            if (py > hi)
+                hi = py;
+            prev = py;
+        }
+        cv_rect(x + (int32_t)c, y + lo, 1, hi - lo + 1, C_ACCENT);
+    }
+}
+
 static void draw(void)
 {
     static const char *const PLAY_NAMES[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
@@ -1385,6 +1424,11 @@ static void draw(void)
         cv_blit(0, 100);
         knob_cells(128, 0);
         cv_begin(240, 66, C_BLACK);
+        if (ed.sec == ED_OSC) {              /* the wave (its name is WAVE's, above), in place of the help */
+            wave_draw(10, 8, 220, 52);
+            cv_blit(0, 174);
+            return;
+        }
         cv_text(10, 20, &FONT_XS, "ALGO: PAGE   HOME: PLAY", C_DIM);
         cv_text(10, 40, &FONT_XS, ed.sec == ED_FX ? "SAVE: KEEP THE EFFECTS" : "SAVE: STORE THE PROGRAM", C_DIM);
         cv_blit(0, 174);
