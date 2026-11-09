@@ -18,6 +18,8 @@
  * scope. The engine is compiled apart at -O2 (fm1.toml o2). */
 #include "sq80.h"
 
+#define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
+
 /* ------------------------------------------------------------- flash map --- */
 #define SECTOR 4096u
 #define ROM_LO 0x97000u                  /* the ROM pack: 65 sectors, to BANK_LO */
@@ -982,17 +984,17 @@ static void note_name(int32_t note, char *b)
 static void draw(void)
 {
     char t[32], n[12];
-    uint32_t now = plat_ms(), cpu = plat_cpu_pct(), k;
+    uint32_t now = plat_ms(), k;
     /* the header: the name, or a message for a moment */
     cv_begin(240, 32, C_BLACK);
     if (now < ui.msg_until) {
         int32_t x = cv_text(10, 6, &FONT_B, ui.msg[0], C_WHITE);
-        cv_text(ui.msg[0][0] ? x + 8 : 10, 6, &FONT_B, ui.msg[1], C_HI);
+        cv_text(ui.msg[0][0] ? x + 8 : 10, 6, &FONT_B, ui.msg[1], C_ACCENT);
     } else {
         cv_text(10, 6, &FONT_B, APP_NAME, C_WHITE);
         if (last_note >= 0) {
             note_name(last_note, t);
-            cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_HI);
+            cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_ACCENT);
         }
     }
     cv_blit(0, 0);
@@ -1000,14 +1002,14 @@ static void draw(void)
     cv_begin(240, 64, C_BLACK);
     cv_text(10, 2, &FONT_XS, "BANK", C_GRAY);
     bank_text(t);
-    cv_text(44, 2, &FONT_XS, t, C_HI);
+    cv_text(44, 2, &FONT_XS, t, C_ACCENT);
     cv_text(70, 2, &FONT_XS, "PROGRAM", C_GRAY);
     int_text(set.prog + 1, t);
     text_cat(t, " / ");
     int_text((int32_t)bank_count(set.bank), n);
     text_cat(t, n);
-    cv_text(124, 2, &FONT_XS, t, C_HI);
-    cv_text(10, 20, &FONT_L, set.bank ? prog_name : "NO BANKS", edited ? C_HI : C_WHITE);
+    cv_text(124, 2, &FONT_XS, t, C_ACCENT);
+    cv_text(10, 20, &FONT_L, set.bank ? prog_name : "NO BANKS", edited ? C_ACCENT : C_WHITE);
     cv_blit(0, 34);
     /* the knobs */
     cv_begin(240, 46, C_BLACK);
@@ -1015,44 +1017,32 @@ static void draw(void)
         int32_t x = 4 + (int32_t)k * 59, v = knob_value(k), lim = k == 0 ? 127 : k == 1 ? 31 : 63;
         cv_text(x, 0, &FONT_XS, KNOB_NAME[k], C_GRAY);
         int_text(v, t);
-        cv_text(x, 14, &FONT_B, t, knob[k] ? C_HI : C_WHITE);
+        cv_text(x, 14, &FONT_B, t, knob[k] ? C_ACCENT : C_WHITE);
         cv_rect(x, 36, 54, 4, C_LINE);
-        cv_rect(x, 36, 54 * v / lim, 4, knob[k] ? C_HI : C_GRAY);
+        cv_rect(x, 36, 54 * v / lim, 4, knob[k] ? C_ACCENT : C_GRAY);
     }
     cv_blit(0, 100);
-    /* the state: the waves, the load, MIDI */
+    /* the octave, MIDI in, and a load under way (or no ROM pack yet) */
     cv_begin(240, 92, C_BLACK);
-    cv_text(10, 2, &FONT_XS, "WAVES", C_GRAY);
-    cv_text(66, 2, &FONT_XS, rom_real ? "SQ-80 ROM" : "TEST (NO ROM PACK)", rom_real ? C_WHITE : C_HI);
-    cv_text(10, 20, &FONT_XS, "CPU", C_GRAY);
-    int_text((int32_t)cpu, t);
-    text_cat(t, "%  PEAK ");
-    int_text((int32_t)ui.peak, n);
-    text_cat(t, n);
-    text_cat(t, "%");
-    cv_text(66, 20, &FONT_XS, t, cpu >= 85u ? RGB(230, 70, 60) : C_WHITE);
-    cv_text(10, 38, &FONT_XS, "VOICES", C_GRAY);
-    int_text((int32_t)voices_now, t);
-    text_cat(t, two_cores && plat_cpu2_on() ? "   2 CORES" : "   1 CORE");
-    cv_text(66, 38, &FONT_XS, t, C_WHITE);
-    cv_text(10, 56, &FONT_XS, "OCT", C_GRAY);
+    cv_text(10, 20, &FONT_XS, "OCT", C_GRAY);
     t[0] = set.octave < 0 ? '-' : '+';
     t[1] = (char)('0' + (set.octave < 0 ? -set.octave : set.octave));
     t[2] = 0;
-    cv_text(66, 56, &FONT_XS, t, C_HI);
+    cv_text(44, 20, &FONT_XS, t, C_ACCENT);
     if (midi_count) {
         static const char *const PORT[NPORTS] = {"USB", "BLE", "TRS"};
-        cv_text(120, 56, &FONT_XS, "MIDI", C_GRAY);
-        cv_text(156, 56, &FONT_XS, midi_last_port < NPORTS ? PORT[midi_last_port] : "", C_HI);
+        cv_text(120, 20, &FONT_XS, "MIDI", C_GRAY);
+        cv_text(156, 20, &FONT_XS, midi_last_port < NPORTS ? PORT[midi_last_port] : "", C_ACCENT);
     }
     if (ld.active) {
         int_text((int32_t)(ld.got * 100u / (ld.size ? ld.size : 1u)), t);
         text_cat(t, "%");
-        cv_text(10, 74, &FONT_XS, "LOADING ROM PACK", C_HI);
-        cv_text(140, 74, &FONT_XS, t, C_WHITE);
-    } else {
-        cv_text(10, 74, &FONT_XS, "SELECT: BANK   PRESET: PROGRAM", C_DIM);
+        cv_text(10, 46, &FONT_XS, "LOADING ROM PACK", C_ACCENT);
+        cv_text(140, 46, &FONT_XS, t, C_WHITE);
+    } else if (!rom_real) {
+        cv_text(10, 46, &FONT_XS, "NO ROM PACK: TEST WAVES", C_GRAY);
     }
+    cv_text(10, 74, &FONT_XS, "SELECT: BANK   PRESET: PROGRAM", C_DIM);
     cv_blit(0, 148);
 }
 
@@ -1063,7 +1053,7 @@ static void draw(void)
 #define LOGO_W 6
 #define LOGO_H 9
 #define LOGO_CREAM RGB(242, 234, 214)
-#define LOGO_CYAN RGB(64, 220, 230)
+#define LOGO_CYAN C_ACCENT
 static const uint8_t LOGO_GLYPH[4][LOGO_H] = {   /* a row a byte, bit 5 the left cell */
     {0x3F, 0x3F, 0x30, 0x3F, 0x3F, 0x03, 0x3F, 0x3F, 0x00},   /* S */
     {0x3F, 0x3F, 0x33, 0x33, 0x33, 0x37, 0x3F, 0x3F, 0x03},   /* Q, its tail below */
@@ -1127,7 +1117,7 @@ void app_frame(void)
         ui.redraw = 1;
     }
     if (now - last_tick >= 250u &&
-        (cpu != ui.cpu_shown || v != ui.voices_shown || ui.peak != ui.peak_shown || loads != ui.loads_shown)) {
+        loads != ui.loads_shown) {
         last_tick = now;
         ui.cpu_shown = cpu;
         ui.voices_shown = v;
