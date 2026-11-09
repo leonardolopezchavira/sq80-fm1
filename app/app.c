@@ -18,6 +18,7 @@
  * scope. The engine is compiled apart at -O2 (fm1.toml o2). */
 #include "sq80.h"
 #include "sq80_params.h"
+#include "fmini_fx.h"
 
 #define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
 
@@ -35,13 +36,15 @@
 #define NPROG 40u
 
 /* --------------------------------------------------------------- settings --- */
-#define SET_MAGIC 0x53513830u            /* "SQ80" */
+#define SET_MAGIC 0x53513831u            /* "SQ81": with the effects (0.7); "SQ80" (0.3 .. 0.6): without */
+#define SET_MAGIC_0 0x53513830u
 typedef struct {
     uint32_t magic;
     int8_t octave;                       /* -2 .. +2 */
     uint8_t bank;                        /* 1..8; 0: no bank loaded */
     uint8_t prog;                        /* 0 .. 39 */
     uint8_t rsv;
+    uint8_t fx[FXP_N];                   /* the effects (fmini_fx.h): the instrument's, not a program's */
 } settings_t;
 static settings_t set;
 static uint8_t set_dirty;
@@ -54,7 +57,6 @@ static sq80_synth syn;
 static float buf_l[APP_BLOCK], buf_r[APP_BLOCK];
 static float buf2_l[APP_BLOCK], buf2_r[APP_BLOCK];   /* the second core's voices */
 static uint8_t two_cores;
-static float gain_now;
 
 static uint8_t prog_raw[102];            /* the program playing, as its 102 bytes: what the editor changes */
 static sq80_patch play_patch[2];         /* decoded: two, the main loop writes the one not playing */
@@ -254,7 +256,6 @@ static void core2_job(uint32_t n)            /* the second core: voices 4..7 */
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     uint32_t i;
-    float gain = (float)master_q12 / 4096.0f * 8300000.0f;
     if (n > APP_BLOCK)
         n = APP_BLOCK;
     if (!engine_on) {                        /* the ROM pack is being rewritten: nothing from the flash */
@@ -280,16 +281,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     } else {
         sq80_render(&syn, buf_l, buf_r, (int)n);
     }
-    for (i = 0; i < n; i++) {
-        float l, r;
-        gain_now += (gain - gain_now) * 0.004f;
-        l = buf_l[i] * 0.8f * gain_now;
-        r = buf_r[i] * 0.8f * gain_now;
-        l = l > 8388607.0f ? 8388607.0f : l < -8388607.0f ? -8388607.0f : l;
-        r = r > 8388607.0f ? 8388607.0f : r < -8388607.0f ? -8388607.0f : r;
-        lr[2 * i] = (int32_t)l;
-        lr[2 * i + 1] = (int32_t)r;
-    }
+    fx_render(buf_l, buf_r, lr, n, master_q12);   /* DRIVE, the sends, the effects, the master (fmini_fx.c) */
     voices_now = (uint32_t)sq80_active_voices(&syn);
 }
 
@@ -335,6 +327,7 @@ static void settings_defaults(void)          /* (the flash is mapped from app_in
     set.octave = 0;
     set.bank = (uint8_t)first_bank();
     set.prog = 0;
+    fx_defaults(set.fx);
 }
 
 void app_init(void)
@@ -342,9 +335,22 @@ void app_init(void)
     rom_attach();
     sq80_init(&syn, &rom, 44100.0f);
     two_cores = plat_cpu2_set(1) == 0;
-    if (plat_store_load(OBJ_SETTINGS, &set, sizeof set) != (int)sizeof set || set.magic != SET_MAGIC
-        || set.octave < -2 || set.octave > 2 || set.bank > NBANK || set.prog >= NPROG)
-        settings_defaults();
+    {
+        int got = plat_store_load(OBJ_SETTINGS, &set, sizeof set), i;
+        if (got == 8 && set.magic == SET_MAGIC_0) {   /* 0.3 .. 0.6's: bank, program, octave kept, the effects new */
+            set.magic = SET_MAGIC;
+            fx_defaults(set.fx);
+        } else if (got != (int)sizeof set || set.magic != SET_MAGIC) {
+            settings_defaults();
+        }
+        if (set.octave < -2 || set.octave > 2 || set.bank > NBANK || set.prog >= NPROG)
+            settings_defaults();
+        for (i = 0; i < FXP_N; i++)
+            if (set.fx[i] > fx_param(i)->max)
+                set.fx[i] = fx_param(i)->def;
+    }
+    fx_init();
+    fx_set(set.fx);
     program_load(1);
     events();                                /* (no audio yet: the program in place before the first render) */
     engine_on = 1;
@@ -863,7 +869,7 @@ static void bank_step(int32_t d)             /* SELECT: the next bank that has p
  * values, HOME goes back to the play screen. On the play screen K1..K4 change cutoff, resonance and ENV4's attack
  * and release. SAVE stores the program: PRESET and SELECT choose where (program and bank), SAVE again writes it,
  * HOME leaves it. */
-enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_SAVE };
+enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE };
 typedef struct {
     const char *title;
     int8_t p[4];                         /* parameter in the group (sq80_params.h), -1 none */
@@ -889,10 +895,18 @@ static const ed_page PROG_PAGES[] = {
     {"RESTART", {SQ80_P_VC, SQ80_P_ENVRS, SQ80_P_OSCRS, SQ80_P_CYC}},
     {"NAME 1-4", {SQ80_P_NAME0, SQ80_P_NAME0 + 1, SQ80_P_NAME0 + 2, SQ80_P_NAME0 + 3}},
     {"NAME 5-6", {SQ80_P_NAME0 + 4, SQ80_P_NAME0 + 5, NONE, NONE}}};
+/* FX: FMini-1's EFFECTS page and its four pop-ups, as pages (the ids: fmini_fx.h FXP_*) */
+static const ed_page FX_PAGES[] = {
+    {"LEVELS", {FXP_REV, FXP_DLY, FXP_CHO, FXP_DRIVE}},
+    {"REVERB", {FXP_RTYPE, FXP_RSIZE, FXP_RTONE, FXP_REV}},
+    {"DELAY", {FXP_DTYPE, FXP_DTIME, FXP_DFDBK, FXP_DLY}},
+    {"CHORUS", {FXP_CTYPE, FXP_CDEPTH, FXP_CRATE, FXP_CHO}},
+    {"DRIVE", {FXP_DRTYPE, FXP_DRTONE, FXP_DROUT, FXP_DRIVE}}};
+static const char *const FX_LEVEL_NAME[4] = {"REVERB", "DELAY", "CHORUS", "DRIVE"};
 static const ed_page PLAY_PAGE = {"", {SQ80_P_FREQ, SQ80_P_RES, NONE, NONE}};   /* (K3, K4: ENV4 T1, T4) */
 
 static struct {
-    uint8_t sec, inst, page[5];          /* the section, its instance, each section's page */
+    uint8_t sec, inst, page[6];          /* the section, its instance, each section's page */
     uint8_t to_bank, to_prog;            /* SAVE: where to */
     uint8_t back;                        /* SAVE: the section to go back to */
 } ed;
@@ -904,6 +918,7 @@ static const ed_page *ed_pages(uint32_t sec, uint32_t *n)
     case ED_ENV: *n = sizeof ENV_PAGES / sizeof ENV_PAGES[0]; return ENV_PAGES;
     case ED_LFO: *n = sizeof LFO_PAGES / sizeof LFO_PAGES[0]; return LFO_PAGES;
     case ED_PROG: *n = sizeof PROG_PAGES / sizeof PROG_PAGES[0]; return PROG_PAGES;
+    case ED_FX: *n = sizeof FX_PAGES / sizeof FX_PAGES[0]; return FX_PAGES;
     default: *n = 1; return &PLAY_PAGE;
     }
 }
@@ -911,13 +926,15 @@ static const ed_page *ed_pages(uint32_t sec, uint32_t *n)
 static int ed_param(uint32_t k)              /* the parameter id K1..K4 change now, -1 none */
 {
     uint32_t n;
-    const ed_page *pg = ed_pages(ed.sec, &n) + (ed.sec <= ED_PROG ? ed.page[ed.sec] % n : 0);
+    const ed_page *pg = ed_pages(ed.sec, &n) + (ed.sec <= ED_FX ? ed.page[ed.sec] % n : 0);
     int q;
     if (ed.sec == ED_PLAY)
         return k == 0 ? SQ80_PARAM_PROG(SQ80_P_FREQ) : k == 1 ? SQ80_PARAM_PROG(SQ80_P_RES) :
                SQ80_PARAM_ENV(3, k == 2 ? SQ80_P_ENV_T1 : SQ80_P_ENV_T4);
-    if (ed.sec > ED_PROG || (q = pg->p[k]) < 0)
+    if (ed.sec > ED_FX || (q = pg->p[k]) < 0)
         return -1;
+    if (ed.sec == ED_FX)                     /* (an effect's setting: fx_* below, not the program's) */
+        return q;
     switch (ed.sec) {
     case ED_OSC: return SQ80_PARAM_OSC(ed.inst, q);
     case ED_ENV: return SQ80_PARAM_ENV(ed.inst, q);
@@ -957,6 +974,15 @@ static void value_text(int id, char *t)      /* a value as the screen shows it *
     }
 }
 
+static void fx_turn(int id, int32_t e)       /* an effect's setting: the instrument's (SAVE keeps it) */
+{
+    int v = (int)set.fx[id] + e, max = fx_param(id)->max;
+    set.fx[id] = (uint8_t)(v < 0 ? 0 : v > max ? max : v);
+    fx_set(set.fx);
+    set_dirty = 1;
+    ui.redraw = 1;
+}
+
 static void knob_turn(uint32_t k, int32_t e)
 {
     int id = ed_param(k);
@@ -964,6 +990,10 @@ static void knob_turn(uint32_t k, int32_t e)
     char t[12];
     if (id < 0)
         return;
+    if (ed.sec == ED_FX) {
+        fx_turn(id, e);
+        return;
+    }
     in = sq80_param(id);
     sq80_param_set(prog_raw, id, sq80_param_get(prog_raw, id) + e);
     edited = 1;
@@ -1101,6 +1131,8 @@ static void input(void)
             section(ED_LFO, 3);
         else if (k == B_EDIT)
             section(ED_PROG, 1);
+        else if (k == B_FX)
+            section(ED_FX, 1);
         else if (k == B_ARP)
             stress_set(!ui.stress);
         else if (k == B_HOME) {
@@ -1117,7 +1149,14 @@ static void input(void)
         } else if (k == B_SAVE) {
             if (ed.sec == ED_SAVE)
                 save_commit();
-            else if (edited || ed.sec != ED_PLAY)
+            else if (ed.sec == ED_FX) {      /* the effects: kept with the settings */
+                if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
+                    set_dirty = 0;
+                    app_say("EFFECTS", "SAVED");
+                } else {
+                    app_say("SAVE", "FAILED");
+                }
+            } else if (edited || ed.sec != ED_PLAY)
                 save_begin();
             else if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
                 set_dirty = 0;
@@ -1167,7 +1206,7 @@ static void input(void)
     ui.btn = btn;
     plat_glow(1);
     {
-        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_SAVE};
+        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE};
         uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u;
         plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (ui.stress ? 1u << B_ARP : 0u), keys);
     }
@@ -1195,6 +1234,17 @@ static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, v
         const sq80_param_info *in;
         if (id < 0)
             continue;
+        if (ed.sec == ED_FX) {               /* an effect's setting: its name (the levels page: the effect's), value, bar */
+            const fx_param_info *fi = fx_param(id);
+            int32_t v = set.fx[id];
+            cv_text(x, 0, &FONT_XS, ed.page[ED_FX] % 5u == 0 ? FX_LEVEL_NAME[k] : fi->name, C_GRAY);
+            cv_text(x, 14, &FONT_B, fx_value_text(id, v, t), C_WHITE);
+            if (!fi->names) {
+                cv_rect(x, 36, 54, 4, C_LINE);
+                cv_rect(x, 36, 54 * v / fi->max, 4, C_ACCENT);
+            }
+            continue;
+        }
         in = sq80_param(id);
         cv_text(x, 0, &FONT_XS, names ? names[k] : in->name, C_GRAY);
         value_text(id, t);
@@ -1216,7 +1266,7 @@ static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, v
 static void draw(void)
 {
     static const char *const PLAY_NAMES[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
-    static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM"};
+    static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM", "FX"};
     char t[32], n[12];
     uint32_t now = plat_ms();
     /* the header: the name, or a message for a moment */
@@ -1227,7 +1277,7 @@ static void draw(void)
     } else {
         cv_text(10, 6, &FONT_B, APP_NAME, C_WHITE);
         if (ed.sec != ED_PLAY)
-            cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : "EDIT", C_ACCENT);
+            cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : ed.sec == ED_FX ? "FX" : "EDIT", C_ACCENT);
         if (last_note >= 0) {
             note_name(last_note, t);
             cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_ACCENT);
@@ -1283,7 +1333,7 @@ static void draw(void)
                                                 * stays) */
         t[0] = 0;
         text_cat(t, SEC_NAME[ed.sec]);
-        if (ed.sec != ED_PROG) {
+        if (ed.sec != ED_PROG && ed.sec != ED_FX) {
             text_cat(t, " ");
             int_text(ed.inst + 1, n);
             text_cat(t, n);
@@ -1299,7 +1349,7 @@ static void draw(void)
         knob_cells(128, 0);
         cv_begin(240, 66, C_BLACK);
         cv_text(10, 20, &FONT_XS, "ALGO: PAGE   HOME: PLAY", C_DIM);
-        cv_text(10, 40, &FONT_XS, "SAVE: STORE THE PROGRAM", C_DIM);
+        cv_text(10, 40, &FONT_XS, ed.sec == ED_FX ? "SAVE: KEEP THE EFFECTS" : "SAVE: STORE THE PROGRAM", C_DIM);
         cv_blit(0, 174);
         return;
     }
@@ -1438,12 +1488,14 @@ int app_expect(const char *what, int *got)
         *got = set_dirty;
     else if (!strncmp(what, "raw", 3))       /* rawN: byte N of the playing program */
         *got = prog_raw[atoi(what + 3) % 102];
+    else if (!strncmp(what, "fx", 2))        /* fxN: effect setting N (fmini_fx.h FXP_*) */
+        *got = set.fx[atoi(what + 2) % FXP_N];
     else if (!strcmp(what, "sec"))
         *got = ed.sec;
     else if (!strcmp(what, "inst"))
         *got = ed.inst;
     else if (!strcmp(what, "page"))
-        *got = ed.page[ed.sec < 5 ? ed.sec : 0];
+        *got = ed.page[ed.sec < 6 ? ed.sec : 0];
     else if (!strcmp(what, "edited"))
         *got = edited;
     else if (!strcmp(what, "cutoff"))

@@ -16,14 +16,16 @@ This is version {{VERSION}}. You install it at your own risk, and the installer 
 - [Load](load/) your ROM pack and programs (Chrome or Edge).
 - [Try it in the browser](emu/) (with the test waves).
 - [Download {{PKG}}](firmware/{{PKG}}).
-- The [Source](https://github.com/leonardolopezchavira/sq80-fm1) is under MIT. It's built on fm1-base (MPL-2.0)
-  and felucca-bsp, which come from Felucca by Leo Kuroshita, Hügelton Instruments.
+- The [Source](https://github.com/leonardolopezchavira/sq80-fm1): the firmware is GPL-3.0-only (the engine MIT). It's
+  built on fm1-base (MPL-2.0) and felucca-bsp, which come from Felucca by Leo Kuroshita, Hügelton Instruments; its
+  effects are FMini-1's, by Ruppert, after Felucca's.
 
 On the FM-1: SELECT picks the bank (1–8), PRESET the program, K1–K4 change cutoff, resonance,
 attack and release (HOME puts them back), OCT- / OCT+ the octave. Every value of a program can be edited: SEL for
 the oscillators, ENV for the envelopes, LFO for the LFOs, EDIT for the filter, output, modes and name (press again
 for the next one, ALGO for the pages, K1–K4 for the values, HOME to play); SAVE stores it into any of the eight
-banks, a new one too. MIDI in
+banks, a new one too. FX opens the effects, FMini-1's: reverb, delay, chorus and drive, their levels on the first page
+and each one's TYPE and settings on the next (FX again, or ALGO); SAVE keeps them. MIDI in
 over USB, Bluetooth and TRS plays it, program changes too, and an ESQ-1 / SQ-80 single-program dump sent to it
 plays at once.
 

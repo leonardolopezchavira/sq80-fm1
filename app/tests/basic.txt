@@ -92,7 +92,7 @@ expect raw0 74
 shot edit_name.png
 tap SAVE
 wait 30
-expect sec 5
+expect sec 6
 turn PRESET 2
 wait 30
 shot save.png
@@ -135,3 +135,36 @@ expect prog 37
 expect raw0 74
 expect raw89 100
 expect raw63 2
+# the effects: FX, its pages, K1..K4; SAVE keeps them; the reverb's tail after the note
+tap HOME
+wait 30
+tap FX
+wait 30
+expect sec 5
+expect page 0
+turn K1 100
+wait 30
+expect fx0 100
+shot fx_levels.png
+tap FX
+wait 30
+expect page 1
+turn K1 -1
+wait 30
+expect fx1 0
+shot fx_reverb.png
+tap SAVE
+wait 50
+expect dirty 0
+tap HOME
+wait 30
+wav fx.wav
+key 7 down
+wait 300
+key 7 up
+wait 1500
+wavstop
+reboot
+wait 600
+expect fx0 100
+expect fx1 0

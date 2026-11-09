@@ -74,6 +74,13 @@ up to eight ESQ-1/SQ-80 program banks, loaded into its flash over USB SysEx by t
 
 Measured on the FM-1 (0.2.0): eight voices at 39% audio load on two cores, no under-runs.
 
+## Effects
+
+The firmware has FMini-1's effects (https://github.com/ruppert/fmini-1, after Felucca by Leo Kuroshita, Hügelton
+Instruments), ported as they are: DRIVE (SOFT, TUBE), CHORUS (STEREO, JUNO, MULTI), DELAY (ANALOG, DIGITAL, TAPE,
+P-PONG, MULTI, SLAP, REVERSE) and REVERB (ROOM, HALL, PLATE, SPRING, CLOUD), on FX. They are GPL-3.0-only, so the
+firmware as a whole is too: see [LICENSING.md](LICENSING.md).
+
 ## Layout
 
 - `src/sq80/`: the engine (portable C99, single-precision float, no OS calls, no allocation), the same source for the desktop tools and the FM-1

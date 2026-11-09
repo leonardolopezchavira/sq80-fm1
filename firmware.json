@@ -3,7 +3,7 @@
   "id": "sq80",
   "name": "sq80-fm1",
   "author": "Leonardo Lopez Chavira",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "tagline": "an Ensoniq SQ-80 for the FM-1, on your own ROMs",
   "description": "An unofficial Ensoniq SQ-80 for the FM-1, written from scratch: three wavetable oscillators, a resonant 4-pole filter, four envelopes and three LFOs per voice, eight voices on two cores. It plays the SQ-80 waves and programs you load into it from your own ROM dumps and SysEx banks (none are included); without them, a synthetic test wave set.",
   "tags": ["synth"],
@@ -16,5 +16,5 @@
     "flash": ["856014", "B36014"],
     "features": ["bluetooth-midi", "usb-audio-in", "usb-audio-out", "second-core", "velocity", "pressure", "screen-reader"]
   },
-  "credits": "Built on fm1-base (MPL-2.0)."
+  "credits": "Built on fm1-base (MPL-2.0); the effects are FMini-1's by Ruppert, after Felucca by Leo Kuroshita, Hügelton Instruments (GPL-3.0)."
 }
