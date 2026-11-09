@@ -33,14 +33,18 @@ expect cutoff 127
 tap OCT+
 wait 30
 expect octave 1
-tap ARP
+tap GLO
+wait 30
+tap PLAY
 wait 300
 expect stress 1
 expect voices 8
 shot stress.png
-tap ARP
+tap PLAY
 wait 30
 expect stress 0
+tap HOME
+wait 30
 tap SAVE
 wait 30
 expect dirty 0
@@ -173,6 +177,61 @@ tap GLO
 wait 300
 expect sec 7
 shot system.png
+tap HOME
+wait 30
+expect sec 0
+# the arpeggiator: ARP on, two keys held (the octave +1 from above): UP at 1/16 and 120 BPM (a step 125 ms); held, its page; DOWN; LATCH
+tap ARP
+wait 30
+expect arp0 1
+key 7 down
+key 11 down
+wait 40
+expect note 72
+wait 125
+expect note 76
+wait 125
+expect note 72
+press ARP
+wait 600
+release ARP
+wait 30
+expect sec 8
+expect arp0 1
+turn K1 1
+wait 160
+expect arp1 1
+shot arp.png
+key 7 up
+key 11 up
+wait 800
+expect voices 0
+key 7 down
+key 11 down
+wait 40
+expect note 76
+wait 125
+expect note 72
+key 7 up
+key 11 up
+wait 800
+expect voices 0
+turn ALGO 1
+wait 30
+turn K2 1
+wait 30
+expect arp6 1
+key 7 down
+wait 50
+key 7 up
+wait 400
+expect voices 1
+turn K2 -1
+wait 400
+expect voices 0
+tap ARP
+wait 30
+expect arp0 0
 tap HOME
 wait 30
 expect sec 0

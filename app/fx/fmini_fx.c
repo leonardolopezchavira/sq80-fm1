@@ -1131,13 +1131,19 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
 }
 
 /* ================================================================== SQ-80: the glue */
+static volatile uint8_t want[FXP_N], want_seq;   /* the main loop's settings; the block takes them */
+static uint8_t took_seq = 0xFF;
+static volatile int16_t want_bpm = 120;
+void fx_tempo(int32_t bpm) { want_bpm = (int16_t)(bpm < 40 ? 40 : bpm > 300 ? 300 : bpm); }
 static const char *const N_RTYPE[] = {"ROOM", "HALL", "PLATE", "SPRING", "CLOUD"};   /* (params.c, FMini-1's) */
-static const char *const N_DLYTYPE[] = {"ANALOG", "DIGITAL", "TAPE", "P-PONG", "MULTI", "SLAP", "REVERSE"};
+static const char *const N_DLYTYPE[] = {"ANALOG", "DIGITAL", "TAPE", "P-PONG", "MULTI", "SLAP", "REVERSE", "A-SYNC"};
+static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "1/8T", "1/16T", "1/2", "1/1", "2BAR", "4BAR", "1/2T",
+                                    "1/4T"};   /* (params.c: A-SYNC's TIME, a note value at the tempo) */
 static const char *const N_CHOTYPE[] = {"STEREO", "JUNO", "MULTI"};
 static const char *const N_DRVTYPE[] = {"SOFT", "TUBE"};
 static const fx_param_info INFO[FXP_N] = {
     {"MIX", 127, 0, 0},  {"TYPE", 4, N_RTYPE, 1},   {"DECAY", 127, 0, 90}, {"TONE", 127, 0, 67},
-    {"MIX", 127, 0, 0},  {"TYPE", 6, N_DLYTYPE, 0}, {"TIME", 127, 0, 65},  {"FEEDBK", 120, 0, 60},
+    {"MIX", 127, 0, 0},  {"TYPE", 7, N_DLYTYPE, 0}, {"TIME", 127, 0, 65},  {"FEEDBK", 120, 0, 60},
     {"MIX", 127, 0, 0},  {"TYPE", 2, N_CHOTYPE, 0}, {"DEPTH", 127, 0, 60}, {"RATE", 127, 0, 40},
     {"GAIN", 127, 0, 0}, {"TYPE", 1, N_DRVTYPE, 0}, {"TONE", 127, 0, 64},  {"OUTPUT", 127, 0, 64}};
 
@@ -1160,6 +1166,8 @@ const char *fx_value_text(int id, int v, char *buf)
         return "";
     if (in->names)
         return in->names[v % (in->max + 1)];
+    if (id == FXP_DTIME && want[FXP_DTYPE] == 7)   /* A-SYNC: a note value */
+        return N_DIV[v > 11 ? 11 : v];
     u = (uint32_t)(id == FXP_DTIME ? dly_ms(v) : v);
     do
         t[n++] = (char)('0' + u % 10u);
@@ -1175,8 +1183,6 @@ const char *fx_value_text(int id, int v, char *buf)
     return buf;
 }
 
-static volatile uint8_t want[FXP_N], want_seq;   /* the main loop's settings; the block takes them */
-static uint8_t took_seq = 0xFF;
 
 void fx_set(const uint8_t v[FXP_N])
 {
@@ -1189,6 +1195,7 @@ void fx_set(const uint8_t v[FXP_N])
 static void take(void)                           /* the settings into fx.c's places (audio, at a block's start) */
 {
     int k;
+    song.g[G_BPM] = want_bpm;                    /* (A-SYNC: the arpeggiator's tempo, or the MIDI clock's) */
     if (took_seq == want_seq)
         return;
     took_seq = want_seq;
@@ -1215,7 +1222,7 @@ static void take(void)                           /* the settings into fx.c's pla
 void fx_init(void)
 {
     uint8_t v[FXP_N];
-    song.g[G_BPM] = 120;                         /* (A-SYNC's tempo: not offered) */
+    song.g[G_BPM] = 120;                         /* (A-SYNC's tempo: fx_tempo) */
     song.g[G_DMIX] = 90;                         /* FMini-1's defaults for what has no knob here */
     song.g[G_DCOLOR] = 70;
     fx.rtype = 1;                                /* (HALL at the start: no switch at the first block) */

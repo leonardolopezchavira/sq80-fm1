@@ -25,7 +25,9 @@ attack and release (HOME puts them back), OCT- / OCT+ the octave. Every value of
 the oscillators, ENV for the envelopes, LFO for the LFOs, EDIT for the filter, output, modes and name (press again
 for the next one, ALGO for the pages, K1–K4 for the values, HOME to play); SAVE stores it into any of the eight
 banks, a new one too. FX opens the effects, FMini-1's: reverb, delay, chorus and drive, their levels on the first page
-and each one's TYPE and settings on the next (FX again, or ALGO); SAVE keeps them. MIDI in
+and each one's TYPE and settings on the next (FX again, or ALGO); SAVE keeps them. ARP turns the arpeggiator on and
+off (UP, DOWN, UP/DN, RANDOM, ORDER, CHORD; 1/4 to 1/32 and triplets; 1–4 octaves; gate, tempo, latch, swing; it
+follows MIDI clock); hold ARP for its pages. GLO shows the audio load. MIDI in
 over USB, Bluetooth and TRS plays it, program changes too, and an ESQ-1 / SQ-80 single-program dump sent to it
 plays at once.
 

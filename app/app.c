@@ -37,8 +37,10 @@
 #define NPROG 40u
 
 /* --------------------------------------------------------------- settings --- */
-#define SET_MAGIC 0x53513831u            /* "SQ81": with the effects (0.7); "SQ80" (0.3 .. 0.6): without */
+#define SET_MAGIC 0x53513832u            /* "SQ82": the arpeggiator too (0.8); "SQ81": the effects (0.7); "SQ80": neither */
 #define SET_MAGIC_0 0x53513830u
+#define SET_MAGIC_1 0x53513831u
+enum { ARP_ON, ARP_MODE, ARP_RATE, ARP_OCT, ARP_GATE, ARP_TEMPO, ARP_LATCH, ARP_SWING, ARP_N };
 typedef struct {
     uint32_t magic;
     int8_t octave;                       /* -2 .. +2 */
@@ -46,6 +48,8 @@ typedef struct {
     uint8_t prog;                        /* 0 .. 39 */
     uint8_t rsv;
     uint8_t fx[FXP_N];                   /* the effects (fmini_fx.h): the instrument's, not a program's */
+    uint8_t arp[ARP_N];                  /* the arpeggiator (ARP_*): on, mode, rate, octaves, gate %, tempo - 40 (BPM),
+                                          * latch, swing % */
 } settings_t;
 static settings_t set;
 static uint8_t set_dirty;
@@ -177,8 +181,254 @@ static void program_from_sysex(const uint8_t *prog102)   /* an ESQ-1/SQ-80 singl
 }
 
 static volatile int32_t last_note = -1;
+static void last_note_set(int32_t n) { last_note = n; }
 static volatile uint32_t midi_last_port, midi_count;
 static volatile uint32_t pc_req = 0xFFFFFFFFu;   /* a MIDI program change for the main loop */
+
+/* ------------------------------------------------------------- arpeggiator --- */
+/* ARP: the held notes (the keys' and MIDI's), played one after another: MODE UP, DOWN, UP/DN, RANDOM, ORDER (as
+ * played) or CHORD (all at once); over 1 .. 4 octaves; one step every RATE (a note value at TEMPO, or at the MIDI
+ * clock's when one comes in: the steps follow its ticks); each note sounding GATE % of its step (100: tied to the
+ * next); SWING lengthens the first of every two steps and shortens the second; LATCH keeps the notes after the keys
+ * are let go (a new key after all were let go starts a new set). It runs in the audio interrupt, its notes placed to
+ * the sample within the block (app_render renders up to each one). */
+typedef struct {
+    const char *name;
+    uint8_t max, def;
+    const char *const *names;
+} arp_info;
+static const char *const ARP_MODES[] = {"UP", "DOWN", "UP/DN", "RANDOM", "ORDER", "CHORD"};
+static const char *const ARP_RATES[] = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"};
+static const char *const ARP_ONOFF[] = {"OFF", "ON"};
+static const arp_info ARP_INFO[ARP_N] = {
+    {"ARP", 1, 0, ARP_ONOFF}, {"MODE", 5, 0, ARP_MODES}, {"RATE", 5, 3, ARP_RATES}, {"OCTAVES", 3, 0, 0},
+    {"GATE", 100, 50, 0},     {"TEMPO", 200, 80, 0},     {"LATCH", 1, 0, ARP_ONOFF}, {"SWING", 75, 0, 0}};
+static const uint8_t RATE_TICKS[6] = {24, 12, 8, 6, 4, 3};   /* MIDI clock ticks a step (24 a quarter) */
+
+static void arp_defaults(void)
+{
+    uint32_t i;
+    for (i = 0; i < ARP_N; i++)
+        set.arp[i] = ARP_INFO[i].def;
+}
+
+#define ARP_HELD 16u
+static struct {
+    volatile uint8_t want[ARP_N], seq;   /* the main loop's settings; the block takes them */
+    uint8_t took, p[ARP_N];
+    uint8_t held[ARP_HELD], vel[ARP_HELD], nheld;   /* the notes, in the order played */
+    uint8_t down;                        /* keys and MIDI notes down now (LATCH: 0 = the set is kept) */
+    uint8_t snd[ARP_HELD], nsnd;         /* sounding */
+    uint32_t pos, nstep;                 /* the pattern's place; steps since it started (SWING's pairs) */
+    int32_t to_step, to_off;             /* samples to the next step, to the notes' end (-1 none) */
+    uint32_t rng;
+    uint32_t clk_ticks, clk_ms;          /* MIDI clock: ticks since its start; when the last came */
+    int32_t clk_period;                  /* .. samples a tick (smoothed), 0 none yet */
+    uint8_t clk_step;                    /* a step due at this tick (the next render point) */
+    uint8_t running;
+} arp;
+
+static uint32_t arp_clocked(void) { return arp.clk_period && plat_ms() - arp.clk_ms < 500u; }
+
+static int32_t arp_step_len(void)            /* the step in samples, SWING applied to this one */
+{
+    int32_t tick = arp_clocked() ? arp.clk_period : (int32_t)(44100u * 60u / ((uint32_t)arp.p[ARP_TEMPO] + 40u) / 24u);
+    int32_t len = tick * RATE_TICKS[arp.p[ARP_RATE] % 6u], sw = len * arp.p[ARP_SWING] / 200;
+    return len + ((arp.nstep & 1u) ? -sw : sw);
+}
+
+static void arp_release(void)                /* the sounding notes off */
+{
+    uint32_t i;
+    for (i = 0; i < arp.nsnd; i++)
+        sq80_note_off(&syn, arp.snd[i]);
+    arp.nsnd = 0;
+    arp.to_off = -1;
+}
+
+static void arp_sound(int32_t note, uint32_t vel)
+{
+    note = note < 0 ? 0 : note > 127 ? 127 : note;
+    if (arp.nsnd < ARP_HELD)
+        arp.snd[arp.nsnd++] = (uint8_t)note;
+    sq80_note_on(&syn, (int)note, (int)vel);
+    last_note_set(note);
+}
+
+static void arp_step(void)                   /* a step: the last notes off, the next on */
+{
+    uint8_t order[ARP_HELD], ov[ARP_HELD];
+    uint32_t n = arp.nheld, oct = arp.p[ARP_OCT] + 1u, len, i, j, k, mode = arp.p[ARP_MODE];
+    int32_t steplen;
+    arp_release();
+    if (!n) {                                /* nothing held (LATCH off, the keys let go): it stops */
+        arp.running = 0;
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        order[i] = arp.held[i];
+        ov[i] = arp.vel[i];
+    }
+    if (mode != 4u)                          /* (ORDER keeps the order played; the others go by pitch) */
+        for (i = 1; i < n; i++)
+            for (j = i; j > 0 && order[j - 1] > order[j]; j--) {
+                uint8_t a = order[j], b = ov[j];
+                order[j] = order[j - 1];
+                ov[j] = ov[j - 1];
+                order[j - 1] = a;
+                ov[j - 1] = b;
+            }
+    len = n * oct;
+    if (mode == 5u) {                        /* CHORD: all of them, an octave further each step */
+        k = arp.pos % oct;
+        for (i = 0; i < n; i++)
+            arp_sound(order[i] + 12 * (int32_t)k, ov[i]);
+    } else {
+        uint32_t s = arp.pos;
+        if (mode == 0u || mode == 4u)
+            k = s % len;
+        else if (mode == 1u)
+            k = len - 1u - s % len;
+        else if (mode == 2u) {
+            uint32_t per = len > 1u ? 2u * len - 2u : 1u, m = s % per;
+            k = m < len ? m : per - m;
+        } else {
+            arp.rng = arp.rng * 1664525u + 1013904223u;
+            k = (arp.rng >> 16) % len;
+        }
+        arp_sound(order[k % n] + 12 * (int32_t)(k / n), ov[k % n]);
+    }
+    arp.pos++;
+    steplen = arp_step_len();
+    arp.nstep++;
+    arp.to_off = arp.p[ARP_GATE] >= 100u ? -1 : (steplen * (arp.p[ARP_GATE] ? arp.p[ARP_GATE] : 1)) / 100;
+    if (arp.to_off == 0)
+        arp.to_off = 1;
+    if (!arp_clocked())
+        arp.to_step = steplen;
+}
+
+static void arp_take(void)                   /* main loop: the settings for the audio interrupt */
+{
+    uint32_t i;
+    for (i = 0; i < ARP_N; i++)
+        arp.want[i] = set.arp[i];
+    arp.seq++;
+    fx_tempo((int32_t)set.arp[ARP_TEMPO] + 40);   /* (A-SYNC delay: the same tempo) */
+}
+
+static void arp_sync(void)                   /* audio: the settings taken; turned off: its notes go */
+{
+    uint32_t i;
+    if (arp.took == arp.seq)
+        return;
+    arp.took = arp.seq;
+    for (i = 0; i < ARP_N; i++)
+        arp.p[i] = arp.want[i];
+    if (!arp.p[ARP_ON] && arp.running) {
+        arp_release();
+        arp.nheld = arp.down = 0;
+        arp.running = 0;
+    }
+    if (!arp.p[ARP_LATCH] && !arp.down)
+        arp.nheld = 0;
+}
+
+static void arp_key(uint32_t note, uint32_t vel)   /* a note on (vel) or off (0) for the arpeggiator */
+{
+    uint32_t i;
+    if (vel) {
+        if (!arp.down && arp.p[ARP_LATCH])   /* LATCH: a new set */
+            arp.nheld = 0;
+        arp.down++;
+        for (i = 0; i < arp.nheld && arp.held[i] != note; i++)
+            ;
+        if (i == arp.nheld && arp.nheld < ARP_HELD) {
+            arp.held[arp.nheld] = (uint8_t)note;
+            arp.vel[arp.nheld++] = (uint8_t)vel;
+        }
+        if (!arp.running) {                  /* the first note: at once */
+            arp.running = 1;
+            arp.pos = arp.nstep = 0;
+            arp.to_step = 0;
+        }
+    } else {
+        if (arp.down)
+            arp.down--;
+        if (!arp.p[ARP_LATCH]) {
+            for (i = 0; i < arp.nheld && arp.held[i] != note; i++)
+                ;
+            if (i < arp.nheld) {
+                for (; i + 1u < arp.nheld; i++) {
+                    arp.held[i] = arp.held[i + 1u];
+                    arp.vel[i] = arp.vel[i + 1u];
+                }
+                arp.nheld--;
+            }
+            if (!arp.nheld) {                /* all let go: it stops (the last note keeps its gate) */
+                arp.running = 0;
+            }
+        }
+    }
+}
+
+static void arp_clock(uint32_t st)          /* audio: MIDI clock (F8 ticks, FA start, FC stop) */
+{
+    uint32_t now = plat_ms();
+    if (st == 0xFAu) {
+        arp.clk_ticks = 0;
+        arp.pos = arp.nstep = 0;
+        return;
+    }
+    if (st != 0xF8u)
+        return;
+    if (arp.clk_ms && now - arp.clk_ms < 500u) {   /* the period, smoothed: samples a tick */
+        int32_t p = (int32_t)((now - arp.clk_ms) * 441u / 10u);
+        arp.clk_period = arp.clk_period ? arp.clk_period + (p - arp.clk_period) / 8 : p;
+    }
+    arp.clk_ms = now;
+    if (arp.clk_ticks % RATE_TICKS[arp.p[ARP_RATE] % 6u] == 0u)
+        arp.clk_step = 1;
+    arp.clk_ticks++;
+    if (arp.clk_period)
+        fx_tempo((int32_t)(44100u * 60u / 24u / (uint32_t)arp.clk_period));
+}
+
+static int32_t arp_next(void)                /* samples to the arpeggiator's next event (a large number: none) */
+{
+    int32_t n = 1 << 30;
+    if (!arp.p[ARP_ON])
+        return n;
+    if (arp.running && (arp_clocked() ? arp.clk_step : 1) && arp.to_step < n)
+        n = arp_clocked() ? 0 : arp.to_step;
+    if (arp.to_off >= 0 && arp.to_off < n)
+        n = arp.to_off;
+    return n < 0 ? 0 : n;
+}
+
+static void arp_advance(int32_t m)           /* m samples went by: what falls due now happens */
+{
+    if (!arp.p[ARP_ON])
+        return;
+    if (arp.to_off >= 0) {
+        arp.to_off -= m;
+        if (arp.to_off <= 0)
+            arp_release();
+    }
+    if (!arp.running) {
+        return;
+    }
+    if (arp_clocked()) {
+        if (arp.clk_step) {
+            arp.clk_step = 0;
+            arp_step();
+        }
+    } else {
+        arp.to_step -= m;
+        if (arp.to_step <= 0)
+            arp_step();
+    }
+}
 
 static void midi_in(void)                    /* audio interrupt */
 {
@@ -190,9 +440,15 @@ static void midi_in(void)                    /* audio interrupt */
             midi_last_port = (uint32_t)port;
             midi_count++;
         }
+        if (st >= 0xF8u) {                   /* real time: the clock for the arpeggiator */
+            arp_clock(st);
+            continue;
+        }
         switch (st & 0xF0u) {
         case 0x90u:
-            if (d2) {
+            if (arp.p[ARP_ON]) {
+                arp_key(d1, d2);
+            } else if (d2) {
                 sq80_note_on(&syn, (int)d1, (int)d2);
                 last_note = (int32_t)d1;
             } else {
@@ -200,7 +456,10 @@ static void midi_in(void)                    /* audio interrupt */
             }
             break;
         case 0x80u:
-            sq80_note_off(&syn, (int)d1);
+            if (arp.p[ARP_ON])
+                arp_key(d1, 0);
+            else
+                sq80_note_off(&syn, (int)d1);
             break;
         case 0xB0u:
             sq80_control_change(&syn, (int)d1, (int)d2);
@@ -225,12 +484,19 @@ static void events(void)                     /* audio interrupt */
     while (ev_r != ev_w) {
         uint32_t e = ev_q[ev_r % NEV], a = (e >> 8) & 0xFFu, b = e >> 16;
         switch (e & 0xFFu) {
-        case Q_ON:
-            sq80_note_on(&syn, (int)a, (int)b);
-            last_note = (int32_t)a;
+        case Q_ON:                           /* (velocity + 128: past the arpeggiator, the load test's) */
+            if (arp.p[ARP_ON] && b < 128u) {
+                arp_key(a, b);
+            } else {
+                sq80_note_on(&syn, (int)a, (int)(b & 127u));
+                last_note = (int32_t)a;
+            }
             break;
         case Q_OFF:
-            sq80_note_off(&syn, (int)a);
+            if (arp.p[ARP_ON] && b < 128u)
+                arp_key(a, 0);
+            else
+                sq80_note_off(&syn, (int)a);
             break;
         case Q_PATCH:
             sq80_all_notes_off(&syn);
@@ -249,14 +515,32 @@ static void events(void)                     /* audio interrupt */
 
 static volatile uint32_t voices_now;
 
-static void core2_job(uint32_t n)            /* the second core: voices 4..7 */
+static void core2_job(uint32_t arg)          /* the second core: voices 4..7 of a stretch (offset << 16 | length) */
 {
-    sq80_render_part(&syn, buf2_l, buf2_r, (int)n, SQ80_VOICES / 2, SQ80_VOICES / 2);
+    uint32_t off = arg >> 16, n = arg & 0xFFFFu;
+    sq80_render_part(&syn, buf2_l + off, buf2_r + off, (int)n, SQ80_VOICES / 2, SQ80_VOICES / 2);
+}
+
+static void render_span(uint32_t off, uint32_t n)   /* the voices over n samples from off, on both cores */
+{
+    uint32_t i;
+    if (two_cores && plat_cpu2_on() && plat_cpu2_run(core2_job, off << 16 | n)) {
+        sq80_render_part(&syn, buf_l + off, buf_r + off, (int)n, 0, SQ80_VOICES / 2);
+        if (plat_cpu2_wait() != 0)
+            sq80_render_part(&syn, buf2_l + off, buf2_r + off, (int)n, SQ80_VOICES / 2, SQ80_VOICES / 2);
+        for (i = off; i < off + n; i++) {
+            buf_l[i] += buf2_l[i];
+            buf_r[i] += buf2_r[i];
+        }
+        sq80_render_commit(&syn, (int)n);
+    } else {
+        sq80_render(&syn, buf_l + off, buf_r + off, (int)n);
+    }
 }
 
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
-    uint32_t i;
+    uint32_t i, off = 0;
     if (n > APP_BLOCK)
         n = APP_BLOCK;
     if (!engine_on) {                        /* the ROM pack is being rewritten: nothing from the flash */
@@ -268,20 +552,19 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             lr[i] = 0;
         return;
     }
+    arp_sync();
     events();
     midi_in();
-    if (two_cores && plat_cpu2_on() && plat_cpu2_run(core2_job, n)) {
-        sq80_render_part(&syn, buf_l, buf_r, (int)n, 0, SQ80_VOICES / 2);
-        if (plat_cpu2_wait() != 0)
-            sq80_render_part(&syn, buf2_l, buf2_r, (int)n, SQ80_VOICES / 2, SQ80_VOICES / 2);
-        for (i = 0; i < n; i++) {
-            buf_l[i] += buf2_l[i];
-            buf_r[i] += buf2_r[i];
-        }
-        sq80_render_commit(&syn, (int)n);
-    } else {
-        sq80_render(&syn, buf_l, buf_r, (int)n);
+    for (i = 0; off < n && i < 64u; i++) {   /* up to each of the arpeggiator's notes, then the note */
+        int32_t due = arp_next();
+        uint32_t m = due < (int32_t)(n - off) ? (uint32_t)due : n - off;
+        if (m)
+            render_span(off, m);
+        off += m;
+        arp_advance((int32_t)m);
     }
+    if (off < n)                             /* (never: a guard against an event that does not move on) */
+        render_span(off, n - off);
     fx_render(buf_l, buf_r, lr, n, master_q12);   /* DRIVE, the sends, the effects, the master (fmini_fx.c) */
     voices_now = (uint32_t)sq80_active_voices(&syn);
 }
@@ -329,6 +612,7 @@ static void settings_defaults(void)          /* (the flash is mapped from app_in
     set.bank = (uint8_t)first_bank();
     set.prog = 0;
     fx_defaults(set.fx);
+    arp_defaults();
 }
 
 void app_init(void)
@@ -341,6 +625,10 @@ void app_init(void)
         if (got == 8 && set.magic == SET_MAGIC_0) {   /* 0.3 .. 0.6's: bank, program, octave kept, the effects new */
             set.magic = SET_MAGIC;
             fx_defaults(set.fx);
+            arp_defaults();
+        } else if (got == (int)(8 + FXP_N) && set.magic == SET_MAGIC_1) {   /* 0.7's: the arpeggiator new */
+            set.magic = SET_MAGIC;
+            arp_defaults();
         } else if (got != (int)sizeof set || set.magic != SET_MAGIC) {
             settings_defaults();
         }
@@ -349,7 +637,12 @@ void app_init(void)
         for (i = 0; i < FXP_N; i++)
             if (set.fx[i] > fx_param(i)->max)
                 set.fx[i] = fx_param(i)->def;
+        for (i = 0; i < ARP_N; i++)
+            if (set.arp[i] > ARP_INFO[i].max)
+                set.arp[i] = ARP_INFO[i].def;
+        set.arp[ARP_ON] = 0;                 /* (it starts off: the keys play notes at power-on) */
     }
+    arp_take();
     fx_init();
     fx_set(set.fx);
     program_load(1);
@@ -702,6 +995,8 @@ static struct {
     uint32_t msg_until;
     uint32_t keys, btn;
     uint8_t stress;
+    uint32_t arp_t;                      /* when ARP went down */
+    uint8_t arp_down;                    /* ARP held, its hold not acted on yet */
     uint32_t peak;
     uint32_t cpu_shown, voices_shown, peak_shown, loads_shown;
     uint8_t redraw;
@@ -795,7 +1090,7 @@ static void stress_set(int on)
         return;
     ui.stress = (uint8_t)on;
     for (i = 0; i < SQ80_VOICES; i++)
-        post(on ? Q_ON : Q_OFF, (uint32_t)CHORD[i], 100u);
+        post(on ? Q_ON : Q_OFF, (uint32_t)CHORD[i], 100u + 128u);   /* (past the arpeggiator) */
     ui.peak = 0;
     app_say("STRESS", on ? "8 VOICES" : "OFF");
 }
@@ -870,7 +1165,7 @@ static void bank_step(int32_t d)             /* SELECT: the next bank that has p
  * values, HOME goes back to the play screen. On the play screen K1..K4 change cutoff, resonance and ENV4's attack
  * and release. SAVE stores the program: PRESET and SELECT choose where (program and bank), SAVE again writes it,
  * HOME leaves it. */
-enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE, ED_SYS };   /* SYS: GLO, the load */
+enum { ED_PLAY, ED_OSC, ED_ENV, ED_LFO, ED_PROG, ED_FX, ED_SAVE, ED_SYS, ED_ARP };   /* SYS: GLO, the load */
 typedef struct {
     const char *title;
     int8_t p[4];                         /* parameter in the group (sq80_params.h), -1 none */
@@ -904,10 +1199,14 @@ static const ed_page FX_PAGES[] = {
     {"CHORUS", {FXP_CTYPE, FXP_CDEPTH, FXP_CRATE, FXP_CHO}},
     {"DRIVE", {FXP_DRTYPE, FXP_DRTONE, FXP_DROUT, FXP_DRIVE}}};
 static const char *const FX_LEVEL_NAME[4] = {"REVERB", "DELAY", "CHORUS", "DRIVE"};
+/* ARP (held): the arpeggiator's settings (ARP_*) */
+static const ed_page ARP_PAGES[] = {
+    {"PATTERN", {ARP_MODE, ARP_RATE, ARP_OCT, ARP_GATE}},
+    {"TIMING", {ARP_TEMPO, ARP_LATCH, ARP_SWING, ARP_ON}}};
 static const ed_page PLAY_PAGE = {"", {SQ80_P_FREQ, SQ80_P_RES, NONE, NONE}};   /* (K3, K4: ENV4 T1, T4) */
 
 static struct {
-    uint8_t sec, inst, page[6];          /* the section, its instance, each section's page */
+    uint8_t sec, inst, page[9];          /* the section, its instance, each section's page */
     uint8_t to_bank, to_prog;            /* SAVE: where to */
     uint8_t back;                        /* SAVE: the section to go back to */
 } ed;
@@ -920,6 +1219,7 @@ static const ed_page *ed_pages(uint32_t sec, uint32_t *n)
     case ED_LFO: *n = sizeof LFO_PAGES / sizeof LFO_PAGES[0]; return LFO_PAGES;
     case ED_PROG: *n = sizeof PROG_PAGES / sizeof PROG_PAGES[0]; return PROG_PAGES;
     case ED_FX: *n = sizeof FX_PAGES / sizeof FX_PAGES[0]; return FX_PAGES;
+    case ED_ARP: *n = sizeof ARP_PAGES / sizeof ARP_PAGES[0]; return ARP_PAGES;
     default: *n = 1; return &PLAY_PAGE;
     }
 }
@@ -927,14 +1227,14 @@ static const ed_page *ed_pages(uint32_t sec, uint32_t *n)
 static int ed_param(uint32_t k)              /* the parameter id K1..K4 change now, -1 none */
 {
     uint32_t n;
-    const ed_page *pg = ed_pages(ed.sec, &n) + (ed.sec <= ED_FX ? ed.page[ed.sec] % n : 0);
+    const ed_page *pg = ed_pages(ed.sec, &n) + (ed.sec <= ED_FX || ed.sec == ED_ARP ? ed.page[ed.sec] % n : 0);
     int q;
     if (ed.sec == ED_PLAY)
         return k == 0 ? SQ80_PARAM_PROG(SQ80_P_FREQ) : k == 1 ? SQ80_PARAM_PROG(SQ80_P_RES) :
                SQ80_PARAM_ENV(3, k == 2 ? SQ80_P_ENV_T1 : SQ80_P_ENV_T4);
-    if (ed.sec > ED_FX || (q = pg->p[k]) < 0)
+    if ((ed.sec > ED_FX && ed.sec != ED_ARP) || (q = pg->p[k]) < 0)
         return -1;
-    if (ed.sec == ED_FX)                     /* (an effect's setting: fx_* below, not the program's) */
+    if (ed.sec == ED_FX || ed.sec == ED_ARP) /* (an effect's or the arpeggiator's setting, not the program's) */
         return q;
     switch (ed.sec) {
     case ED_OSC: return SQ80_PARAM_OSC(ed.inst, q);
@@ -984,6 +1284,26 @@ static void fx_turn(int id, int32_t e)       /* an effect's setting: the instrum
     ui.redraw = 1;
 }
 
+static void arp_turn(int id, int32_t e)      /* an arpeggiator setting: the instrument's (SAVE keeps it) */
+{
+    int v = (int)set.arp[id] + e, max = ARP_INFO[id].max;
+    set.arp[id] = (uint8_t)(v < 0 ? 0 : v > max ? max : v);
+    arp_take();
+    set_dirty = 1;
+    ui.redraw = 1;
+}
+
+static const char *arp_text(int id, char *t)   /* an arpeggiator setting as the screen shows it */
+{
+    int v = set.arp[id];
+    if (ARP_INFO[id].names)
+        return ARP_INFO[id].names[v % (ARP_INFO[id].max + 1)];
+    int_text(id == ARP_TEMPO ? v + 40 : id == ARP_OCT ? v + 1 : v, t);
+    if (id == ARP_GATE || id == ARP_SWING)
+        text_cat(t, "%");
+    return t;
+}
+
 static void knob_turn(uint32_t k, int32_t e)
 {
     int id = ed_param(k);
@@ -993,6 +1313,10 @@ static void knob_turn(uint32_t k, int32_t e)
         return;
     if (ed.sec == ED_FX) {
         fx_turn(id, e);
+        return;
+    }
+    if (ed.sec == ED_ARP) {
+        arp_turn(id, e);
         return;
     }
     in = sq80_param(id);
@@ -1142,7 +1466,12 @@ static void input(void)
             ui.redraw = 1;
         }
         else if (k == B_ARP)
-            stress_set(!ui.stress);
+        {
+            ui.arp_t = plat_ms();            /* a tap turns it on or off, a hold opens its page (below) */
+            ui.arp_down = 1;
+        }
+        else if (k == B_PLAY && ed.sec == ED_SYS)
+            stress_set(!ui.stress);          /* the load test: eight notes held */
         else if (k == B_HOME) {
             if (ed.sec == ED_SAVE) {         /* not saved: back where it was */
                 ed.sec = ed.back;
@@ -1157,14 +1486,14 @@ static void input(void)
         } else if (k == B_SAVE) {
             if (ed.sec == ED_SAVE)
                 save_commit();
-            else if (ed.sec == ED_FX) {      /* the effects: kept with the settings */
+            else if (ed.sec == ED_FX || ed.sec == ED_ARP) {   /* the effects, the arpeggiator: the settings */
                 if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
                     set_dirty = 0;
-                    app_say("EFFECTS", "SAVED");
+                    app_say(ed.sec == ED_ARP ? "ARP" : "EFFECTS", "SAVED");
                 } else {
                     app_say("SAVE", "FAILED");
                 }
-            } else if (edited || (ed.sec != ED_PLAY && ed.sec != ED_SYS))
+            } else if (edited || (ed.sec != ED_PLAY && ed.sec != ED_SYS && ed.sec != ED_ARP))
                 save_begin();
             else if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
                 set_dirty = 0;
@@ -1172,6 +1501,21 @@ static void input(void)
             } else {
                 app_say("SAVE", "FAILED");
             }
+        }
+    }
+    if (ui.arp_down) {                       /* ARP: held half a second, its page; let go before, on / off */
+        if (btn >> B_ARP & 1u) {
+            if (plat_ms() - ui.arp_t >= 500u && ed.sec != ED_SAVE) {
+                ui.arp_down = 0;
+                ed.sec = ED_ARP;
+                ui.msg_until = 0;
+                ui.redraw = 1;
+            }
+        } else {
+            ui.arp_down = 0;
+            set.arp[ARP_ON] ^= 1u;
+            arp_take();
+            app_say("ARP", set.arp[ARP_ON] ? "ON" : "OFF");
         }
     }
     if (ed.sec == ED_SAVE) {                 /* where to: PRESET the program, SELECT the bank */
@@ -1214,9 +1558,10 @@ static void input(void)
     ui.btn = btn;
     plat_glow(1);
     {
-        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO};
+        static const uint8_t LIT[] = {0, B_SEL, B_ENV, B_LFO, B_EDIT, B_FX, B_SAVE, B_GLO, B_ARP};
         uint32_t lit = ed.sec != ED_PLAY ? 1u << LIT[ed.sec] : 0u;
-        plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (ui.stress ? 1u << B_ARP : 0u), keys);
+        plat_leds(btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (set.arp[ARP_ON] ? 1u << B_ARP : 0u) |
+                  (ui.stress ? 1u << B_PLAY : 0u), keys);
     }
 }
 
@@ -1242,6 +1587,16 @@ static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, v
         const sq80_param_info *in;
         if (id < 0)
             continue;
+        if (ed.sec == ED_ARP) {              /* an arpeggiator setting: name, value, a bar for numbers */
+            int32_t v = set.arp[id], max = ARP_INFO[id].max;
+            cv_text(x, 0, &FONT_XS, ARP_INFO[id].name, C_GRAY);
+            cv_text(x, 14, &FONT_B, arp_text(id, t), C_WHITE);
+            if (!ARP_INFO[id].names) {
+                cv_rect(x, 36, 54, 4, C_LINE);
+                cv_rect(x, 36, 54 * v / max, 4, C_ACCENT);
+            }
+            continue;
+        }
         if (ed.sec == ED_FX) {               /* an effect's setting: its name (the levels page: the effect's), value, bar */
             const fx_param_info *fi = fx_param(id);
             int32_t v = set.fx[id];
@@ -1430,7 +1785,7 @@ static void lfo_draw(int32_t x, int32_t y, int32_t w, int32_t h)
 static void draw(void)
 {
     static const char *const PLAY_NAMES[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
-    static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM", "FX"};
+    static const char *const SEC_NAME[] = {"", "OSC", "ENV", "LFO", "PROGRAM", "FX", "", "", "ARP"};
     char t[32], n[12];
     uint32_t now = plat_ms();
     /* the header: the name, or a message for a moment */
@@ -1442,7 +1797,7 @@ static void draw(void)
         cv_text(10, 6, &FONT_B, APP_NAME, C_WHITE);
         if (ed.sec != ED_PLAY)
             cv_text(text_w(&FONT_B, APP_NAME) + 18, 6, &FONT_B, ed.sec == ED_SAVE ? "SAVE" : ed.sec == ED_FX ? "FX" :
-                    ed.sec == ED_SYS ? "SYSTEM" : "EDIT", C_ACCENT);
+                    ed.sec == ED_SYS ? "SYSTEM" : ed.sec == ED_ARP ? "ARP" : "EDIT", C_ACCENT);
         if (last_note >= 0) {
             note_name(last_note, t);
             cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_ACCENT);
@@ -1515,7 +1870,7 @@ static void draw(void)
         cv_text(190, 70, &FONT_XS, t, C_WHITE);
         cv_text(10, 88, &FONT_XS, "CORES", C_GRAY);
         cv_text(70, 88, &FONT_XS, two_cores && plat_cpu2_on() ? "2" : "1", C_WHITE);
-        cv_text(10, 112, &FONT_XS, "GLO: PEAK FROM 0   ARP: 8 VOICES", C_DIM);
+        cv_text(10, 112, &FONT_XS, "GLO: PEAK FROM 0   PLAY: 8 VOICES", C_DIM);
         cv_text(10, 126, &FONT_XS, "HOME: PLAY", C_DIM);
         cv_blit(0, 100);
         return;
@@ -1527,7 +1882,7 @@ static void draw(void)
                                                 * stays) */
         t[0] = 0;
         text_cat(t, SEC_NAME[ed.sec]);
-        if (ed.sec != ED_PROG && ed.sec != ED_FX) {
+        if (ed.sec != ED_PROG && ed.sec != ED_FX && ed.sec != ED_ARP) {
             text_cat(t, " ");
             int_text(ed.inst + 1, n);
             text_cat(t, n);
@@ -1553,7 +1908,8 @@ static void draw(void)
             return;
         }
         cv_text(10, 20, &FONT_XS, "ALGO: PAGE   HOME: PLAY", C_DIM);
-        cv_text(10, 40, &FONT_XS, ed.sec == ED_FX ? "SAVE: KEEP THE EFFECTS" : "SAVE: STORE THE PROGRAM", C_DIM);
+        cv_text(10, 40, &FONT_XS, ed.sec == ED_FX ? "SAVE: KEEP THE EFFECTS" : ed.sec == ED_ARP ?
+                "SAVE: KEEP THE ARPEGGIATOR" : "SAVE: STORE THE PROGRAM", C_DIM);
         cv_blit(0, 174);
         return;
     }
@@ -1695,12 +2051,18 @@ int app_expect(const char *what, int *got)
         *got = prog_raw[atoi(what + 3) % 102];
     else if (!strncmp(what, "fx", 2))        /* fxN: effect setting N (fmini_fx.h FXP_*) */
         *got = set.fx[atoi(what + 2) % FXP_N];
+    else if (!strcmp(what, "uib"))           /* the buttons at the last input */
+        *got = (int)ui.btn;
+    else if (!strcmp(what, "holdt"))         /* ARP held, its hold not acted on yet */
+        *got = ui.arp_down;
+    else if (!strncmp(what, "arp", 3))       /* arpN: arpeggiator setting N (ARP_*) */
+        *got = set.arp[atoi(what + 3) % ARP_N];
     else if (!strcmp(what, "sec"))
         *got = ed.sec;
     else if (!strcmp(what, "inst"))
         *got = ed.inst;
     else if (!strcmp(what, "page"))
-        *got = ed.page[ed.sec < 6 ? ed.sec : 0];
+        *got = ed.page[ed.sec < 9 ? ed.sec : 0];
     else if (!strcmp(what, "edited"))
         *got = edited;
     else if (!strcmp(what, "cutoff"))
