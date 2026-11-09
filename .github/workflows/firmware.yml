@@ -6,7 +6,7 @@ name: firmware
 on:
   push:
     branches: [main]
-    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml']
+    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml', 'tools/site_theme.py']
     tags: ['v*']
   workflow_dispatch:
 
