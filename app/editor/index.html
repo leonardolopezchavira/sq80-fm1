@@ -522,6 +522,8 @@ class Link {
       try {
         const a = await this.once(cmd, body, ms);
         if (a[4] === 0x7F && a[6] === 7) { last = new Error("a damaged frame"); continue; }
+        if (a[4] === 0x7F && a[6] === 1 && cmd >= 0x30 && cmd <= 0x32)
+          throw new Error("the SQ-80 on your FM-1 is older than 0.13.0 and does not know the editor yet: install the latest from the Install page, then connect again");
         if (a[4] === 0x7F && a[6] !== 0) throw new Error("the FM-1 refused it (" + a[6] + ")");
         return a;
       } catch (e) { last = e; await sleep(100); }
