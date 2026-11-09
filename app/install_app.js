@@ -74,7 +74,8 @@
   ].join("<br>");
 
   const PICK = `<p>Optional: SQ-80 has its own waves. If you have one, choose your ROM pack (<code>.rompack</code>,
-    for the original waves) and up to eight ESQ-1 / SQ-80 SysEx banks
+    for the original waves: <a href="../rompack/" target="_blank">make it from your ROM dumps</a>) and up to eight
+    ESQ-1 / SQ-80 SysEx banks
     (<code>.syx</code>) together: hold ⌘ (Mac) or Ctrl to pick several. Banks go into banks 1–8 in name order.</p>
     <p><input type="file" id="sq80files" multiple accept=".rompack,.syx,.SYX"></p>
     <p class="small">They stay on this computer, in this browser, so the next install can load them again with one

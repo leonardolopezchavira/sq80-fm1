@@ -6,7 +6,7 @@ measured against the SQ8L emulation to sound like the real instrument.
 
 It comes with a set of 75 waves of its own, made from scratch in the SQ-80's slots and names (no Ensoniq data),
 so it plays from the start. If you own an SQ-80 or its ROMs you can **optionally** make a ROM pack from your
-dumps (`tools/make_rompack.py` in the source) for the original waves: the [installer](install/) asks for it and
+dumps for the original waves ([make it here](rompack/) from the four wave ROMs and the OS ROM, in your browser): the [installer](install/) asks for it and
 your ESQ-1 / SQ-80 SysEx banks and loads them in the same go as the firmware (and remembers them in your browser
 for the next install), the [loader](load/) loads them on their own, and the emulator takes them too. Up to eight
 banks of 40 programs.
@@ -15,6 +15,7 @@ This is version {{VERSION}}. You install it at your own risk, and the installer 
 
 - [Install](install/) it from Chrome or Edge, with the FM-1 connected by USB.
 - [Load](load/) your ROM pack and programs (Chrome or Edge).
+- [Make your ROM pack](rompack/) from your SQ-80's ROM dumps (in the browser: nothing is uploaded).
 - [Edit programs](edit/): every value, heard as you change it, in the page and live on the FM-1 (Chrome or Edge).
 - [Try it in the browser](emu/) (its own waves; "Your ROM pack and banks…" there loads yours).
 - [Download {{PKG}}](firmware/{{PKG}}).

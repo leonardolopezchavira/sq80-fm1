@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the FM-1: make your ROM pack. Takes your own SQ-80 ROM dumps (the four wave ROMs 2202, 2203, 2204, 2205
+     and the two halves of the OS ROM) and builds sq80.rompack, as tools/make_rompack.py does (docs/rompack.md), all
+     in this browser: nothing is uploaded. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Make your ROM pack · SQ-80 for the FM-1</title>
+<style>
+  :root { --bg: #111312; --panel: #1b1e1d; --line: #2c312f; --fg: #e9ece9; --dim: #8b938f; --hi: #5ac8a0;
+          --bad: #e6463c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .02em; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 18px 20px; margin-bottom: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 10px; }
+  p { margin: 0 0 10px; }
+  button { font: inherit; background: var(--hi); color: #0b1310; border: 0; border-radius: 4px; padding: 8px 16px;
+           font-weight: 600; cursor: pointer; }
+  button:disabled { background: var(--line); color: var(--dim); cursor: default; }
+  .drop { border: 2px dashed var(--line); border-radius: 6px; padding: 22px; text-align: center; color: var(--dim); cursor: pointer; }
+  .drop.over { border-color: var(--hi); color: var(--fg); }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  td:first-child { width: 9em; color: var(--dim); }
+  select { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; max-width: 100%; }
+  .ok { color: var(--hi); } .bad { color: var(--bad); } .small { font-size: 13px; color: var(--dim); }
+  a { color: var(--hi); }
+  code { background: #161616; padding: 0 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<main>
+<h1>SQ-80 ROM pack maker</h1>
+<p class="small">For owners of an Ensoniq SQ-80 and its ROM dumps: your dumps become <code>sq80.rompack</code>, the
+original waves for SQ-80 on the FM-1. Everything happens in this browser: the files are not uploaded anywhere.</p>
+
+<section>
+  <h2>1 · Your ROM dumps</h2>
+  <p>Six files from your SQ-80:</p>
+  <p>· the four <b>wave ROMs</b>, 64 KB each, often named <code>2202</code>, <code>2203</code>, <code>2204</code>,
+    <code>2205</code> (any extension, e.g. <code>.bin</code>) — or one 256 KB image of all four;<br>
+    · the <b>OS ROM</b>, its two halves of 32 KB each (low and high, often <code>.low</code> / <code>.hig</code>),
+    or one 64 KB file. It holds the list of the 75 waves: their names and which part of the wave ROMs each key plays.</p>
+  <div class="drop" id="drop" tabindex="0">Drop them here, or click to choose (all at once)</div>
+  <input type="file" id="files" multiple hidden>
+  <table id="table" hidden></table>
+  <p class="small" style="margin-top:10px">An ESQ-1's ROMs are not enough: it has two wave ROMs and its own OS,
+    without the SQ-80's 43 added waves.</p>
+</section>
+
+<section>
+  <h2>2 · Your ROM pack</h2>
+  <p id="state" class="small">Waiting for the files.</p>
+  <div style="display:flex;gap:12px;flex-wrap:wrap">
+    <button id="make" disabled>Download sq80.rompack</button>
+    <button id="keep" disabled title="The installer, the loader's page, the editor and the emulator find it here">Keep it in this browser for the installer</button>
+  </div>
+  <p class="small" style="margin-top:12px">Then: the <a href="../install/">installer</a> loads it into your FM-1 with the
+    firmware, or the <a href="../load/">loader</a> on its own; the <a href="../edit/">editor</a> and the
+    <a href="../emu/">emulator</a> play it too.</p>
+</section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const NAMES_AT = 0x63B9, MS_AT = 0x1000, RAW_AT = 0x14B0, NWAVES = 75, KB = 1024;
+const ROLES = [["2202", "wave ROM 2202"], ["2204", "wave ROM 2204"], ["2203", "wave ROM 2203"], ["2205", "wave ROM 2205"],
+               ["wave", "wave ROMs, all four (256 KB)"], ["oslo", "OS ROM, low half"], ["oshi", "OS ROM, high half"],
+               ["os", "OS ROM, whole (64 KB)"], ["", "not used"]];
+let files = [];   // {name, bytes, role}
+
+function guess(f) {
+  const n = f.name.toLowerCase(), s = f.bytes.length;
+  for (const c of ["2202", "2203", "2204", "2205"]) if (n.includes(c) && s === 64 * KB) return c;
+  if (s === 256 * KB) return "wave";
+  if (s === 64 * KB && n.includes("os")) return "os";
+  if (s === 32 * KB) return /hi|hig|high|\.h$/.test(n) ? "oshi" : /lo|low|\.l$/.test(n) ? "oslo" : "";
+  return "";
+}
+async function take(list) {
+  for (const f of list) files.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+  files.forEach((f) => { if (f.role === undefined) f.role = guess(f); });
+  // two 32 KB halves, one of them unnamed: the other one
+  const halves = files.filter((f) => f.bytes.length === 32 * KB);
+  if (halves.length === 2) {
+    if (halves[0].role === "oslo" && !halves[1].role) halves[1].role = "oshi";
+    if (halves[0].role === "oshi" && !halves[1].role) halves[1].role = "oslo";
+    if (halves[1].role === "oslo" && !halves[0].role) halves[0].role = "oshi";
+    if (halves[1].role === "oshi" && !halves[0].role) halves[0].role = "oslo";
+  }
+  show();
+}
+function show() {
+  const t = $("table");
+  t.replaceChildren();
+  for (const f of files) {
+    const tr = document.createElement("tr"), a = document.createElement("td"), b = document.createElement("td");
+    a.textContent = `${f.name} (${Math.round(f.bytes.length / KB)} KB)`;
+    const s = document.createElement("select");
+    for (const [v, label] of ROLES) s.append(new Option(label, v));
+    s.value = f.role || "";
+    s.onchange = () => { f.role = s.value; build(); };
+    b.append(s);
+    tr.append(a, b);
+    t.append(tr);
+  }
+  t.hidden = !files.length;
+  build();
+}
+
+let pack = null;
+function say(text, cls) { $("state").textContent = text; $("state").className = cls || "small"; }
+function build() {
+  pack = null;
+  $("make").disabled = $("keep").disabled = true;
+  const get = (r) => files.find((f) => f.role === r);
+  let os = null;
+  if (get("os")) os = get("os").bytes;
+  else if (get("oslo") && get("oshi")) os = concat([get("oslo").bytes, get("oshi").bytes]);
+  let wave = null;
+  if (get("wave")) wave = get("wave").bytes;
+  else if (["2202", "2204", "2203", "2205"].every((r) => get(r))) wave = concat(["2202", "2204", "2203", "2205"].map((r) => get(r).bytes));
+  const missing = [];
+  if (!wave) missing.push("the four wave ROMs (2202, 2203, 2204, 2205)");
+  if (!os) missing.push("the OS ROM (both halves)");
+  if (missing.length) { say("Still needed: " + missing.join(" and ") + "."); return; }
+  if (wave.length !== 256 * KB) { say("The wave ROMs must be 64 KB each (256 KB in all).", "bad"); return; }
+  if (os.length !== 64 * KB) { say("The OS ROM must be 64 KB (two halves of 32 KB).", "bad"); return; }
+  let names = os.subarray(NAMES_AT, NAMES_AT + 6 * NWAVES);
+  const okNames = (n) => ascii(n.subarray(0, 6)).trim() === "SAW" && ascii(n.subarray(6 * 74)).trim() === "DRUMS5";
+  if (!okNames(names)) {   // the halves the other way round?
+    const sw = concat([os.subarray(32 * KB), os.subarray(0, 32 * KB)]);
+    if (okNames(sw.subarray(NAMES_AT, NAMES_AT + 6 * NWAVES))) { os = sw; names = os.subarray(NAMES_AT, NAMES_AT + 6 * NWAVES); }
+    else { say("This OS ROM is not an SQ-80's: its list of waves is not where the SQ-80 keeps it (an ESQ-1's will not do).", "bad"); return; }
+  }
+  const ms = os.subarray(MS_AT, MS_AT + 16 * NWAVES);
+  const nraw = Math.max(...ms) + 1;
+  const raw = os.subarray(RAW_AT, RAW_AT + 4 * nraw);
+  let body = concat([names, ms, raw]);
+  body = concat([body, new Uint8Array((16 - body.length % 16) % 16)]);
+  const head = new Uint8Array(32), dv = new DataView(head.buffer);
+  head.set([..."SQ80PACK"].map((c) => c.charCodeAt(0)));
+  dv.setUint32(8, 1, true); dv.setUint32(12, 32, true); dv.setUint32(16, NWAVES, true); dv.setUint32(20, nraw, true);
+  dv.setUint32(24, wave.length, true);
+  pack = concat([head, body, wave]);
+  const same = wave.subarray(0x400, 0x404).join() === wave.subarray(0x10400, 0x10404).join() &&
+               wave.subarray(0x400, 0x404).join() === wave.subarray(0x20400, 0x20404).join();
+  say(`Ready: 75 waves (${nraw} samples), ${pack.length.toLocaleString()} bytes.` +
+      (same ? " Careful: the wave chips look identical; check that each file is the right chip." : ""), same ? "bad" : "ok");
+  $("make").disabled = $("keep").disabled = false;
+}
+const ascii = (b) => String.fromCharCode(...b);
+function concat(parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+$("make").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([pack], { type: "application/octet-stream" }));
+  a.download = "sq80.rompack";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$("keep").onclick = async () => {   // the installer's kept files (app/install_app.js: sq80-setup / files / last)
+  try {
+    const d = await new Promise((res, rej) => { const r = indexedDB.open("sq80-setup", 1); r.onupgradeneeded = () => r.result.createObjectStore("files"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const last = await new Promise((res) => { const q = d.transaction("files").objectStore("files").get("last"); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+    const v = { pack: { name: "sq80.rompack", bytes: pack }, banks: (last && last.banks) || [] };
+    await new Promise((res, rej) => { const tx = d.transaction("files", "readwrite"); tx.objectStore("files").put(v, "last"); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    say("Kept in this browser: the installer will offer it next time (with your banks, if it kept any).", "ok");
+  } catch (e) { say("Not kept: " + (e.message || e), "bad"); }
+};
+
+const drop = $("drop");
+drop.onclick = () => $("files").click();
+drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") $("files").click(); };
+$("files").onchange = () => { const l = [...$("files").files]; $("files").value = ""; take(l); };
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); take([...e.dataTransfer.files]); };
+</script>
+</body>
+</html>

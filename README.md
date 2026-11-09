@@ -87,6 +87,13 @@ Instruments), ported as they are: DRIVE (SOFT, TUBE), CHORUS (STEREO, JUNO, MULT
 P-PONG, MULTI, SLAP, REVERSE) and REVERB (ROOM, HALL, PLATE, SPRING, CLOUD), on FX. They are GPL-3.0-only, so the
 firmware as a whole is too: see [LICENSING.md](LICENSING.md).
 
+## Making a ROM pack
+
+https://leonardolopezchavira.github.io/sq80-fm1/rompack/ (`app/rompack/index.html`) does what
+`tools/make_rompack.py` does, in the browser: the four wave ROMs (2202, 2203, 2204, 2205, or one 256 KB image) and
+the two halves of the OS ROM (or one 64 KB file) become `sq80.rompack`, byte for byte the same, to download or to
+keep in the browser for the installer. Nothing is uploaded.
+
 ## The program editor
 
 https://leonardolopezchavira.github.io/sq80-fm1/edit/ (`app/editor/`): every value of a program (the three
