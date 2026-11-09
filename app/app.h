@@ -7,6 +7,8 @@
 
 #define APP_NAME "SQ-80"
 #define APP_SPLASH_RGB RGB(90, 200, 160)
+#define APP_SPLASH                       /* the first screen: the name on black (app_splash) */
+void app_splash(void);
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 #define APP_TOUCH                        /* velocity from the keys (lib/touch.h) */
 #define APP_SYSEX                        /* the loader's frames, and ESQ-1 single-program dumps */

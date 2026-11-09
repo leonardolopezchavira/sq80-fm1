@@ -1056,6 +1056,17 @@ static void draw(void)
     cv_blit(0, 148);
 }
 
+void app_splash(void)                        /* at boot, before app_ui_init: the name, on black as the rest */
+{
+    int32_t w = text_w(&FONT_L, APP_NAME);
+    lcd_fill(0, 0, 240, 240, C_BLACK);
+    cv_begin(240, 64, C_BLACK);
+    cv_text((240 - w) / 2, 4, &FONT_L, APP_NAME, APP_SPLASH_RGB);
+    w = text_w(&FONT_XS, "FOR THE FM-1");
+    cv_text((240 - w) / 2, 44, &FONT_XS, "FOR THE FM-1", C_GRAY);
+    cv_blit(0, 88);
+}
+
 void app_ui_init(void)
 {
     touch_on(1);
@@ -1121,6 +1132,10 @@ int app_expect(const char *what, int *got)
         *got = two_cores && plat_cpu2_on() ? 2 : 1;
     else if (!strcmp(what, "stress"))
         *got = ui.stress;
+    else if (!strcmp(what, "splash")) {      /* (the simulator shows no splash: drawn on request, for a shot) */
+        app_splash();
+        *got = 1;
+    }
     else
         return 0;
     return 1;
