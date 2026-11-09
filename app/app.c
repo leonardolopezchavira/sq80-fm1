@@ -1056,15 +1056,55 @@ static void draw(void)
     cv_blit(0, 148);
 }
 
-void app_splash(void)                        /* at boot, before app_ui_init: the name, on black as the rest */
+/* the boot screen: SQ-80 in block letters of our own (6 x 9 cells, strokes two cells thick, the last row only
+ * Q's tail), cream on black, the hyphen and a rule under the word in cyan */
+#define LOGO_CELL 5
+#define LOGO_GAP 7
+#define LOGO_W 6
+#define LOGO_H 9
+#define LOGO_CREAM RGB(242, 234, 214)
+#define LOGO_CYAN RGB(64, 220, 230)
+static const uint8_t LOGO_GLYPH[4][LOGO_H] = {   /* a row a byte, bit 5 the left cell */
+    {0x3F, 0x3F, 0x30, 0x3F, 0x3F, 0x03, 0x3F, 0x3F, 0x00},   /* S */
+    {0x3F, 0x3F, 0x33, 0x33, 0x33, 0x37, 0x3F, 0x3F, 0x03},   /* Q, its tail below */
+    {0x3F, 0x3F, 0x33, 0x3F, 0x3F, 0x33, 0x3F, 0x3F, 0x00},   /* 8 */
+    {0x3F, 0x3F, 0x33, 0x37, 0x3B, 0x33, 0x3F, 0x3F, 0x00},   /* 0, slashed */
+};
+static void logo_glyph(int32_t x, int32_t y, const uint8_t *g)
 {
-    int32_t w = text_w(&FONT_L, APP_NAME);
+    int32_t r, c;
+    for (r = 0; r < LOGO_H; r++)
+        for (c = 0; c < LOGO_W; c++)
+            if (g[r] >> (LOGO_W - 1 - c) & 1u) {   /* a run of cells in one rectangle */
+                int32_t e = c;
+                while (e + 1 < LOGO_W && (g[r] >> (LOGO_W - 2 - e) & 1u))
+                    e++;
+                cv_rect(x + c * LOGO_CELL, y + r * LOGO_CELL, (e - c + 1) * LOGO_CELL, LOGO_CELL, LOGO_CREAM);
+                c = e;
+            }
+}
+
+void app_splash(void)                        /* at boot, before app_ui_init */
+{
+    const int32_t gw = LOGO_W * LOGO_CELL, hw = 3 * LOGO_CELL;
+    const int32_t total = 4 * gw + hw + 4 * LOGO_GAP, x0 = (240 - total) / 2, y = 4;
+    int32_t x = x0, w;
     lcd_fill(0, 0, 240, 240, C_BLACK);
-    cv_begin(240, 64, C_BLACK);
-    cv_text((240 - w) / 2, 4, &FONT_L, APP_NAME, APP_SPLASH_RGB);
+    cv_begin(240, 100, C_BLACK);
+    logo_glyph(x, y, LOGO_GLYPH[0]);
+    x += gw + LOGO_GAP;
+    logo_glyph(x, y, LOGO_GLYPH[1]);
+    x += gw + LOGO_GAP;
+    cv_rect(x, y + 3 * LOGO_CELL + LOGO_CELL / 2, hw, 2 * LOGO_CELL, LOGO_CYAN);   /* the hyphen */
+    x += hw + LOGO_GAP;
+    logo_glyph(x, y, LOGO_GLYPH[2]);
+    x += gw + LOGO_GAP;
+    logo_glyph(x, y, LOGO_GLYPH[3]);
+    cv_rect(x0 + 2 * gw + LOGO_GAP + 4, y + 8 * LOGO_CELL + 2, total - 2 * gw - LOGO_GAP - 4, 3, LOGO_CYAN);   /* the rule,
+                                                                                    * from Q's tail on */
     w = text_w(&FONT_XS, "FOR THE FM-1");
-    cv_text((240 - w) / 2, 44, &FONT_XS, "FOR THE FM-1", C_GRAY);
-    cv_blit(0, 88);
+    cv_text((240 - w) / 2, y + LOGO_H * LOGO_CELL + 16, &FONT_XS, "FOR THE FM-1", C_GRAY);
+    cv_blit(0, 60);
 }
 
 void app_ui_init(void)
