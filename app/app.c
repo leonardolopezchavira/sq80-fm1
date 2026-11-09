@@ -18,6 +18,7 @@
  * scope. The engine is compiled apart at -O2 (fm1.toml o2). */
 #include "sq80.h"
 #include "sq80_params.h"
+#include "sq80_cal.h"                      /* (SQ80_ENV_TICKS: the envelope drawing's times) */
 #include "fmini_fx.h"
 
 #define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
@@ -1309,6 +1310,123 @@ static void wave_draw(int32_t x, int32_t y, int32_t w, int32_t h)
     }
 }
 
+/* a curve, a y per column (0 at the top .. h - 1), joined column to column; a dim line at y = zero */
+static void curve_draw(int32_t x, int32_t y, const int16_t *ys, int32_t w, int32_t zero)
+{
+    int32_t c, prev = ys[0];
+    cv_rect(x, y + zero, w, 1, C_LINE);
+    for (c = 0; c < w; c++) {
+        int32_t lo = ys[c] < prev ? ys[c] : prev, hi = ys[c] > prev ? ys[c] : prev;
+        cv_rect(x + c, y + lo, 1, hi - lo + 1, C_ACCENT);
+        prev = ys[c];
+    }
+}
+
+/* ENV: the envelope's shape: 0 > L1 (T1) > L2 (T2) > L3 (T3), held at L3 while the key is down (a fixed stretch,
+ * dim-marked), then back to 0 (T4); each segment as wide as its time (SQ80_ENV_TICKS), at least 3 columns; levels
+ * from the middle when any is negative, else from the bottom */
+static void env_draw(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    int16_t ys[220];
+    int32_t e = ed.inst % 4u, lv[5], tk[4], cw[5], k, c = 0, tot = 0, hold = 30, neg, zero, avail;
+    lv[0] = 0;
+    for (k = 0; k < 3; k++)
+        lv[k + 1] = sq80_param_get(prog_raw, SQ80_PARAM_ENV(e, SQ80_P_ENV_L1 + k));
+    lv[4] = 0;
+    for (k = 0; k < 4; k++) {
+        tk[k] = SQ80_ENV_TICKS[sq80_param_get(prog_raw, SQ80_PARAM_ENV(e, SQ80_P_ENV_T1 + k)) & 63];
+        tot += tk[k];
+    }
+    neg = lv[1] < 0 || lv[2] < 0 || lv[3] < 0;
+    zero = neg ? h / 2 : h - 1;
+    avail = w - hold - 12;
+    for (k = 0; k < 4; k++)
+        cw[k] = 3 + (int32_t)((int64_t)tk[k] * avail / (tot ? tot : 1));
+    if (w > 220)
+        w = 220;
+    for (k = 0; k < 4 && c < w; k++) {       /* the segments, the hold after the third */
+        int32_t i, a = lv[k], b = lv[k + 1];
+        for (i = 0; i < cw[k] && c < w; i++, c++) {
+            int32_t v = a + (b - a) * (i + 1) / cw[k];
+            ys[c] = (int16_t)(neg ? zero - v * (h / 2 - 1) / 63 : zero - v * (h - 1) / 63);
+        }
+        if (k == 2) {
+            int32_t v = lv[3], yy = neg ? zero - v * (h / 2 - 1) / 63 : zero - v * (h - 1) / 63;
+            for (i = 0; i < hold && c < w; i++, c++)
+                ys[c] = (int16_t)yy;
+            cv_rect(x + c, y, 1, h, C_LINE);  /* the key let go */
+        }
+    }
+    for (; c < w; c++)
+        ys[c] = (int16_t)zero;
+    curve_draw(x, y, ys, w, zero);
+}
+
+/* LFO: two seconds of it as the engine runs it (sq80_synth.c lfo_tick: its rate, wave and the DELAY fade from L1
+ * to L2), at the control rate; noise from a fixed seed */
+static void lfo_draw(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    int32_t n = ed.inst % 3u, freq = sq80_param_get(prog_raw, SQ80_PARAM_LFO(n, SQ80_P_LFO_FREQ));
+    int32_t wave = sq80_param_get(prog_raw, SQ80_PARAM_LFO(n, SQ80_P_LFO_WAVE));
+    int32_t level = 2 * sq80_param_get(prog_raw, SQ80_PARAM_LFO(n, SQ80_P_LFO_L1));
+    int32_t target = 2 * sq80_param_get(prog_raw, SQ80_PARAM_LFO(n, SQ80_P_LFO_L2));
+    int32_t delay = sq80_param_get(prog_raw, SQ80_PARAM_LFO(n, SQ80_P_LFO_DELAY)), clock = 0, c, tick, ticks = 167;
+    int32_t f = freq << 8, held = 0, zero = h / 2, last = -1;
+    uint32_t inc = f < 0x700 ? (uint32_t)(((uint32_t)f << 16) / 7u) : (uint32_t)(f - 0x600) << 16, ph = 0, seed = 1;
+    int16_t lo[220], hi[220];
+    if (w > 220)
+        w = 220;
+    for (c = 0; c < w; c++)
+        lo[c] = hi[c] = -1;
+    for (tick = 0; tick < ticks; tick++) {
+        uint32_t before = ph;
+        int32_t b, v, yy;
+        ph += inc;
+        b = (int32_t)(ph >> 24);
+        if (wave == 0)
+            v = ((b < 0x80 ? b : (~b & 0xff)) - 0x40) * 2;
+        else if (wave == 1)
+            v = (int8_t)(uint8_t)(b + 0x80);
+        else if (wave == 2)
+            v = b < 0x80 ? 127 : 0;
+        else {
+            if (((ph ^ before) & 0x80000000u) || inc >= 0x80000000u) {
+                seed = seed * 1664525u + 1013904223u;
+                held = (int8_t)(seed >> 24);
+            }
+            v = held;
+        }
+        clock -= 1024;
+        if (clock <= 0) {
+            clock += 7296;
+            if (level < target)
+                level = level + delay > target ? target : level + delay;
+            else if (level > target)
+                level = level - delay < target ? target : level - delay;
+        }
+        yy = zero - (v * level / 126) * (h / 2 - 1) / 127;
+        c = tick * w / ticks;
+        if (lo[c] < 0 || yy < lo[c])
+            lo[c] = (int16_t)yy;
+        if (hi[c] < 0 || yy > hi[c])
+            hi[c] = (int16_t)yy;
+    }
+    cv_rect(x, y + zero, w, 1, C_LINE);
+    for (c = 0; c < w; c++) {                /* each column: what the ticks in it reach, joined to the last */
+        int32_t a = lo[c], b = hi[c];
+        if (a < 0)
+            a = b = last < 0 ? zero : last;
+        if (last >= 0) {
+            if (last < a)
+                a = last;
+            if (last > b)
+                b = last;
+        }
+        cv_rect(x + c, y + a, 1, b - a + 1, C_ACCENT);
+        last = hi[c] >= 0 ? (lo[c] + hi[c]) / 2 : last;
+    }
+}
+
 static void draw(void)
 {
     static const char *const PLAY_NAMES[4] = {"CUTOFF", "RESON", "ATTACK", "RELEASE"};
@@ -1424,8 +1542,13 @@ static void draw(void)
         cv_blit(0, 100);
         knob_cells(128, 0);
         cv_begin(240, 66, C_BLACK);
-        if (ed.sec == ED_OSC) {              /* the wave (its name is WAVE's, above), in place of the help */
-            wave_draw(10, 8, 220, 52);
+        if (ed.sec == ED_OSC || ed.sec == ED_ENV || ed.sec == ED_LFO) {   /* a picture in place of the help */
+            if (ed.sec == ED_OSC)
+                wave_draw(10, 8, 220, 52);
+            else if (ed.sec == ED_ENV)
+                env_draw(10, 8, 220, 52);
+            else
+                lfo_draw(10, 8, 220, 52);
             cv_blit(0, 174);
             return;
         }
