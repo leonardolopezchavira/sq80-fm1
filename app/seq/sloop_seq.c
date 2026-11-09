@@ -19,7 +19,21 @@
  * The SQ-80's render places the events to the sample: sl_next says how far the next one is, the app renders up to
  * it and calls sl_run (SLOOP ticks once per block; here a tick falls where the event is due). */
 #include "sloop_seq.h"
-#include <string.h>
+
+/* (no libc headers in the FM-1's -O2 units: our own) */
+static void mem_zero(void *d, uint32_t n)
+{
+    uint8_t *p = (uint8_t *)d;
+    while (n--)
+        *p++ = 0;
+}
+static void mem_copy(void *d, const void *s, uint32_t n)
+{
+    uint8_t *p = (uint8_t *)d;
+    const uint8_t *q = (const uint8_t *)s;
+    while (n--)
+        *p++ = *q++;
+}
 
 #define FS 44100u
 #define BEAT_U (FS * 60u)
@@ -61,7 +75,7 @@ void sl_defaults(sl_song *s)
     uint32_t i;
     for (i = 0; i < SL_NP; i++)
         s->p[i] = INFO[i].def;
-    memset(s->step, 0, sizeof s->step);
+    mem_zero(s->step, sizeof s->step);
     for (i = 0; i < SL_NSTEP; i++)
         s->step[i].time = SL_ST_REST;
 }
@@ -75,7 +89,7 @@ void sl_clamp(sl_song *s)
     for (i = 0; i < SL_NSTEP; i++) {
         sl_step *st = &s->step[i];
         if (st->time > SL_ST_REST || st->n > 4u) {
-            memset(st, 0, sizeof *st);
+            mem_zero(st, sizeof *st);
             st->time = SL_ST_REST;
         }
     }
@@ -301,7 +315,7 @@ static void undo_mark(uint32_t sess)
 {
     if (undo.valid && !undo.undone && undo.sess == sess)
         return;
-    memcpy(undo.st, sg->step, sizeof undo.st);
+    mem_copy(undo.st, sg->step, sizeof undo.st);
     undo.len = sg->p[SL_SLEN];
     undo.sess = sess;
     undo.valid = 1;
@@ -311,9 +325,9 @@ static void undo_swap(void)
 {
     static sl_step tmp[SL_NSTEP];
     uint8_t l = sg->p[SL_SLEN];
-    memcpy(tmp, sg->step, sizeof tmp);
-    memcpy(sg->step, undo.st, sizeof tmp);
-    memcpy(undo.st, tmp, sizeof tmp);
+    mem_copy(tmp, sg->step, sizeof tmp);
+    mem_copy(sg->step, undo.st, sizeof tmp);
+    mem_copy(undo.st, tmp, sizeof tmp);
     sg->p[SL_SLEN] = undo.len;
     undo.len = l;
     undo.undone ^= 1u;
@@ -559,7 +573,7 @@ static void step_add(uint32_t idx, uint32_t note, uint32_t vel, uint32_t rat)
     sl_step *s = &sg->step[idx % SL_NSTEP];
     uint32_t k;
     if (s->time != SL_ST_NOTE || !s->n) {
-        memset(s, 0, sizeof *s);
+        mem_zero(s, sizeof *s);
         s->time = SL_ST_NOTE;
     }
     for (k = 0; k < s->n && s->note[k] != note; k++)
@@ -626,7 +640,7 @@ static void rec_hold(uint32_t idx, uint32_t len, uint32_t abs)
     T.rh_last = (uint8_t)idx;
     T.rh_last_abs = abs;
     T.rh_ties++;
-    memset(s, 0, sizeof *s);
+    mem_zero(s, sizeof *s);
     s->time = SL_ST_TIE;
     changes++;
 }
@@ -864,7 +878,7 @@ void sl_all_off(void)
 void sl_init(sl_song *s)
 {
     sg = s;
-    memset(&T, 0, sizeof T);
+    mem_zero(&T, sizeof T);
     T.seq_abs = SEQ_NONE;
     T.rskip_abs = SEQ_NONE;
     T.nlast = 1;
@@ -942,14 +956,14 @@ void sl_cmd(uint32_t cmd, uint32_t a, int32_t d)
     case SC_WIPE:
         undo_mark(undo_sess += 4u);
         for (i = 0; i < SL_NSTEP; i++) {
-            memset(&sg->step[i], 0, sizeof sg->step[i]);
+            mem_zero(&sg->step[i], sizeof sg->step[i]);
             sg->step[i].time = SL_ST_REST;
         }
         seq_release();
         changes++;
         return;
     case SC_SET:
-        memset(s, 0, sizeof *s);
+        mem_zero(s, sizeof *s);
         s->time = SL_ST_NOTE;
         for (i = 0; i < T.nlast && i < 4u; i++)
             s->note[i] = T.last[i];
@@ -959,7 +973,7 @@ void sl_cmd(uint32_t cmd, uint32_t a, int32_t d)
         s->vel = T.last_vel;
         break;
     case SC_CLEAR:
-        memset(s, 0, sizeof *s);
+        mem_zero(s, sizeof *s);
         s->time = SL_ST_REST;
         break;
     case SC_NOTE:
