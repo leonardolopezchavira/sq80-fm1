@@ -11,7 +11,8 @@
  * without a bank, a plain INIT program.
  *
  * The panel: PRESET picks the program, SELECT the bank, K1..K4 change the playing program's cutoff, resonance,
- * attack and release (HOME puts them back), OCT- / OCT+ the octave, SAVE keeps bank, program and octave; SEL, ENV,
+ * attack and release (HOME puts them back), OCT- / OCT+ the octave (bank, program, octave and the instrument's
+ * settings keep themselves), SAVE stores the program where PRESET / SELECT say; SEL, ENV,
  * LFO, EDIT edit the program, FX the effects (FMini-1's), ARP and SEQ SLOOP's arpeggiator and step sequencer
  * (seq/sloop_seq.c, GPL-3.0: PLAY, REC, the steps on the keys while SEQ is held), GLO the load (PLAY there: a load
  * test). The second core renders voices 4..7 (fm1.toml cpu2).
@@ -97,10 +98,13 @@ static uint32_t bank_count_slot(uint32_t slot)
     magic = (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
     return magic == BANK_MAGIC && b[4] >= 1u && b[4] <= NPROG ? b[4] : 0u;
 }
-static uint32_t bank_count(uint32_t bank)    /* programs in bank 1..8 (0 for none) */
+static uint32_t bank_stored(uint32_t bank)   /* programs stored in bank 1..8 (0 for none) */
 {
     return bank >= 1u && bank <= NBANK ? bank_count_slot(bank - 1u) : 0u;
 }
+/* every bank shows 40 programs: those stored, then INIT in the places nothing was stored yet (a bank never loaded:
+ * 40 INITs); saving into one of them stores it */
+static uint32_t bank_count(uint32_t bank) { return bank >= 1u && bank <= NBANK ? NPROG : 0u; }
 static int bank_read(uint32_t slot, uint32_t pi, uint8_t out[102])
 {
     const uint8_t *b = plat_data(bank_base(slot));
@@ -122,12 +126,19 @@ static int bank_write(uint32_t slot, uint32_t pi, const uint8_t prog[102])   /* 
     }
     return plat_data_write(base + phys(slot, o), prog, 102);
 }
-static uint32_t first_bank(void)             /* the first loaded bank, 0 for none */
+static uint32_t first_bank(void)             /* the first loaded bank, else 1 */
 {
     uint32_t b;
     for (b = 1; b <= NBANK; b++)
-        if (bank_count(b))
+        if (bank_stored(b))
             return b;
+    return 1;
+}
+static int prog_read(uint32_t bank, uint32_t pi, uint8_t out[102])   /* program pi of bank 1..8, INIT where none */
+{
+    if (pi < bank_stored(bank))
+        return bank_read(bank - 1u, pi, out);
+    sq80_init_program(out);
     return 0;
 }
 
@@ -161,17 +172,13 @@ static void program_play(int fresh)          /* prog_raw to the engine; fresh: a
 
 static void program_load(int fresh)          /* set.bank / set.prog into the engine (fresh: the edits dropped) */
 {
-    uint32_t n = bank_count(set.bank);
     (void)fresh;
-    if (n == 0) {                            /* that bank went: the first there is */
-        set.bank = (uint8_t)first_bank();
+    if (set.bank < 1u || set.bank > NBANK)
+        set.bank = 1;
+    if (set.prog >= NPROG)
         set.prog = 0;
-        n = bank_count(set.bank);
-    }
-    if (set.prog >= n)
-        set.prog = 0;
-    if (!n || bank_read(set.bank - 1u, set.prog, prog_raw) != 0)
-        sq80_init_program(prog_raw);         /* no bank yet: a plain sound to play */
+    if (prog_read(set.bank, set.prog, prog_raw) != 0)
+        sq80_init_program(prog_raw);
     edited = 0;
     program_play(1);
 }
@@ -466,6 +473,8 @@ void app_init(void)
         }
         if (set.octave < -2 || set.octave > 2 || set.bank > NBANK || set.prog >= NPROG)
             settings_defaults();
+        if (set.bank == 0)                   /* (0.9.3 and before: no bank loaded) */
+            set.bank = (uint8_t)first_bank();
         for (i = 0; i < FXP_N; i++)
             if (set.fx[i] > fx_param(i)->max)
                 set.fx[i] = fx_param(i)->def;
@@ -702,12 +711,18 @@ static int frame_bank(const uint8_t *p, uint32_t n)
         h[4] = (uint8_t)cnt;
         if (plat_data_write(bank_base(b), h, 8) != 0)
             return 2;
-        if (set.bank == b + 1u || set.bank == 0) {   /* (no bank before: this one) */
-            if (set.bank == 0) {
+        {
+            uint32_t x, others = 0;
+            for (x = 1; x <= NBANK; x++)
+                if (x != b + 1u && bank_stored(x))
+                    others = 1;
+            if (!others && set.bank != b + 1u) {   /* (the first bank loaded: this one plays) */
                 set.bank = (uint8_t)(b + 1u);
                 set.prog = 0;
+                set_dirty = 1;
             }
-            program_load(1);
+            if (set.bank == b + 1u)
+                program_load(1);
         }
         return 0;
     }
@@ -897,7 +912,7 @@ void app_say(const char *a, const char *b)
 
 static void bank_text(char *t)               /* "1".."8", "-" for none */
 {
-    t[0] = set.bank == 0 ? '-' : (char)('0' + set.bank);
+    t[0] = (char)('0' + set.bank);
     t[1] = 0;
 }
 
@@ -960,8 +975,6 @@ static void program_step(int32_t d)          /* PRESET: through the bank, then o
 {
     int32_t p = (int32_t)set.prog + d, b = set.bank, tries;
     char t[24];
-    if (!first_bank())
-        return;
     for (tries = 0; tries < 2 * (int32_t)NBANK; tries++) {
         int32_t n = (int32_t)bank_count((uint32_t)b);
         if (n && p >= 0 && p < n)
@@ -1129,7 +1142,7 @@ static void value_text(int id, char *t)      /* a value as the screen shows it *
     }
 }
 
-static void fx_turn(int id, int32_t e)       /* an effect's setting: the instrument's (SAVE keeps it) */
+static void fx_turn(int id, int32_t e)       /* an effect's setting: the instrument's (kept by itself) */
 {
     int v = (int)set.fx[id] + e, max = fx_param(id)->max;
     set.fx[id] = (uint8_t)(v < 0 ? 0 : v > max ? max : v);
@@ -1138,7 +1151,7 @@ static void fx_turn(int id, int32_t e)       /* an effect's setting: the instrum
     ui.redraw = 1;
 }
 
-static void sl_turn(int id, int32_t e)       /* an arpeggiator or sequencer setting: the instrument's (SAVE keeps it) */
+static void sl_turn(int id, int32_t e)       /* an arpeggiator or sequencer setting: the instrument's (kept by itself) */
 {
     const sl_param_info *in = sl_param((uint32_t)id);
     int v = (int)set.sl.p[id] + e;
@@ -1221,7 +1234,7 @@ static uint8_t sector_buf[SECTOR] PLAT_POOL;  /* a bank's sector, rewritten whol
 
 static int program_store(uint32_t bank, uint32_t pi)   /* prog_raw into bank (1..8), program pi; 0 done */
 {
-    uint32_t slot = bank - 1u, n = bank_count(bank), i, base = bank_base(slot);
+    uint32_t slot = bank - 1u, n = bank_stored(bank), i, base = bank_base(slot);
     const uint8_t *f = plat_data(base);
     uint8_t init[102];
     if (!f || slot >= NBANK || pi >= NPROG)
@@ -1359,17 +1372,6 @@ static void step_turn(uint32_t k, int32_t e) /* a step held: K1 its notes, K2 ve
             ui.step_turned |= 1u << w;
         }
     ui.redraw = 1;
-}
-
-static void settings_save(const char *what)
-{
-    if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
-        set_dirty = 0;
-        ui.chg_saved = sl_changes();
-        app_say(what, "SAVED");
-    } else {
-        app_say("SAVE", "FAILED");
-    }
 }
 
 static void input(void)
@@ -1510,12 +1512,9 @@ static void input(void)
         } else if (k == B_SAVE) {
             if (ed.sec == ED_SAVE)
                 save_commit();
-            else if (ed.sec == ED_FX || ed.sec == ED_ARP || ed.sec == ED_SEQ)   /* the instrument's settings */
-                settings_save(ed.sec == ED_ARP ? "ARP" : ed.sec == ED_SEQ ? "PATTERN" : "EFFECTS");
-            else if (edited || (ed.sec != ED_PLAY && ed.sec != ED_SYS))
+            else                             /* where to store the program: a bank and a place (the instrument's
+                                              * settings, the effects, the pattern keep themselves) */
                 save_begin();
-            else
-                settings_save("SETTINGS");
         }
     }
     if (ui.rec_down && (btn >> B_REC & 1u) && !ui.rec_done && now - ui.rec_t >= 2000u) {
@@ -1538,14 +1537,16 @@ static void input(void)
         }
     }
     if (ed.sec == ED_SAVE) {                 /* where to: PRESET the program, SELECT the bank */
-        if ((e = plat_enc(EN_PRESET)) != 0)
-            ed.to_prog = (uint8_t)((ed.to_prog + (uint32_t)(e > 0 ? 1 : (int32_t)NPROG - 1)) % NPROG);
-        if ((e = plat_enc(EN_SELECT)) != 0)
-            ed.to_bank = (uint8_t)((ed.to_bank - 1u + (uint32_t)(e > 0 ? 1 : (int32_t)NBANK - 1)) % NBANK + 1u);
-        if (e || plat_enc(EN_ALGO))
-            ui.redraw = 1;
-        for (k = 0; k < 4u; k++)
+        int32_t ep = plat_enc(EN_PRESET) + plat_enc(EN_K2), eb = plat_enc(EN_SELECT) + plat_enc(EN_K1);   /* (or K1, K2) */
+        if (ep)
+            ed.to_prog = (uint8_t)((ed.to_prog + (uint32_t)(ep > 0 ? 1 : (int32_t)NPROG - 1)) % NPROG);
+        if (eb)
+            ed.to_bank = (uint8_t)((ed.to_bank - 1u + (uint32_t)(eb > 0 ? 1 : (int32_t)NBANK - 1)) % NBANK + 1u);
+        (void)plat_enc(EN_ALGO);
+        for (k = 2; k < 4u; k++)
             (void)plat_enc((int)(EN_K1 + k));
+        if (ep || eb)
+            ui.touched = now;
         ui.redraw = 1;
     } else {
         if ((e = plat_enc(EN_PRESET)) != 0)
@@ -1609,7 +1610,7 @@ static void input(void)
         }
         {   /* the unlit buttons and keys all glow (plat_leds lets only the buttons glow: the seven lowest keys then
              * caught some of it, the others none), PLAY green */
-            uint32_t on = btn | lit | (set_dirty || edited ? 1u << B_SAVE : 0u) | (set.sl.p[SL_AON] ? 1u << B_ARP : 0u) |
+            uint32_t on = btn | lit | (edited ? 1u << B_SAVE : 0u) | (set.sl.p[SL_AON] ? 1u << B_ARP : 0u) |
                           (ui.stress ? 1u << B_PLAY : 0u), play = 1u << B_PLAY, dimb = ((1u << NB) - 1u) & ~on;
             on = (on & ~play) | (on & play ? LED_PLAY_GREEN : 0u);
             dimb = (dimb & ~play) | (dimb & play ? LED_PLAY_GREEN : 0u);
@@ -1977,7 +1978,7 @@ static void draw(void)
     cv_text(124, 2, &FONT_XS, t, C_ACCENT);
     if (edited)
         cv_text(196, 2, &FONT_XS, "EDITED", C_ACCENT);
-    cv_text(10, 20, &FONT_L, set.bank || edited ? prog_name : "NO BANKS", edited ? C_ACCENT : C_WHITE);
+    cv_text(10, 20, &FONT_L, prog_name, edited ? C_ACCENT : C_WHITE);
     cv_blit(0, 34);
     if (ed.sec == ED_SAVE) {                 /* where to save */
         uint8_t there[102];
@@ -1991,7 +1992,7 @@ static void draw(void)
         int_text(ed.to_prog + 1, n);
         text_cat(t, n);
         cv_text(10, 20, &FONT_B, t, C_ACCENT);
-        if (ed.to_prog < bank_count(ed.to_bank) && bank_read(ed.to_bank - 1u, ed.to_prog, there) == 0) {
+        if (prog_read(ed.to_bank, ed.to_prog, there) == 0) {
             uint32_t i;
             for (i = 0; i < 6u; i++)
                 n[i] = there[i] >= 32 && there[i] < 127 ? (char)there[i] : ' ';
@@ -2001,7 +2002,7 @@ static void draw(void)
         } else {
             cv_text(10, 44, &FONT_XS, "AN EMPTY PLACE", C_GRAY);
         }
-        cv_text(10, 84, &FONT_XS, "SELECT: BANK   PRESET: PROGRAM", C_DIM);
+        cv_text(10, 84, &FONT_XS, "SELECT / K1: BANK   PRESET / K2: PROGRAM", C_DIM);
         cv_text(10, 104, &FONT_XS, "SAVE: WRITE IT   HOME: CANCEL", C_DIM);
         cv_blit(0, 100);
         return;
@@ -2075,8 +2076,8 @@ static void draw(void)
             return;
         }
         cv_text(10, 20, &FONT_XS, "ALGO: PAGE   HOME: PLAY", C_DIM);
-        cv_text(10, 40, &FONT_XS, ed.sec == ED_FX ? "SAVE: KEEP THE EFFECTS" : ed.sec == ED_ARP ?
-                "SAVE: KEEP THE ARPEGGIATOR" : "SAVE: STORE THE PROGRAM", C_DIM);
+        cv_text(10, 40, &FONT_XS, ed.sec == ED_FX || ed.sec == ED_ARP ? "KEPT BY ITSELF   SAVE: THE PROGRAM" :
+                "SAVE: STORE THE PROGRAM", C_DIM);
         cv_blit(0, 174);
         return;
     }
@@ -2227,8 +2228,8 @@ void app_frame(void)
             ui.bpm_sent = set.sl.p[SL_BPM];
             fx_tempo((int32_t)ui.bpm_sent);
         }
-        if ((chg != ui.chg_saved || ui.autosave) && !(st & (SL_S_PLAY | SL_S_REC)) && !ui.step_held &&
-            now - ui.touched >= 3000u) {
+        if ((chg != ui.chg_saved || ui.autosave || set_dirty) && !(st & (SL_S_PLAY | SL_S_REC)) && !ui.step_held &&
+            ed.sec != ED_SAVE && now - ui.touched >= 3000u) {   /* (and the settings: bank, program, octave, effects) */
             ui.chg_saved = chg;              /* (stopped, nothing touched for 3 s: the pattern to flash) */
             ui.autosave = 0;
             if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0)
@@ -2251,7 +2252,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "prog"))
         *got = set.prog;
     else if (!strcmp(what, "banksize"))
-        *got = (int)bank_count(set.bank);
+        *got = (int)bank_stored(set.bank);
     else if (!strcmp(what, "rom"))
         *got = rom_real;
     else if (!strcmp(what, "voices"))

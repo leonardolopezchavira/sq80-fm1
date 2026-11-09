@@ -5,7 +5,8 @@
 wait 600
 shot boot.png
 expect rom 0
-expect bank 0
+expect bank 1
+expect banksize 0
 expect name0 73
 expect cores 2
 wav keys.wav
@@ -23,7 +24,8 @@ wait 1500
 wavstop
 turn PRESET 1
 wait 30
-expect bank 0
+expect bank 1
+expect prog 1
 turn K1 -10
 wait 30
 expect cutoff 117
@@ -44,9 +46,7 @@ tap PLAY
 wait 30
 expect stress 0
 tap HOME
-wait 30
-tap SAVE
-wait 30
+wait 3500
 expect dirty 0
 reboot
 wait 600
@@ -97,7 +97,7 @@ shot edit_name.png
 tap SAVE
 wait 30
 expect sec 6
-turn PRESET 2
+turn PRESET 1
 wait 30
 shot save.png
 tap SAVE
@@ -139,7 +139,7 @@ expect prog 37
 expect raw0 74
 expect raw89 100
 expect raw63 2
-# the effects: FX, its pages, K1..K4; SAVE keeps them; the reverb's tail after the note
+# the effects: FX, its pages, K1..K4; kept by themselves; the reverb's tail after the note
 tap HOME
 wait 30
 tap FX
@@ -157,8 +157,7 @@ turn K1 -1
 wait 30
 expect fx1 0
 shot fx_reverb.png
-tap SAVE
-wait 50
+wait 3500
 expect dirty 0
 tap HOME
 wait 30

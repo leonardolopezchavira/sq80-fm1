@@ -20,12 +20,13 @@ This is version {{VERSION}}. You install it at your own risk, and the installer 
   built on fm1-base (MPL-2.0) and felucca-bsp, which come from Felucca by Leo Kuroshita, Hügelton Instruments; its
   effects are FMini-1's, by Ruppert, after Felucca's; its arpeggiator, sequencer and recording are SLOOP's.
 
-On the FM-1: SELECT picks the bank (1–8), PRESET the program, K1–K4 change cutoff, resonance,
+On the FM-1: SELECT picks the bank (1–8: every one has 40 programs, INIT where you have not loaded or saved any),
+PRESET the program, K1–K4 change cutoff, resonance,
 attack and release (HOME puts them back), OCT- / OCT+ the octave. Every value of a program can be edited: SEL for
 the oscillators, ENV for the envelopes, LFO for the LFOs, EDIT for the filter, output, modes and name (press again
-for the next one, ALGO for the pages, K1–K4 for the values, HOME to play); SAVE stores it into any of the eight
-banks, a new one too. FX opens the effects, FMini-1's: reverb, delay, chorus and drive, their levels on the first page
-and each one's TYPE and settings on the next (FX again, or ALGO); SAVE keeps them. ARP turns SLOOP's arpeggiator on and
+for the next one, ALGO for the pages, K1–K4 for the values, HOME to play); SAVE asks where (SELECT or K1 the bank, PRESET or K2
+the program, it shows what it replaces) and SAVE again stores it. FX opens the effects, FMini-1's: reverb, delay, chorus and drive, their levels on the first page
+and each one's TYPE and settings on the next (FX again, or ALGO); they keep themselves. ARP turns SLOOP's arpeggiator on and
 off (14 modes, 1/4 to 1/32 and triplets, 1–4 octaves, gate, swing, hold, order, chance); hold ARP for its pages.
 SEQ opens the step sequencer: on its STEP page the notes you play are written into the steps one after another
 (a chord when held together; K1 moves the cursor, K2–K4 the step's notes, tie / rest and accent / slide), and ALGO

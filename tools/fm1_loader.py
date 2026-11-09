@@ -102,12 +102,12 @@ def sim_script(out, pack, programs, bank, hi_bank=None, hi_cut=None):
         for f in hb:
             L += ["sysex " + hexline(f), "wait 5"]
         L += ["wait 50", "expect_sysex " + hexline(answer(0x22, 0, hb[-1])), "sysex_out",
-              "turn SELECT 1", "wait 50", "expect bank 5", "expect banksize 40"]
+              "turn SELECT 4", "wait 50", "expect bank 5", "expect banksize 40"]   # (every bank shows: 1 .. 5)
         for pi in (0, 36, 37, 38, 39):   # 37 straddles the gap, 38 starts past it
             L += [f"midi C0 {pi:02X} 00", "wait 50", f"expect prog {pi}", f"expect cutoff {hi_cut[pi]}",
                   f"expect name0 {hi_bank[pi][0]}"]
-        L += ["turn SELECT 1", "wait 50", f"expect bank {bank + 1}"]
-    L += ["turn K1 -20", "wait 50", "tap HOME", "wait 50", "tap SAVE", "wait 50", "reboot", "wait 600",
+        L += ["turn SELECT 4", "wait 50", f"expect bank {bank + 1}"]   # (5 .. 8, then 1)
+    L += ["turn K1 -20", "wait 50", "tap HOME", "wait 3500", "reboot", "wait 600",
           "expect rom 1"]
     if programs:
         L += [f"expect bank {bank + 1}"]

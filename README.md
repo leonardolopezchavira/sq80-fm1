@@ -102,8 +102,8 @@ Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq
   stopped, arms it, and your first note starts the loop as step 1. **Hold REC 2 s** clears the pattern;
   **EDIT + OCT- / OCT+** undo / redo. It follows a MIDI clock (start, stop, tempo) when MIDI CLK is on. **GLO + K1** sets the
   metronome: CLICK OFF, REC (on the beats while recording) or ON (whenever the sequencer plays).
-- The pattern and these settings are the instrument's: kept by SAVE on ARP or SEQ, and by themselves 3 s after the
-  sequencer stops.
+- The pattern and these settings are the instrument's: they keep themselves, 3 s after the last change once the
+  sequencer is stopped.
 
 Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills, rolls, the free take and count-in.
 
