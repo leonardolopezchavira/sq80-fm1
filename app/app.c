@@ -504,7 +504,11 @@ void app_init(void)
  *   20 B                       bank B (0..7: banks 1..8): erased
  *   21 B P DATA..              program P (0..39) of bank B, 102 bytes as 204 nibbles, low first (as ESQ-1 SysEx)
  *   22 B N                     bank B holds N programs: kept
- * Frames 10..12 and 20..22 end with a check: the sum of the bytes from CMD on, mod 16384, as 2 x 7 bits (low first);
+ *   30 DATA..                  the editor (web/edit): a program (204 nibbles) played now, the notes going on, unsaved
+ *   31 B P                     program P of bank B (B 7F: the one playing, as edited): answered
+ *                              7E 31 B P E NIBBLES (E 1: edited, not saved)
+ *   32 B P DATA..              a program stored into bank B place P (the sector rewritten), then played from there
+ * Frames 10..12, 20..22 and 30..32 end with a check: the sum of the bytes from CMD on, mod 16384, as 2 x 7 bits (low first);
  * one that fails it is answered 7 and taken no further (the loader sends it again; every frame may come twice).
  * And an ESQ-1/SQ-80 single-program dump, F0 0F 02 ch 01 (204 nibbles) F7: played, unsaved. */
 static struct {
@@ -728,6 +732,8 @@ static int frame_bank(const uint8_t *p, uint32_t n)
     return 1;
 }
 
+static int program_store(uint32_t bank, uint32_t pi);
+static uint8_t redraw_req;                   /* the editor changed the program: the screen shows it */
 int app_sysex(const uint8_t *p, uint32_t n)
 {
     int st;
@@ -744,7 +750,8 @@ int app_sysex(const uint8_t *p, uint32_t n)
         return 0;
     loads++;
     echo[0] = echo[1] = 0;
-    if ((p[3] >= 0x10u && p[3] <= 0x12u) || (p[3] >= 0x20u && p[3] <= 0x22u)) {   /* their last 2 bytes: a check */
+    if ((p[3] >= 0x10u && p[3] <= 0x12u) || (p[3] >= 0x20u && p[3] <= 0x22u) ||
+        (p[3] >= 0x30u && p[3] <= 0x32u)) {   /* their last 2 bytes: a check */
         uint32_t sum = 0, i;
         if (n < 6u) {
             reply(p[3], 1);
@@ -761,6 +768,55 @@ int app_sysex(const uint8_t *p, uint32_t n)
         n -= 2u;
     }
     switch (p[3]) {
+    case 0x30u:                          /* the editor: a program to play now, the notes going on (unsaved) */
+    case 0x32u: {                        /* .. and to store into bank B (0..7), place P (0..39): it plays from there */
+        uint32_t i, o = p[3] == 0x30u ? 4u : 6u;
+        if (n < o + 204u || (p[3] == 0x32u && (p[4] >= NBANK || p[5] >= NPROG))) {
+            reply(p[3], 1);
+            return 1;
+        }
+        for (i = 0; i < 102u; i++)
+            prog_raw[i] = (uint8_t)((p[o + 2 * i] & 15u) | (p[o + 1 + 2 * i] & 15u) << 4);
+        if (p[3] == 0x32u) {
+            if (program_store(p[4] + 1u, p[5]) != 0) {
+                reply(0x32, 2);
+                return 1;
+            }
+            set.bank = (uint8_t)(p[4] + 1u);
+            set.prog = p[5];
+            set_dirty = 1;
+            edited = 0;
+        } else {
+            edited = 1;
+        }
+        program_play(0);
+        redraw_req = 1;
+        reply(p[3], 0);
+        return 1;
+    }
+    case 0x31u: {                        /* a program: bank B (0..7) place P, or B = 7F the one playing (as edited):
+                                          * 7E 31 B P E NIBBLES (204, low first; E: 1 edited, not saved) */
+        uint8_t f[10 + 204], prog[102];
+        uint32_t b = n > 4u ? p[4] : 0u, pi = n > 5u ? p[5] : 0u, i;
+        if (b == 0x7Fu) {
+            for (i = 0; i < 102u; i++)
+                prog[i] = prog_raw[i];
+            b = set.bank - 1u;
+            pi = set.prog;
+        } else if (b >= NBANK || pi >= NPROG || prog_read(b + 1u, pi, prog) != 0) {
+            reply(0x31, 1);
+            return 1;
+        }
+        f[0] = 0xF0; f[1] = 0x7D; f[2] = 0x53; f[3] = 0x51; f[4] = 0x7E; f[5] = 0x31;
+        f[6] = (uint8_t)b; f[7] = (uint8_t)pi; f[8] = (uint8_t)(n > 4u && p[4] == 0x7Fu && edited);
+        for (i = 0; i < 102u; i++) {
+            f[9 + 2 * i] = prog[i] & 15u;
+            f[10 + 2 * i] = prog[i] >> 4;
+        }
+        f[9 + 204] = 0xF7;
+        plat_sysex_send(f, sizeof f);
+        return 1;
+    }
     case 0x01u: {
         uint8_t f[9] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0x01, 0, 0, 0xF7};
         f[7] = rom_real;
@@ -2474,6 +2530,10 @@ void app_frame(void)
         ui.voices_shown = v;
         ui.peak_shown = ui.peak;
         ui.loads_shown = loads;
+        ui.redraw = 1;
+    }
+    if (redraw_req) {
+        redraw_req = 0;
         ui.redraw = 1;
     }
     if (ui.msg_until && now >= ui.msg_until) {

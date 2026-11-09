@@ -26,7 +26,7 @@ def pack7(data):
 
 def frame(cmd, body=()):
     b = [cmd, *body]
-    if 0x10 <= cmd <= 0x12 or 0x20 <= cmd <= 0x22:   # the check: the sum from CMD on, 2 x 7 bits
+    if 0x10 <= cmd <= 0x12 or 0x20 <= cmd <= 0x22 or 0x30 <= cmd <= 0x32:   # the check: the sum from CMD on, 2 x 7 bits
         s = sum(b)
         b += [s & 0x7F, (s >> 7) & 0x7F]
     return bytes([0xF0, *HEAD, *b, 0xF7])
@@ -107,6 +107,19 @@ def sim_script(out, pack, programs, bank, hi_bank=None, hi_cut=None):
             L += [f"midi C0 {pi:02X} 00", "wait 50", f"expect prog {pi}", f"expect cutoff {hi_cut[pi]}",
                   f"expect name0 {hi_bank[pi][0]}"]
         L += ["turn SELECT 4", "wait 50", f"expect bank {bank + 1}"]   # (5 .. 8, then 1)
+    # the editor (web/edit): a program played (notes kept), the one playing read back, one stored into bank 3 place 7
+    ed = bytearray(programs[0] if programs else bytes(102))
+    ed[0:6] = b"EDITOR"
+    nib = [b for x in ed for b in (x & 15, x >> 4)]
+    f30 = frame(0x30, nib)
+    L += ["sysex " + hexline(f30), "wait 30", "expect_sysex " + hexline(answer(0x30, 0, f30)), "expect name0 69",
+          "expect edited 1", "sysex_out", "sysex " + hexline(frame(0x31, [0x7F, 0])), "wait 30",
+          "expect_sysex " + hexline(bytes([0xF0, *HEAD, 0x7E, 0x31, bank if programs else 0, 0, 1, *nib, 0xF7])), "sysex_out"]
+    f32 = frame(0x32, [2, 7] + nib)
+    L += ["sysex " + hexline(f32), "wait 100", "expect_sysex " + hexline(answer(0x32, 0, f32)), "expect bank 3",
+          "expect prog 7", "expect edited 0", "sysex_out", "sysex " + hexline(frame(0x31, [2, 7])), "wait 30",
+          "expect_sysex " + hexline(bytes([0xF0, *HEAD, 0x7E, 0x31, 2, 7, 0, *nib, 0xF7])), "sysex_out",
+          "turn SELECT -2", "wait 50"]
     L += ["turn K1 -20", "wait 50", "tap HOME", "wait 3500", "reboot", "wait 600",
           "expect rom 1"]
     if programs:

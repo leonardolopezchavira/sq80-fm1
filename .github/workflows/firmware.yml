@@ -6,7 +6,7 @@ name: firmware
 on:
   push:
     branches: [main]
-    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml', 'tools/site_theme.py']
+    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml', 'tools/site_theme.py', 'tools/build_editor.sh']
     tags: ['v*']
   workflow_dispatch:
 
@@ -59,6 +59,7 @@ jobs:
           python3 fm1/base/tools/build.py app --web --release "$V"
           python3 fm1/base/tools/make_site.py app "$(find pkg -name "*.fwsc" | head -1)" "$V" app/build/site
           mkdir -p app/build/site/load && cp app/loader/index.html app/build/site/load/
+          sh tools/build_editor.sh app/build/site/edit
           python3 tools/site_theme.py app/build/site
       - uses: actions/upload-pages-artifact@v3
         with:

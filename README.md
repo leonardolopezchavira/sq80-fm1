@@ -87,6 +87,16 @@ Instruments), ported as they are: DRIVE (SOFT, TUBE), CHORUS (STEREO, JUNO, MULT
 P-PONG, MULTI, SLAP, REVERSE) and REVERB (ROOM, HALL, PLATE, SPRING, CLOUD), on FX. They are GPL-3.0-only, so the
 firmware as a whole is too: see [LICENSING.md](LICENSING.md).
 
+## The program editor
+
+https://leonardolopezchavira.github.io/sq80-fm1/edit/ (`app/editor/`): every value of a program (the three
+oscillators with their waves drawn, the four envelopes and three LFOs drawn, the filter, output and modes, the
+name), heard as you change it: in the page (the engine in WebAssembly, `app/editor/editor_wasm.c`, built by
+`tools/build_editor.sh` with emcc or clang) and, connected over USB, live on the FM-1 (Web MIDI; the loader's frames
+30 play, 31 read, 32 store). Programs come from `.syx` files, the FM-1's banks or the installer's kept files, and go
+back to the FM-1 (any bank and place) or out as `.syx` (a program or a whole bank). An on-screen keyboard, the
+computer's keys and a MIDI keyboard play it. Your ROM pack, if you have one, gives the page the original waves.
+
 ## HOME: the scope and RANDOM
 
 HOME goes through three screens: playing, with a waveform of the output under the knobs; the waveform alone, full

@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the FM-1: the program editor. Every value of an ESQ-1 / SQ-80 program, heard as you change it: in the
+     page (the same engine in WebAssembly, sq80_editor.wasm: app/editor/editor_wasm.c) and, connected over USB, on
+     the FM-1 itself (Web MIDI with SysEx: Chrome or Edge; app/app.c "the loader", frames 30..32). Programs come from
+     .syx files, the FM-1's banks, or the installer's files kept in this browser; they go back to the FM-1 or to .syx.
+     Nothing leaves your computer except to the FM-1. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Program editor · SQ-80 for the FM-1</title>
+<style>
+  :root { --bg: #111312; --panel: #1b1e1d; --line: #2c312f; --fg: #e9ece9; --dim: #8b938f; --hi: #5ac8a0;
+          --bad: #e6463c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 18px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .02em; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 10px; }
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; margin: 0 0 8px; color: var(--hi); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin-bottom: 12px; }
+  button { font: inherit; background: var(--hi); color: #0b1310; border: 0; border-radius: 4px; padding: 6px 12px;
+           font-weight: 600; cursor: pointer; }
+  button.plain { background: none; color: var(--fg); border: 1px solid #555; }
+  button:disabled { background: var(--line); color: var(--dim); cursor: default; border-color: var(--line); }
+  select, input[type=text], input[type=number] { font: inherit; background: var(--bg); color: var(--fg);
+           border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+  label { color: var(--dim); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .status { color: var(--dim); min-height: 1.4em; }
+  .status.ok { color: var(--hi); } .status.bad { color: var(--bad); }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+  .ctl { display: grid; grid-template-columns: 76px 1fr 44px; gap: 8px; align-items: center; margin: 3px 0; }
+  .ctl.mod { grid-template-columns: 76px 84px 1fr 44px; }
+  .ctl .n { color: var(--dim); font-size: 12px; letter-spacing: .04em; white-space: nowrap; overflow: hidden; }
+  .ctl output { text-align: right; font-variant-numeric: tabular-nums; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--hi); }
+  .ctl select { width: 100%; padding: 2px 4px; }
+  .ctl input[type=checkbox] { accent-color: var(--hi); width: 18px; height: 18px; }
+  canvas.draw { width: 100%; height: 70px; display: block; background: #000; border: 1px solid var(--line);
+                border-radius: 3px; margin: 2px 0 8px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tabs button { background: none; color: var(--fg); border: 1px solid #555; }
+  .tabs button[aria-selected=true] { background: var(--hi); color: #0b1310; border-color: var(--hi); }
+  #name { width: 8em; text-transform: uppercase; font-family: ui-monospace, Menlo, monospace; letter-spacing: .15em; }
+  #progs { min-width: 14em; }
+  .kbd { position: relative; height: 120px; user-select: none; -webkit-user-select: none; touch-action: none; margin-top: 8px; }
+  .kbd div { position: absolute; top: 0; border: 1px solid #000; border-radius: 0 0 4px 4px; cursor: pointer; }
+  .kbd .w { background: #f2ead6; height: 120px; z-index: 1; }
+  .kbd .b { background: #222; height: 74px; z-index: 2; }
+  .kbd .on { background: var(--hi) !important; }
+  .small { font-size: 12px; color: var(--dim); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+<h1>SQ-80 program editor</h1>
+<p class="small">Every value of an ESQ-1 / SQ-80 program, heard as you change it: here in the page, and on your FM-1
+when it is connected (Chrome or Edge). Nothing is uploaded anywhere.</p>
+
+<section>
+  <h2>Sound and connection</h2>
+  <div class="row">
+    <button id="soundBtn">Sound on</button>
+    <label>Volume <input type="range" id="vol" min="0" max="100" value="70" style="vertical-align:middle"></label>
+    <span class="status" id="waves">Waves: built-in</span>
+    <button class="plain" id="packBtn">Your ROM pack…</button>
+    <input type="file" id="packFile" accept=".rompack" hidden>
+  </div>
+  <div class="row">
+    <button id="connBtn">Connect FM-1</button>
+    <label><input type="checkbox" id="live" checked> Live: the FM-1 plays every change</label>
+    <label><input type="checkbox" id="kbdToFm1" checked> The keyboard plays the FM-1 too</label>
+    <label>MIDI keyboard <select id="midiIn"><option value="">none</option></select></label>
+  </div>
+  <div class="status" id="connStatus">Not connected. The page plays the sound itself.</div>
+</section>
+
+<section>
+  <h2>Program</h2>
+  <div class="row">
+    <label>Name <input type="text" id="name" maxlength="6" spellcheck="false"></label>
+    <button class="plain" id="initBtn" title="A plain program to start from">Init</button>
+    <button class="plain" id="undoBtn" title="Back one change">Undo</button>
+    <span class="small" id="dirty"></span>
+  </div>
+  <div class="row">
+    <button class="plain" id="openBtn">Open .syx…</button>
+    <input type="file" id="openFile" accept=".syx,.SYX" hidden>
+    <select id="progs" disabled><option>no bank open</option></select>
+    <button class="plain" id="expProg">Export program .syx</button>
+    <button class="plain" id="expBank" disabled>Export bank .syx</button>
+  </div>
+  <div class="row">
+    <label>FM-1 bank <select id="fmBank"></select></label>
+    <label>program <select id="fmProg"></select></label>
+    <button class="plain fm" id="getPlaying" disabled title="The program the FM-1 is playing now, as edited">Get the FM-1's program</button>
+    <button class="plain fm" id="getOne" disabled>Get this one</button>
+    <button class="plain fm" id="getBank" disabled>Get the whole bank</button>
+    <button class="fm" id="saveBtn" disabled>Save to the FM-1</button>
+  </div>
+  <div class="status" id="progStatus"></div>
+</section>
+
+<section>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="grid" id="panel"></div>
+</section>
+
+<section>
+  <h2>Play</h2>
+  <div class="row">
+    <button class="plain" id="octDn">Oct −</button><span id="octShow">C3</span><button class="plain" id="octUp">Oct +</button>
+    <span class="small">or your computer's keys: A W S E D F T G Y H U J K (Z / X: octave)</span>
+    <button class="plain" id="panic">All notes off</button>
+  </div>
+  <div class="kbd" id="kbd"></div>
+</section>
+<p class="small">The page plays the program dry: the FM-1's effects are on the FM-1. ROM packs and banks stay in this
+browser. Programs are ESQ-1 / SQ-80 format: they load into any SQ-80 librarian too.</p>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ------------------------------------------------------------------ the engine (sq80_editor.wasm) */
+let E = null, mem = null;
+const str = (p) => { const b = new Uint8Array(E.memory.buffer); let s = ""; while (b[p]) s += String.fromCharCode(b[p++]); return s; };
+const progBytes = () => new Uint8Array(E.memory.buffer, E.prog(), 102);
+
+// parameter ids (src/sq80/sq80_params.h)
+const ENV = (n, p) => n * 11 + p, LFO = (n, p) => 44 + n * 8 + p, OSC = (n, p) => 68 + n * 14 + p, PRG = (p) => 110 + p;
+const EF = { L1: 0, L2: 1, L3: 2, LV: 3, T1: 4, T2: 5, T3: 6, T4: 7, T1V: 8, TK: 9, R2: 10 };
+const LF = { FREQ: 0, WAVE: 1, L1: 2, L2: 3, DELAY: 4, MOD: 5, HUMAN: 6, RESET: 7 };
+const OF = { OCT: 0, SEMI: 1, FINE: 2, WAVE: 3, MOD1: 4, DEPTH1: 5, MOD2: 6, DEPTH2: 7, LEVEL: 8, OUTPUT: 9,
+             DMOD1: 10, DDEPTH1: 11, DMOD2: 12, DDEPTH2: 13 };
+const PF = { FREQ: 0, RES: 1, KEYBD: 2, FMOD1: 3, FDEPTH1: 4, FMOD2: 5, FDEPTH2: 6, FINAL: 7, PAN: 8, PANMOD: 9,
+             PANDEPTH: 10, SYNC: 11, AM: 12, MONO: 13, GLIDE: 14, VC: 15, ENVRS: 16, OSCRS: 17, CYC: 18, NAME0: 19 };
+const K = { NUM: 0, SIGNED: 1, ONOFF: 2, SOURCE: 3, WAVE: 4, LFOWAVE: 5, CHAR: 6 };
+const HELP = {
+  L1: "level at the end of the attack (T1)", L2: "level after T2", L3: "sustain level, held while the key is down",
+  LV: "how much velocity scales the levels", T1: "attack time", T2: "time to L2", T3: "time to L3 (the sustain)",
+  T4: "release time, after the key is let go", T1V: "how much velocity shortens the attack", TK: "how much higher keys shorten the times",
+  R2: "second release: the envelope releases from where it is when the key is let go", FREQ: "rate", L1L: "depth at the start",
+  L2L: "depth after the delay", DELAY: "time for the depth to go from L1 to L2", MOD: "what changes the LFO's depth",
+  HUMAN: "a little random variation of the rate", RESET: "restart the LFO with each note", OCT: "octave", SEMI: "semitone",
+  FINE: "fine tuning", LEVEL: "the oscillator's level", OUTPUT: "heard (off: it only modulates, e.g. for AM)",
+  KEYBD: "how much the cutoff follows the keys", FINAL: "the program's volume", GLIDE: "glide time (mono)",
+  SYNC: "OSC 2 restarts with OSC 1", AM: "OSC 1 modulates OSC 2's amplitude", MONO: "one voice, the last key wins",
+  VC: "voice restart: a note retriggers its own voice", ENVRS: "envelopes restart from 0", OSCRS: "oscillators restart from 0",
+  CYC: "cycle: the envelopes run on to their end even after the key is let go", RES: "resonance" };
+
+/* ------------------------------------------------------------------ audio */
+let ac = null, node = null, vol = 0.7;
+async function loadEngine() {
+  const r = await fetch("sq80_editor.wasm");
+  const mod = await WebAssembly.compile(await r.arrayBuffer()), imports = {};
+  for (const im of WebAssembly.Module.imports(mod))   // (an emcc build may ask for a few: none is used)
+    (imports[im.module] ||= {})[im.name] = () => 0;
+  const instance = await WebAssembly.instantiate(mod, imports);
+  E = instance.exports;
+  E.init(48000);
+}
+function soundOn() {
+  if (ac) return;
+  ac = new AudioContext();
+  E.init(ac.sampleRate);
+  if (userPack) usePack(userPack.bytes, userPack.name, true);
+  E.apply(1);
+  node = ac.createScriptProcessor(1024, 0, 2);
+  node.onaudioprocess = (ev) => {
+    const n = ev.outputBuffer.length;
+    E.render(n);
+    const L = new Float32Array(E.memory.buffer, E.left(), n), R = new Float32Array(E.memory.buffer, E.right(), n);
+    const ol = ev.outputBuffer.getChannelData(0), or = ev.outputBuffer.getChannelData(1), g = vol * 0.45;
+    for (let i = 0; i < n; i++) { ol[i] = Math.tanh(L[i] * g); or[i] = Math.tanh(R[i] * g); }
+  };
+  node.connect(ac.destination);
+  $("soundBtn").textContent = "Sound off";
+}
+$("soundBtn").onclick = () => {
+  if (!ac) { soundOn(); return; }
+  if (ac.state === "running") { ac.suspend(); $("soundBtn").textContent = "Sound on"; }
+  else { ac.resume(); $("soundBtn").textContent = "Sound off"; }
+};
+$("vol").oninput = (e) => { vol = e.target.value / 100; };
+
+/* ------------------------------------------------------------------ ROM pack for the page's sound */
+let userPack = null;
+function usePack(bytes, name, quiet) {
+  if (bytes.length > E.pack_max()) { if (!quiet) say("progStatus", "That ROM pack is too big.", "bad"); return false; }
+  new Uint8Array(E.memory.buffer, E.pack_buf(), bytes.length).set(bytes);
+  if (!E.use_pack(bytes.length)) { if (!quiet) say("progStatus", "That is not a ROM pack.", "bad"); return false; }
+  userPack = { bytes, name };
+  $("waves").textContent = "Waves: " + name;
+  buildWaveLists();
+  refresh();
+  return true;
+}
+$("packBtn").onclick = () => $("packFile").click();
+$("packFile").onchange = async () => {
+  const f = $("packFile").files[0];
+  $("packFile").value = "";
+  if (f) usePack(new Uint8Array(await f.arrayBuffer()), f.name);
+};
+
+/* ------------------------------------------------------------------ programs: files */
+function programsFrom(d) {
+  const progs = [];
+  for (let i = 0; i + 5 <= d.length; i++) {
+    if (d[i] !== 0xF0 || d[i + 1] !== 0x0F || d[i + 2] !== 0x02 || (d[i + 4] !== 0x01 && d[i + 4] !== 0x02)) continue;
+    const n = d[i + 4] === 0x01 ? 1 : 40;
+    let p = i + 5;
+    for (let k = 0; k < n && p + 204 <= d.length; k++, p += 204) progs.push(unnib(d, p));
+    i = p - 1;
+  }
+  return progs.slice(0, 40);
+}
+const nib = (prog) => { const o = []; prog.forEach((x) => o.push(x & 15, x >> 4)); return o; };
+const unnib = (d, p) => { const prog = new Uint8Array(102); for (let j = 0; j < 102; j++) prog[j] = (d[p + 2 * j] & 15) | ((d[p + 2 * j + 1] & 15) << 4); return prog; };
+const nameOf = (prog) => String.fromCharCode(...prog.subarray(0, 6)).replace(/[^\x20-\x7e]/g, " ");
+function download(bytes, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const fileName = (s) => (s.trim() || "PROGRAM").replace(/[^A-Za-z0-9_+-]+/g, "_");
+
+let bank = null, bankName = "", sel = -1;
+function showBank() {
+  const s = $("progs");
+  s.replaceChildren();
+  if (!bank) { s.append(new Option("no bank open")); s.disabled = true; $("expBank").disabled = true; return; }
+  bank.forEach((p, i) => s.append(new Option(`${String(i + 1).padStart(2, "0")}  ${nameOf(p)}`, i)));
+  s.disabled = false;
+  $("expBank").disabled = false;
+  s.value = sel >= 0 ? sel : 0;
+}
+$("progs").onchange = () => { sel = +$("progs").value; loadProgram(bank[sel], `${bankName} #${sel + 1}`); };
+$("openBtn").onclick = () => $("openFile").click();
+$("openFile").onchange = async () => {
+  const f = $("openFile").files[0];
+  $("openFile").value = "";
+  if (!f) return;
+  const progs = programsFrom(new Uint8Array(await f.arrayBuffer()));
+  if (!progs.length) { say("progStatus", "No ESQ-1 / SQ-80 programs in that file.", "bad"); return; }
+  bank = progs; bankName = f.name; sel = 0;
+  showBank();
+  loadProgram(bank[0], `${f.name} #1`);
+};
+$("expProg").onclick = () => {
+  const p = progBytes();
+  download(new Uint8Array([0xF0, 0x0F, 0x02, 0x00, 0x01, ...nib(p), 0xF7]), fileName(nameOf(p)) + ".syx");
+};
+$("expBank").onclick = () => {
+  if (!bank) return;
+  if (sel >= 0) bank[sel] = new Uint8Array(progBytes());
+  const all = [];
+  for (let i = 0; i < 40; i++) {
+    let p = bank[i];
+    if (!p) { E.init_program(); p = new Uint8Array(progBytes()); }
+    all.push(...nib(p));
+  }
+  if (sel >= 0) progBytes().set(bank[sel]);
+  download(new Uint8Array([0xF0, 0x0F, 0x02, 0x00, 0x02, ...all, 0xF7]), fileName(bankName.replace(/\.syx$/i, "")) + ".syx");
+};
+
+/* ------------------------------------------------------------------ the program being edited */
+let undo = [], edited = false, source = "INIT";
+function snapshot() { undo.push(new Uint8Array(progBytes())); if (undo.length > 100) undo.shift(); }
+function loadProgram(prog, from) {
+  progBytes().set(prog);
+  undo = [];
+  edited = false;
+  source = from;
+  E.apply(1);
+  refresh();
+  sendLive();
+  say("progStatus", "Editing " + from, "ok");
+}
+function changed() {
+  if (sel >= 0 && bank) bank[sel] = new Uint8Array(progBytes());
+  edited = true;
+  E.apply(0);
+  sendLive();
+  $("dirty").textContent = "changed: Save to the FM-1, or export";
+}
+$("initBtn").onclick = () => { snapshot(); E.init_program(); E.apply(1); refresh(); changed(); };
+$("undoBtn").onclick = () => { if (!undo.length) return; progBytes().set(undo.pop()); E.apply(0); refresh(); changed(); };
+$("name").oninput = () => {
+  snapshot();
+  const s = $("name").value.toUpperCase().padEnd(6, " ").slice(0, 6);
+  for (let i = 0; i < 6; i++) E.param_set(PRG(PF.NAME0 + i), Math.max(32, Math.min(126, s.charCodeAt(i))));
+  changed();
+};
+
+/* ------------------------------------------------------------------ controls */
+const controls = [];   // { id, set(v) }
+let waveSelects = [];
+function optionList(sel, n, name) { sel.replaceChildren(); for (let i = 0; i < n; i++) sel.append(new Option(name(i), i)); }
+function buildWaveLists() {
+  for (const s of waveSelects) { const v = s.value; optionList(s, 75, (i) => `${String(i).padStart(2, "0")} ${str(E.wave_name(i)).trim()}`); s.value = v; }
+}
+function ctl(id, label, help) {
+  const kind = E.param_kind(id), min = E.param_min(id), max = E.param_max(id);
+  const row = document.createElement("div");
+  row.className = "ctl";
+  const n = document.createElement("span");
+  n.className = "n";
+  n.textContent = label || str(E.param_name(id));
+  n.title = help || HELP[label] || HELP[str(E.param_name(id))] || "";
+  row.append(n);
+  let input, out = document.createElement("output");
+  if (kind === K.ONOFF) {
+    input = document.createElement("input");
+    input.type = "checkbox";
+    input.onchange = () => { snapshot(); E.param_set(id, input.checked ? 1 : 0); changed(); redraw(); };
+    row.append(input, document.createElement("span"));
+    controls.push({ id, set: (v) => { input.checked = !!v; } });
+  } else if (kind === K.SOURCE || kind === K.WAVE || kind === K.LFOWAVE) {
+    input = document.createElement("select");
+    if (kind === K.SOURCE) optionList(input, 16, (i) => str(E.source_name(i)));
+    else if (kind === K.LFOWAVE) optionList(input, 4, (i) => str(E.lfo_wave_name(i)));
+    else { waveSelects.push(input); optionList(input, 75, (i) => `${String(i).padStart(2, "0")} ${str(E.wave_name(i)).trim()}`); }
+    input.onchange = () => { snapshot(); E.param_set(id, +input.value); changed(); redraw(); };
+    row.append(input, document.createElement("span"));
+    controls.push({ id, set: (v) => { input.value = v; } });
+  } else {
+    input = document.createElement("input");
+    input.type = "range"; input.min = min; input.max = max; input.step = 1;
+    input.onpointerdown = () => snapshot();
+    input.onkeydown = () => snapshot();
+    input.oninput = () => { E.param_set(id, +input.value); out.value = fmt(+input.value, kind); changed(); redraw(); };
+    row.append(input, out);
+    controls.push({ id, set: (v) => { input.value = v; out.value = fmt(v, kind); } });
+  }
+  return row;
+}
+const fmt = (v, kind) => (kind === K.SIGNED && v > 0 ? "+" + v : String(v));
+function modRow(srcId, depthId, label) {   // a source and its depth on one line
+  const row = document.createElement("div");
+  row.className = "ctl mod";
+  const n = document.createElement("span");
+  n.className = "n"; n.textContent = label; n.title = "modulation: a source and how much";
+  const s = document.createElement("select");
+  optionList(s, 16, (i) => str(E.source_name(i)));
+  s.onchange = () => { snapshot(); E.param_set(srcId, +s.value); changed(); };
+  const r = document.createElement("input");
+  r.type = "range"; r.min = -63; r.max = 63; r.step = 1;
+  const out = document.createElement("output");
+  r.onpointerdown = () => snapshot();
+  r.oninput = () => { E.param_set(depthId, +r.value); out.value = fmt(+r.value, K.SIGNED); changed(); };
+  row.append(n, s, r, out);
+  controls.push({ id: srcId, set: (v) => { s.value = v; } }, { id: depthId, set: (v) => { r.value = v; out.value = fmt(v, K.SIGNED); } });
+  return row;
+}
+function card(title, ...kids) {
+  const c = document.createElement("div");
+  c.className = "card";
+  const h = document.createElement("h3");
+  h.textContent = title;
+  c.append(h, ...kids);
+  return c;
+}
+function canvas(draw) {
+  const c = document.createElement("canvas");
+  c.className = "draw";
+  c.width = 680; c.height = 140;
+  drawers.push(() => draw(c));
+  return c;
+}
+const drawers = [];
+let redrawPending = false;
+function redraw() {
+  if (redrawPending) return;
+  redrawPending = true;
+  requestAnimationFrame(() => { redrawPending = false; for (const d of drawers) d(); });
+}
+function ctx2(c) { const x = c.getContext("2d"); x.clearRect(0, 0, c.width, c.height); return x; }
+const HI = "#40dce6";
+function line(x, pts, color) {
+  x.strokeStyle = color || HI; x.lineWidth = 2.5; x.beginPath();
+  pts.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b)));
+  x.stroke();
+}
+function waveDraw(o) {
+  return canvas((c) => {
+    const x = ctx2(c), key = Math.max(0, Math.min(127, 60 + 12 * E.param_get(OSC(o, OF.OCT)) + E.param_get(OSC(o, OF.SEMI))));
+    const n = E.wave_samples(E.param_get(OSC(o, OF.WAVE)), key);
+    x.fillStyle = "#2c312f"; x.fillRect(0, c.height / 2, c.width, 1);
+    if (!n) return;
+    const d = new Float32Array(E.memory.buffer, E.left(), n), pts = [];
+    for (let i = 0; i < c.width; i++) {
+      const a = Math.floor(i * n / c.width), b = Math.max(a + 1, Math.floor((i + 1) * n / c.width));
+      let lo = 1, hi = -1;
+      for (let k = a; k < b && k < n; k++) { lo = Math.min(lo, d[k]); hi = Math.max(hi, d[k]); }
+      pts.push([i, c.height / 2 - hi * (c.height / 2 - 4)], [i, c.height / 2 - lo * (c.height / 2 - 4)]);
+    }
+    x.strokeStyle = HI; x.lineWidth = 1.2; x.beginPath();
+    pts.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b)));
+    x.stroke();
+  });
+}
+function envDraw(e) {
+  return canvas((c) => {
+    const x = ctx2(c), g = (f) => E.param_get(ENV(e, EF[f]));
+    const lv = [0, g("L1"), g("L2"), g("L3"), 0], tk = ["T1", "T2", "T3", "T4"].map((t) => E.env_ticks(g(t)));
+    const neg = lv.some((v) => v < 0), zero = neg ? c.height / 2 : c.height - 4, sc = (neg ? c.height / 2 - 4 : c.height - 8) / 63;
+    const hold = 80, tot = tk.reduce((a, b) => a + b, 0) || 1, avail = c.width - hold - 16;
+    let px = 4;
+    const pts = [[px, zero]];
+    for (let k = 0; k < 4; k++) {
+      px += 6 + tk[k] * avail / tot;
+      pts.push([px, zero - lv[k + 1] * sc]);
+      if (k === 2) { px += hold; pts.push([px, zero - lv[3] * sc]); x.fillStyle = "#2c312f"; x.fillRect(px, 0, 2, c.height); }
+    }
+    x.fillStyle = "#2c312f"; x.fillRect(0, zero, c.width, 1);
+    line(x, pts);
+    x.fillStyle = "#8b938f"; x.font = "20px system-ui";
+    x.fillText((tk.reduce((a, b) => a + b, 0) / 83.59).toFixed(2) + " s", c.width - 90, 24);
+  });
+}
+function lfoDraw(l) {
+  return canvas((c) => {
+    const x = ctx2(c), g = (f) => E.param_get(LFO(l, LF[f]));
+    const w = g("WAVE"), l1 = g("L1"), l2 = g("L2"), dl = g("DELAY"), hz = 0.1 + g("FREQ") * 0.4;   // (a sketch)
+    const secs = 2, pts = [];
+    let seed = 7, held = 0;
+    for (let i = 0; i < c.width; i++) {
+      const t = i / c.width * secs, ph = (t * hz) % 1, ramp = dl ? Math.min(1, t / (dl / 20)) : 1;
+      const depth = (l1 + (l2 - l1) * ramp) / 63;
+      let v = w === 0 ? 1 - 4 * Math.abs(ph - 0.5) : w === 1 ? 2 * ph - 1 : w === 2 ? (ph < 0.5 ? 1 : -1) : 0;
+      if (w === 3) { if (Math.floor(t * hz * 4) !== held) { held = Math.floor(t * hz * 4); seed = (seed * 1103515245 + 12345) & 0x7fffffff; } v = (seed / 0x3fffffff) - 1; }
+      pts.push([i, c.height / 2 - v * depth * (c.height / 2 - 4)]);
+    }
+    x.fillStyle = "#2c312f"; x.fillRect(0, c.height / 2, c.width, 1);
+    line(x, pts);
+  });
+}
+
+const PAGES = {
+  "Oscillators": () => [0, 1, 2].map((o) => card(`OSC ${o + 1}`, waveDraw(o),
+    ctl(OSC(o, OF.WAVE), "WAVE"), ctl(OSC(o, OF.OCT), "OCT"), ctl(OSC(o, OF.SEMI), "SEMI"), ctl(OSC(o, OF.FINE), "FINE"),
+    modRow(OSC(o, OF.MOD1), OSC(o, OF.DEPTH1), "PITCH 1"), modRow(OSC(o, OF.MOD2), OSC(o, OF.DEPTH2), "PITCH 2"),
+    ctl(OSC(o, OF.LEVEL), "LEVEL"), ctl(OSC(o, OF.OUTPUT), "OUTPUT"),
+    modRow(OSC(o, OF.DMOD1), OSC(o, OF.DDEPTH1), "LEVEL 1"), modRow(OSC(o, OF.DMOD2), OSC(o, OF.DDEPTH2), "LEVEL 2"))),
+  "Envelopes": () => [0, 1, 2, 3].map((e) => card(`ENV ${e + 1}${e === 3 ? " · the amplitude" : ""}`, envDraw(e),
+    ...["L1", "L2", "L3", "LV", "T1", "T2", "T3", "T4", "T1V", "TK", "R2"].map((f) => ctl(ENV(e, EF[f]), f)))),
+  "LFOs": () => [0, 1, 2].map((l) => card(`LFO ${l + 1}`, lfoDraw(l),
+    ctl(LFO(l, LF.FREQ), "FREQ"), ctl(LFO(l, LF.WAVE), "WAVE"), ctl(LFO(l, LF.L1), "L1", HELP.L1L),
+    ctl(LFO(l, LF.L2), "L2", HELP.L2L), ctl(LFO(l, LF.DELAY), "DELAY"), ctl(LFO(l, LF.MOD), "MOD"),
+    ctl(LFO(l, LF.HUMAN), "HUMAN"), ctl(LFO(l, LF.RESET), "RESET"))),
+  "Filter and output": () => [
+    card("Filter", ctl(PRG(PF.FREQ), "FREQ", "cutoff"), ctl(PRG(PF.RES), "RES"), ctl(PRG(PF.KEYBD), "KEYBD"),
+      modRow(PRG(PF.FMOD1), PRG(PF.FDEPTH1), "MOD 1"), modRow(PRG(PF.FMOD2), PRG(PF.FDEPTH2), "MOD 2")),
+    card("Output", ctl(PRG(PF.FINAL), "FINAL", HELP.FINAL), ctl(PRG(PF.PAN), "PAN", "left 0 .. 15 right"),
+      modRow(PRG(PF.PANMOD), PRG(PF.PANDEPTH), "PAN MOD")),
+    card("Modes", ctl(PRG(PF.SYNC), "SYNC"), ctl(PRG(PF.AM), "AM"), ctl(PRG(PF.MONO), "MONO"), ctl(PRG(PF.GLIDE), "GLIDE"),
+      ctl(PRG(PF.VC), "VC"), ctl(PRG(PF.ENVRS), "ENV RS", HELP.ENVRS), ctl(PRG(PF.OSCRS), "OSC RS", HELP.OSCRS),
+      ctl(PRG(PF.CYC), "CYC"))],
+};
+let page = "Oscillators";
+function buildTabs() {
+  const t = $("tabs");
+  t.replaceChildren();
+  for (const name of Object.keys(PAGES)) {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(name === page));
+    b.onclick = () => { page = name; buildTabs(); buildPage(); };
+    t.append(b);
+  }
+}
+function buildPage() {
+  controls.length = 0; drawers.length = 0; waveSelects = [];
+  $("panel").replaceChildren(...PAGES[page]());
+  refresh();
+}
+function refresh() {
+  for (const c of controls) c.set(E.param_get(c.id));
+  $("name").value = nameOf(progBytes()).trimEnd();
+  $("dirty").textContent = edited ? "changed: Save to the FM-1, or export" : "";
+  redraw();
+}
+function say(id, text, cls) { const s = $(id); s.textContent = text; s.className = "status" + (cls ? " " + cls : ""); }
+
+/* ------------------------------------------------------------------ the FM-1 over Web MIDI */
+const HEAD = [0x7D, 0x53, 0x51];
+let midi = null, link = null;
+class Link {
+  constructor(i, o) { this.i = i; this.o = o; this.waiting = null; this.i.onmidimessage = (e) => this.take(e.data); }
+  close() { this.i.onmidimessage = null; }
+  take(d) {
+    const w = this.waiting;
+    if (!w || d.length < 6 || d[0] !== 0xF0 || d[1] !== 0x7D || d[2] !== 0x53 || d[3] !== 0x51) return;
+    if (!((d[4] === 0x7F && d[5] === w.cmd) || (d[4] === 0x7E && d[5] === w.cmd))) return;
+    this.waiting = null; clearTimeout(w.timer); w.resolve(Array.from(d));
+  }
+  once(cmd, body, ms) {
+    return new Promise((resolve, reject) => {
+      let f = [cmd, ...body];
+      if ((cmd >= 0x10 && cmd <= 0x12) || (cmd >= 0x20 && cmd <= 0x22) || (cmd >= 0x30 && cmd <= 0x32)) {
+        const s = f.reduce((a, b) => a + b, 0);
+        f = [...f, s & 0x7F, (s >> 7) & 0x7F];
+      }
+      this.waiting = { cmd, resolve, timer: setTimeout(() => { this.waiting = null; reject(new Error("no answer from the FM-1")); }, ms) };
+      this.o.send([0xF0, ...HEAD, ...f, 0xF7]);
+    });
+  }
+  async send(cmd, body = [], ms = 1500) {
+    let last;
+    for (let t = 0; t < 4; t++) {
+      try {
+        const a = await this.once(cmd, body, ms);
+        if (a[4] === 0x7F && a[6] === 7) { last = new Error("a damaged frame"); continue; }
+        if (a[4] === 0x7F && a[6] !== 0) throw new Error("the FM-1 refused it (" + a[6] + ")");
+        return a;
+      } catch (e) { last = e; await sleep(100); }
+    }
+    throw last;
+  }
+}
+function outputFor(i) {
+  const outs = [...midi.outputs.values()].filter((o) => o.state !== "disconnected");
+  const bare = (s) => (s || "").replace(/\s+\d+$/, "");
+  const same = outs.filter((o) => bare(o.name) === bare(i.name));
+  return outs.find((o) => o.name === i.name) || (same.length === 1 ? same[0] : null) || (outs.length === 1 ? outs[0] : null);
+}
+async function getMidi() {
+  if (midi) return midi;
+  if (!navigator.requestMIDIAccess) throw new Error("this browser has no Web MIDI: use Chrome or Edge");
+  midi = await navigator.requestMIDIAccess({ sysex: true });
+  midi.onstatechange = fillMidiIn;
+  fillMidiIn();
+  return midi;
+}
+$("connBtn").onclick = async () => {
+  if (link) { link.close(); link = null; setConnected(false); return; }
+  try {
+    say("connStatus", "Looking for the FM-1…");
+    await getMidi();
+    for (const i of [...midi.inputs.values()].filter((p) => p.state !== "disconnected" && !/bluetooth/i.test(p.name || ""))) {
+      const o = outputFor(i);
+      if (!o) continue;
+      try { await i.open(); await o.open(); } catch (_) { continue; }
+      const l = new Link(i, o);
+      try { await l.once(0x01, [], 700); link = l; break; } catch (_) { l.close(); }
+    }
+    if (!link) { say("connStatus", "No FM-1 answered. Is SQ-80 on it, connected by USB, and no other page using it?", "bad"); return; }
+    setConnected(true);
+    say("connStatus", `Connected (${link.o.name}). ${$("live").checked ? "It plays every change." : ""}`, "ok");
+  } catch (e) { say("connStatus", "Not connected: " + (e.message || e), "bad"); }
+};
+function setConnected(on) {
+  document.querySelectorAll("button.fm").forEach((b) => { b.disabled = !on; });
+  $("connBtn").textContent = on ? "Disconnect" : "Connect FM-1";
+  if (!on) say("connStatus", "Not connected. The page plays the sound itself.");
+}
+let liveDirty = false, liveBusy = false;
+function sendLive() { liveDirty = true; pumpLive(); }
+async function pumpLive() {
+  if (!link || !$("live").checked || liveBusy || !liveDirty) return;
+  liveBusy = true; liveDirty = false;
+  try { await link.send(0x30, nib(progBytes()), 800); } catch (e) { say("connStatus", "The FM-1 did not take a change: " + e.message, "bad"); }
+  liveBusy = false;
+  if (liveDirty) setTimeout(pumpLive, 20);
+}
+async function readProgram(b, p) {
+  const a = await link.send(0x31, [b, p], 1500);
+  return { b: a[6], p: a[7], edited: a[8], prog: unnib(a, 9) };
+}
+$("getPlaying").onclick = async () => {
+  try {
+    const r = await readProgram(0x7F, 0);
+    $("fmBank").value = r.b; $("fmProg").value = r.p;
+    loadProgram(r.prog, `the FM-1's program (bank ${r.b + 1} #${r.p + 1}${r.edited ? ", edited" : ""})`);
+  } catch (e) { say("progStatus", "Not read: " + e.message, "bad"); }
+};
+$("getOne").onclick = async () => {
+  try {
+    const b = +$("fmBank").value, p = +$("fmProg").value, r = await readProgram(b, p);
+    loadProgram(r.prog, `FM-1 bank ${b + 1} #${p + 1}`);
+  } catch (e) { say("progStatus", "Not read: " + e.message, "bad"); }
+};
+$("getBank").onclick = async () => {
+  const b = +$("fmBank").value, got = [];
+  try {
+    for (let p = 0; p < 40; p++) { say("progStatus", `Reading bank ${b + 1}: ${p + 1} / 40…`); got.push((await readProgram(b, p)).prog); }
+    bank = got; bankName = `FM-1 bank ${b + 1}`; sel = 0;
+    showBank();
+    loadProgram(bank[0], `FM-1 bank ${b + 1} #1`);
+  } catch (e) { say("progStatus", "Not read: " + e.message, "bad"); }
+};
+$("saveBtn").onclick = async () => {
+  const b = +$("fmBank").value, p = +$("fmProg").value;
+  if (!confirm(`Store "${nameOf(progBytes()).trim()}" into the FM-1's bank ${b + 1}, program ${p + 1}? It replaces what is there.`)) return;
+  try {
+    await link.send(0x32, [b, p, ...nib(progBytes())], 4000);
+    edited = false; refresh();
+    say("progStatus", `Saved into the FM-1's bank ${b + 1}, program ${p + 1}.`, "ok");
+  } catch (e) { say("progStatus", "Not saved: " + e.message, "bad"); }
+};
+$("live").onchange = () => { if ($("live").checked) sendLive(); };
+for (let b = 0; b < 8; b++) $("fmBank").append(new Option(String(b + 1), b));
+for (let p = 0; p < 40; p++) $("fmProg").append(new Option(String(p + 1), p));
+
+/* ------------------------------------------------------------------ playing: keys, the computer's keyboard, a MIDI keyboard */
+let base = 48;
+const down = new Set();
+function noteOn(k, v = 100) {
+  if (!ac) soundOn();
+  if (down.has(k)) return;
+  down.add(k);
+  E.note_on(k, v);
+  if (link && $("kbdToFm1").checked) link.o.send([0x90, k, v]);
+  mark(k, true);
+}
+function noteOff(k) {
+  if (!down.has(k)) return;
+  down.delete(k);
+  E.note_off(k);
+  if (link && $("kbdToFm1").checked) link.o.send([0x80, k, 0]);
+  mark(k, false);
+}
+const keyEls = {};
+function buildKbd() {
+  const kb = $("kbd");
+  kb.replaceChildren();
+  const whites = [], W = 100 / 15;
+  let wi = 0;
+  for (let k = base; k <= base + 24; k++) {
+    const pc = k % 12, black = [1, 3, 6, 8, 10].includes(pc), d = document.createElement("div");
+    if (black) { d.className = "b"; d.style.left = `${wi * W - W * 0.32}%`; d.style.width = `${W * 0.64}%`; }
+    else { d.className = "w"; d.style.left = `${wi * W}%`; d.style.width = `${W}%`; wi++; }
+    d.onpointerdown = (e) => { d.setPointerCapture(e.pointerId); noteOn(k, 100); };
+    d.onpointerup = d.onpointercancel = () => noteOff(k);
+    keyEls[k] = d;
+    kb.append(d);
+  }
+  $("octShow").textContent = "C" + (base / 12 - 1);
+}
+function mark(k, on) { if (keyEls[k]) keyEls[k].classList.toggle("on", on); }
+$("octDn").onclick = () => { if (base > 24) { base -= 12; buildKbd(); } };
+$("octUp").onclick = () => { if (base < 84) { base += 12; buildKbd(); } };
+$("panic").onclick = () => { for (const k of [...down]) noteOff(k); E.all_off(); };
+const KEYMAP = "awsedftgyhujkolp;'";
+addEventListener("keydown", (e) => {
+  if (e.repeat || e.metaKey || e.ctrlKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.type !== "range" && document.activeElement.type !== "checkbox") return;
+  if (e.key === "z") { $("octDn").click(); return; }
+  if (e.key === "x") { $("octUp").click(); return; }
+  const i = KEYMAP.indexOf(e.key.toLowerCase());
+  if (i >= 0) noteOn(base + 12 + i);
+});
+addEventListener("keyup", (e) => { const i = KEYMAP.indexOf(e.key.toLowerCase()); if (i >= 0) noteOff(base + 12 + i); });
+function fillMidiIn() {
+  const s = $("midiIn"), v = s.value;
+  s.replaceChildren(new Option("none", ""));
+  if (midi) for (const i of midi.inputs.values()) if (i.state !== "disconnected") s.append(new Option(i.name, i.id));
+  s.value = [...s.options].some((o) => o.value === v) ? v : "";
+}
+let midiIn = null;
+$("midiIn").onfocus = () => { getMidi().catch((e) => say("connStatus", e.message, "bad")); };
+$("midiIn").onchange = () => {
+  if (midiIn && midiIn !== (link && link.i)) midiIn.onmidimessage = null;
+  midiIn = midi ? midi.inputs.get($("midiIn").value) || null : null;
+  if (!midiIn) return;
+  if (link && midiIn === link.i) { say("connStatus", "That is the FM-1 itself: choose another keyboard.", "bad"); midiIn = null; return; }
+  midiIn.onmidimessage = (e) => {
+    const [st, a, b] = e.data, t = st & 0xF0;
+    if (t === 0x90 && b) noteOn(a, b);
+    else if (t === 0x80 || (t === 0x90 && !b)) noteOff(a);
+    else if (t === 0xB0) { E.cc(a, b); if (link && $("kbdToFm1").checked) link.o.send([0xB0, a, b]); }
+    else if (t === 0xE0) { E.bend(a | b << 7); if (link && $("kbdToFm1").checked) link.o.send([0xE0, a, b]); }
+  };
+};
+
+/* ------------------------------------------------------------------ start: the installer's kept files, if any */
+async function keptFiles() {
+  try {
+    const d = await new Promise((res, rej) => { const r = indexedDB.open("sq80-setup", 1); r.onupgradeneeded = () => r.result.createObjectStore("files"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    return await new Promise((res) => { const q = d.transaction("files").objectStore("files").get("last"); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+  } catch (_) { return null; }
+}
+(async () => {
+  try { await loadEngine(); } catch (e) { say("progStatus", "The editor's engine did not load: " + e.message, "bad"); return; }
+  buildTabs(); buildPage(); buildKbd();
+  const k = await keptFiles();
+  if (k && k.pack) usePack(k.pack.bytes, k.pack.name + " (from the installer)", true);
+  if (k && k.banks && k.banks.length) {
+    const progs = programsFrom(k.banks[0].bytes);
+    if (progs.length) { bank = progs; bankName = k.banks[0].name; sel = 0; showBank(); loadProgram(bank[0], `${bankName} #1`); return; }
+  }
+  say("progStatus", "Editing INIT. Open a .syx bank, or connect the FM-1 and get its programs.");
+})();
+</script>
+</body>
+</html>
