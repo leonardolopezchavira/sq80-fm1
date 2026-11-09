@@ -22,6 +22,7 @@
 #include "sq80.h"
 #include "sq80_params.h"
 #include "sq80_cal.h"                      /* (SQ80_ENV_TICKS: the envelope drawing's times) */
+#include "sq80_random.h"
 #include "fmini_fx.h"
 #include "sloop_seq.h"
 #include "sq80_waves.h"                 /* the built-in waves (tools/gen_waves.py: no Ensoniq data) */
@@ -1297,56 +1298,15 @@ static void section(uint32_t sec, uint32_t ninst)   /* SEL, ENV, LFO, EDIT: the 
  * MOD: the modulation routings), K3 right a new one, left the one before (8 kept), K4 the program as stored. The name,
  * the volume and the voice modes stay; OSC 1 sounds, the filter is not shut, ENV 4 (the amplitude) opens and does
  * not take forever, so a new program is never silent. SAVE stores one as any other */
-enum { RP_ALL, RP_OSC, RP_FILTER, RP_ENV, RP_LFO, RP_MOD, RP_N };
+enum { RP_ALL = SQ80_RP_ALL, RP_N = SQ80_RP_N };   /* (src/sq80/sq80_random.h: the editor page's Randomize too) */
 static const char *const RP_NAME[RP_N] = {"ALL", "OSC", "FILTER", "ENV", "LFO", "MOD"};
 #define RND_HIST 8u
 static uint8_t rnd_hist[RND_HIST][102];
 static uint32_t rnd_state = 0x2545F491u;
-static uint32_t rnd(void)
-{
-    rnd_state ^= rnd_state << 13;
-    rnd_state ^= rnd_state >> 17;
-    rnd_state ^= rnd_state << 5;
-    return rnd_state;
-}
-static int32_t rnd_in(int32_t lo, int32_t hi) { return lo + (int32_t)(rnd() % (uint32_t)(hi - lo + 1)); }
-
-static uint32_t rnd_part_of(int id)          /* which RP_* a parameter is (RP_N: never changed) */
-{
-    if (id < SQ80_PARAM_LFO(0, 0)) {
-        return RP_ENV;
-    } else if (id < SQ80_PARAM_OSC(0, 0)) {
-        return (id - SQ80_PARAM_LFO(0, 0)) % SQ80_P_LFO_N == SQ80_P_LFO_MOD ? RP_MOD : RP_LFO;
-    } else if (id < SQ80_PARAM_PROG(0)) {
-        int q = (id - SQ80_PARAM_OSC(0, 0)) % SQ80_P_OSC_N;
-        return q == SQ80_P_OSC_MOD1 || q == SQ80_P_OSC_DEPTH1 || q == SQ80_P_OSC_MOD2 || q == SQ80_P_OSC_DEPTH2 ||
-               q == SQ80_P_OSC_DMOD1 || q == SQ80_P_OSC_DDEPTH1 || q == SQ80_P_OSC_DMOD2 || q == SQ80_P_OSC_DDEPTH2
-                   ? RP_MOD : RP_OSC;
-    }
-    switch (id - SQ80_PARAM_PROG(0)) {
-    case SQ80_P_FREQ: case SQ80_P_RES: case SQ80_P_KEYBD: return RP_FILTER;
-    case SQ80_P_FMOD1: case SQ80_P_FDEPTH1: case SQ80_P_FMOD2: case SQ80_P_FDEPTH2:
-    case SQ80_P_PANMOD: case SQ80_P_PANDEPTH: return RP_MOD;
-    case SQ80_P_PAN: case SQ80_P_SYNC: case SQ80_P_AM: return RP_OSC;
-    default: return RP_N;                    /* FINAL, MONO, GLIDE, VC, the restarts, CYC, the name */
-    }
-}
-
-static void rnd_at_least(int id, int v)
-{
-    if (sq80_param_get(prog_raw, id) < v)
-        sq80_param_set(prog_raw, id, v);
-}
-static void rnd_at_most(int id, int v)
-{
-    if (sq80_param_get(prog_raw, id) > v)
-        sq80_param_set(prog_raw, id, v);
-}
 
 static void randomize(void)
 {
-    int id, amt = ui.rnd_amt, i;
-    char nm[7];
+    int i;
     rnd_state ^= plat_ms() * 2654435761u;    /* (a different series each time) */
     if (!rnd_state)
         rnd_state = 1;
@@ -1355,43 +1315,8 @@ static void randomize(void)
     for (i = (int)RND_HIST - 1; i > 0; i--)
         memcpy(rnd_hist[i], rnd_hist[i - 1], 102);
     memcpy(rnd_hist[0], prog_raw, 102);
-    for (id = 0; id < SQ80_PARAMS; id++) {
-        const sq80_param_info *in = sq80_param(id);
-        uint32_t part = rnd_part_of(id);
-        int v = sq80_param_get(prog_raw, id), lo = in->min, hi = in->max;
-        if (part == RP_N || (ui.rnd_part != RP_ALL && part != ui.rnd_part))
-            continue;
-        if (id >= SQ80_PARAM_OSC(0, 0) && id < SQ80_PARAM_PROG(0) &&
-            (id - SQ80_PARAM_OSC(0, 0)) % SQ80_P_OSC_N == SQ80_P_OSC_OCT) {
-            lo = -2;                         /* (octaves: the playable middle) */
-            hi = 2;
-        }
-        if (in->kind == SQ80_K_NUM || in->kind == SQ80_K_SIGNED) {
-            int span = (hi - lo) * amt / 100;
-            v = amt >= 100 ? rnd_in(lo, hi) : v + rnd_in(-span, span);
-        } else if ((int32_t)(rnd() % 100u) < amt) {   /* a switch, a source, a wave: changed or not */
-            v = rnd_in(lo, hi);
-        }
-        sq80_param_set(prog_raw, id, v < lo ? lo : v > hi ? hi : v);
-    }
-    /* never silent: OSC 1 on and heard, the filter open enough, ENV 4 up and not too slow */
-    sq80_param_set(prog_raw, SQ80_PARAM_OSC(0, SQ80_P_OSC_OUTPUT), 1);
-    rnd_at_least(SQ80_PARAM_OSC(0, SQ80_P_OSC_LEVEL), 40);
-    rnd_at_least(SQ80_PARAM_PROG(SQ80_P_FREQ), 40);
-    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_L1), 40);
-    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_L2), 30);
-    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_L3), 20);
-    rnd_at_least(SQ80_PARAM_ENV(3, SQ80_P_ENV_LV), 20);
-    rnd_at_most(SQ80_PARAM_ENV(3, SQ80_P_ENV_T1), 45);
-    rnd_at_most(SQ80_PARAM_ENV(3, SQ80_P_ENV_T4), 50);
-    nm[0] = 'R'; nm[1] = 'N'; nm[2] = 'D';   /* RND001 .. RND999 */
     ui.rnd_seq = (uint8_t)(ui.rnd_seq + 1u);
-    i = ui.rnd_seq;
-    nm[3] = (char)('0' + i / 100 % 10);
-    nm[4] = (char)('0' + i / 10 % 10);
-    nm[5] = (char)('0' + i % 10);
-    for (i = 0; i < 6; i++)
-        sq80_param_set(prog_raw, SQ80_PARAM_PROG(SQ80_P_NAME0 + i), nm[i]);
+    sq80_randomize(prog_raw, ui.rnd_amt, ui.rnd_part, ui.rnd_seq, &rnd_state);
     edited = 1;
     program_play(0);
 }

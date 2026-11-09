@@ -6,6 +6,7 @@
 #include "sq80.h"
 #include "sq80_params.h"
 #include "sq80_waves.h"
+#include "sq80_random.h"                   /* (Randomize: the FM-1's HOME RANDOM) */
 #include "sq80_cal.h"                      /* (SQ80_ENV_TICKS: the envelope drawing) */
 
 #define EXPORT __attribute__((used, visibility("default")))
@@ -114,6 +115,13 @@ EXPORT int param_kind(int id) { const sq80_param_info *in = sq80_param(id); retu
 EXPORT int param_get(int id) { return sq80_param_get(program, id); }
 EXPORT void param_set(int id, int v) { sq80_param_set(program, id, v); }
 EXPORT void init_program(void) { sq80_init_program(program); }
+/* a new program at random from this one: AMOUNT 5..100, PART 0 all, 1 osc, 2 filter, 3 env, 4 lfo, 5 mod; SEED from
+ * the page (a new series each time), named RND + SEQ */
+EXPORT void randomize(int amt, int part, unsigned seed, int seq)
+{
+    uint32_t s = seed ? seed : 1u;
+    sq80_randomize(program, amt < 5 ? 5 : amt > 100 ? 100 : amt, (uint32_t)part, (uint32_t)seq, &s);
+}
 
 EXPORT const char *wave_name(int w)
 {

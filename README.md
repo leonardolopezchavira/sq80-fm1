@@ -113,7 +113,8 @@ name), heard as you change it: in the page (the engine in WebAssembly, `app/edit
 `tools/build_editor.sh` with emcc or clang) and, connected over USB, live on the FM-1 (Web MIDI; the loader's frames
 30 play, 31 read, 32 store). Programs come from `.syx` files, the FM-1's banks or the installer's kept files, and go
 back to the FM-1 (any bank and place) or out as `.syx` (a program or a whole bank). An on-screen keyboard, the
-computer's keys and a MIDI keyboard play it. Your ROM pack, if you have one, gives the page the original waves.
+computer's keys and a MIDI keyboard play it. Your ROM pack, if you have one, gives the page the original waves. **Randomize** makes a new program
+from the one open, as the FM-1's RANDOM screen does (the same C: `src/sq80/sq80_random.h`); from Init at 100 %, one from scratch.
 
 ## HOME: the scope and RANDOM
 

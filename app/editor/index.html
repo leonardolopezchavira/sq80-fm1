@@ -88,6 +88,12 @@ when it is connected (Chrome or Edge). Nothing is uploaded anywhere.</p>
     <button class="plain" id="undoBtn" title="Back one change">Undo</button>
     <span class="small" id="dirty"></span>
   </div>
+  <div class="row" title="A new program from this one, as on the FM-1's third HOME screen. The volume and the voice modes stay, and it is never silent.">
+    <button class="plain" id="rndBtn">Randomize</button>
+    <label>amount <select id="rndAmt"></select></label>
+    <label>what <select id="rndPart"><option value="0">everything</option><option value="1">oscillators</option><option value="2">filter</option><option value="3">envelopes</option><option value="4">LFOs</option><option value="5">modulation</option></select></label>
+    <span class="small">From Init with amount 100%: a patch from scratch. Undo goes back.</span>
+  </div>
   <div class="row">
     <button class="plain" id="openBtn">Open .syx…</button>
     <input type="file" id="openFile" accept=".syx,.SYX" hidden>
@@ -294,6 +300,14 @@ function changed() {
   $("dirty").textContent = "changed: Save to the FM-1, or export";
 }
 $("initBtn").onclick = () => { snapshot(); E.init_program(); E.apply(1); refresh(); changed(); };
+for (let a = 5; a <= 100; a += 5) $("rndAmt").add(new Option(a + "%", a, false, a === 30));
+let rndSeq = 0;
+$("rndBtn").onclick = () => {
+  snapshot();
+  rndSeq = rndSeq % 999 + 1;
+  E.randomize(+$("rndAmt").value, +$("rndPart").value, (Math.random() * 4294967295) >>> 0, rndSeq);
+  E.apply(0); refresh(); changed();
+};
 $("undoBtn").onclick = () => { if (!undo.length) return; progBytes().set(undo.pop()); E.apply(0); refresh(); changed(); };
 $("name").oninput = () => {
   snapshot();

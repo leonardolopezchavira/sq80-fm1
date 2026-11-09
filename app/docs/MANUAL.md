@@ -204,7 +204,7 @@ pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock lea
 |---|---|
 | **Install** | installs SQ-80, with your ROM pack and banks if you have them |
 | **Load** | loads a ROM pack or banks on their own |
-| **Editor** | every value of a program at once, heard as you change it, live on the FM-1 |
+| **Editor** | every value of a program at once, heard as you change it, live on the FM-1; **Randomize** for new ones |
 | **Emulator** | SQ-80 in the browser: the same firmware |
 | **ROM pack** | makes your ROM pack from your SQ-80's ROM dumps |
 | **Wave pack** | makes a wave set from your own sounds |
