@@ -3,11 +3,12 @@
  *
  * The sq80 engine plays the player's own SQ-80 waves and programs, kept in the FM-1's flash:
  *   - the ROM pack (tools/make_rompack.py, from the player's SQ-80 OS and wave ROM dumps) at ROM_LO;
- *   - four banks of 40 programs (ESQ-1 / SQ-80 format, 102 bytes each), one flash sector each, at BANK_LO.
+ *   - eight banks of 40 programs (ESQ-1 / SQ-80 format, 102 bytes each), one flash sector each: banks 1..4 at
+ *     BANK_LO, banks 5..8 in the XDATA0 window (bank_base: there bytes 0xF00..0xF07 of each sector stay erased).
  * Both come in over USB SysEx from the loader page (web/load/index.html) in this app's own framing (below); a
  * single-program ESQ-1/SQ-80 dump (F0 0F 02 ch 01 ...) from any librarian plays at once, unsaved. Without a ROM
- * pack the engine plays a small synthetic wave set (sq80_test_pack: no Ensoniq data), written once to TEST_LO, and
- * bank T holds four test sounds.
+ * pack the engine plays a small synthetic wave set (sq80_test_pack: no Ensoniq data), written once to TEST_LO;
+ * without a bank, a plain INIT program.
  *
  * The panel: PRESET picks the program, SELECT the bank, K1..K4 change the playing program's cutoff, resonance,
  * attack and release (HOME puts them back), OCT- / OCT+ the octave, SAVE keeps bank, program and octave, ARP holds
@@ -21,8 +22,11 @@
 #define SECTOR 4096u
 #define ROM_LO 0x97000u                  /* the ROM pack: 65 sectors, to BANK_LO */
 #define ROM_MAX (BANK_LO - ROM_LO)
-#define BANK_LO 0xD8000u                 /* four banks, a sector each, to the store's objects at 0xDC000 */
-#define NBANK 4u
+#define BANK_LO 0xD8000u                 /* banks 1..4, a sector each, to the store's objects at 0xDC000 */
+#define BANK_HI_LO PLAT_XDATA0_LO        /* banks 5..8: the XDATA0 window's four sectors */
+#define NBANK 8u
+#define GAP 0xF00u                       /* banks 5..8: bytes GAP..GAP+7 of the sector kept erased (the update loader
+                                          * looks for its record there: plat.h, PLAT_XDATA0) */
 #define TEST_LO PLAT_XDATA1_LO           /* the synthetic test pack, 3 sectors (its bytes 0xF00..0xF07 never "AT") */
 #define BANK_MAGIC 0x4B425153u           /* "SQBK" */
 #define NPROG 40u
@@ -32,7 +36,7 @@
 typedef struct {
     uint32_t magic;
     int8_t octave;                       /* -2 .. +2 */
-    uint8_t bank;                        /* 0: T (the test sounds), 1..4: the flash banks */
+    uint8_t bank;                        /* 1..8; 0: no bank loaded */
     uint8_t prog;                        /* 0 .. 39 */
     uint8_t rsv;
 } settings_t;
@@ -49,8 +53,6 @@ static float buf2_l[APP_BLOCK], buf2_r[APP_BLOCK];   /* the second core's voices
 static uint8_t two_cores;
 static float gain_now;
 
-#define NTEST 4u
-static const char *const TEST_NAME[NTEST] = {"SAWPAD", "SQBASS", "SINLED", "ONESHT"};
 static sq80_patch base_patch;            /* the program as stored */
 static sq80_patch play_patch[2];         /* with the knobs' changes: two, the main loop writes the one not playing */
 static uint8_t play_ix;
@@ -58,81 +60,61 @@ static char prog_name[8];
 static int8_t knob[4];                   /* cutoff, resonance, attack, release: offsets from the program */
 static uint8_t edited;
 
-static void test_patch(uint32_t i, sq80_patch *p)
+/* a flash bank: "SQBK", the count, then 40 programs of 102 bytes; in banks 5..8 the programs step over GAP */
+static uint32_t bank_base(uint32_t slot)     /* slot 0..7 */
 {
-    uint32_t k;
-    sq80_default_patch(p);
-    switch (i) {
-    case 0:   /* SAW PAD: two saws a little apart, the filter opened by ENV2, slow attack and release */
-        p->osc[1].wave = 0; p->osc[1].fine = 6; p->osc[1].level = 60; p->osc[1].output = 1;
-        p->cutoff = 60; p->resonance = 6; p->key_track = 32;
-        p->env[1].l1 = 63; p->env[1].l2 = 40; p->env[1].l3 = 30;
-        p->env[1].t1 = 40; p->env[1].t2 = 40; p->env[1].t3 = 40; p->env[1].t4 = 35;
-        p->filter_mod[0].source = SQ80_ENV2; p->filter_mod[0].depth = 30;
-        p->env[3].l1 = 63; p->env[3].l2 = 63; p->env[3].l3 = 63;
-        p->env[3].t1 = 30; p->env[3].t2 = 20; p->env[3].t3 = 20; p->env[3].t4 = 38; p->env[3].lv = 20;
-        p->lfo[0].freq = 18; p->lfo[0].l1 = 8; p->lfo[0].l2 = 8;
-        p->osc[0].pitch_mod[0].source = SQ80_LFO1; p->osc[0].pitch_mod[0].depth = 3;
-        p->pan = 6;
-        break;
-    case 1:   /* SQR BASS: a square an octave down, a resonant filter plucked by ENV2 */
-        p->osc[0].wave = 3; p->osc[0].octave = -1;
-        p->osc[1].wave = 0; p->osc[1].octave = -1; p->osc[1].level = 50; p->osc[1].output = 1;
-        p->cutoff = 30; p->resonance = 20; p->key_track = 40;
-        p->env[1].l1 = 63; p->env[1].l2 = 10; p->env[1].t2 = 25; p->env[1].t3 = 30; p->env[1].t4 = 20;
-        p->env[1].lv = 30;
-        p->filter_mod[0].source = SQ80_ENV2; p->filter_mod[0].depth = 55;
-        p->env[3].l1 = 63; p->env[3].l2 = 55; p->env[3].l3 = 50;
-        p->env[3].t2 = 30; p->env[3].t3 = 30; p->env[3].t4 = 15; p->env[3].lv = 25;
-        break;
-    case 2:   /* SINE LEAD: a sine with a fifth above, delayed vibrato, glide */
-        p->osc[0].wave = 2;
-        p->osc[1].wave = 2; p->osc[1].semi = 7; p->osc[1].level = 40; p->osc[1].output = 1;
-        p->osc[2].wave = 0; p->osc[2].octave = 1; p->osc[2].level = 24; p->osc[2].output = 1;
-        p->cutoff = 90; p->resonance = 4;
-        p->lfo[0].freq = 22; p->lfo[0].l2 = 20; p->lfo[0].delay = 30; p->lfo[0].mod = SQ80_WHEEL;
-        for (k = 0; k < 3; k++) {
-            p->osc[k].pitch_mod[0].source = SQ80_LFO1;
-            p->osc[k].pitch_mod[0].depth = 6;
-        }
-        p->env[3].l1 = 63; p->env[3].l2 = 63; p->env[3].l3 = 63;
-        p->env[3].t1 = 5; p->env[3].t2 = 10; p->env[3].t3 = 10; p->env[3].t4 = 25;
-        p->glide = 20;
-        break;
-    default:  /* ONE-SHOT: a one-shot wave (54 and up) over a sine two octaves up */
-        p->osc[0].wave = 60;
-        p->osc[1].wave = 2; p->osc[1].octave = 2; p->osc[1].level = 30; p->osc[1].output = 1;
-        p->cutoff = 110;
-        p->env[3].l1 = 63;
-        p->env[3].t2 = 45; p->env[3].t3 = 30; p->env[3].t4 = 30; p->env[3].lv = 40;
-        break;
-    }
-    for (k = 0; k < 6; k++)
-        p->name[k] = TEST_NAME[i][k];
-    p->name[6] = 0;
+    return slot < 4u ? BANK_LO + slot * SECTOR : BANK_HI_LO + (slot - 4u) * SECTOR;
 }
-
-/* a flash bank: "SQBK", the count, then 40 programs of 102 bytes */
-static const uint8_t *bank_data(uint32_t slot, uint32_t *count)
+static uint32_t prog_at(uint32_t slot, uint32_t pi)   /* where byte 0 of program pi is (before the gap's step) */
 {
-    const uint8_t *b = plat_data(BANK_LO + slot * SECTOR);
-    uint32_t magic, n;
+    (void)slot;
+    return 8u + 102u * pi;
+}
+static uint32_t phys(uint32_t slot, uint32_t o)       /* a byte's place in the sector: over the gap in banks 5..8 */
+{
+    return slot >= 4u && o >= GAP ? o + 8u : o;
+}
+static uint32_t bank_count_slot(uint32_t slot)
+{
+    const uint8_t *b = plat_data(bank_base(slot));
+    uint32_t magic;
     if (!b)
         return 0;
     magic = (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
-    n = b[4];
-    if (magic != BANK_MAGIC || n == 0 || n > NPROG)
-        return 0;
-    if (count)
-        *count = n;
-    return b + 8;
+    return magic == BANK_MAGIC && b[4] >= 1u && b[4] <= NPROG ? b[4] : 0u;
 }
-static uint32_t bank_count(uint32_t bank)    /* programs in bank (0: T) */
+static uint32_t bank_count(uint32_t bank)    /* programs in bank 1..8 (0 for none) */
 {
-    uint32_t n = 0;
-    if (bank == 0)
-        return NTEST;
-    return bank_data(bank - 1u, &n) ? n : 0u;
+    return bank >= 1u && bank <= NBANK ? bank_count_slot(bank - 1u) : 0u;
+}
+static int bank_read(uint32_t slot, uint32_t pi, uint8_t out[102])
+{
+    const uint8_t *b = plat_data(bank_base(slot));
+    uint32_t i, o = prog_at(slot, pi);
+    if (!b)
+        return -1;
+    for (i = 0; i < 102u; i++)
+        out[i] = b[phys(slot, o + i)];
+    return 0;
+}
+static int bank_write(uint32_t slot, uint32_t pi, const uint8_t prog[102])   /* in up to two pieces, round the gap */
+{
+    uint32_t o = prog_at(slot, pi), base = bank_base(slot);
+    if (slot >= 4u && o < GAP && o + 102u > GAP) {
+        uint32_t k = GAP - o;
+        if (plat_data_write(base + o, prog, k) != 0)
+            return -1;
+        return plat_data_write(base + GAP + 8u, prog + k, 102u - k);
+    }
+    return plat_data_write(base + phys(slot, o), prog, 102);
+}
+static uint32_t first_bank(void)             /* the first loaded bank, 0 for none */
+{
+    uint32_t b;
+    for (b = 1; b <= NBANK; b++)
+        if (bank_count(b))
+            return b;
+    return 0;
 }
 
 /* the main loop's events for the audio interrupt: one writer (the main loop), one reader (app_render) */
@@ -163,17 +145,21 @@ static void apply_knobs(void)                /* the playing program, the knobs' 
 static void program_load(int fresh)          /* set.bank / set.prog into the engine; fresh: the knobs back to 0 */
 {
     uint32_t n = bank_count(set.bank), i;
-    const uint8_t *b;
-    if (n == 0) {                            /* the bank went: back to T */
-        set.bank = 0;
-        n = NTEST;
+    uint8_t prog[102];
+    if (n == 0) {                            /* that bank went: the first there is */
+        set.bank = (uint8_t)first_bank();
+        set.prog = 0;
+        n = bank_count(set.bank);
     }
     if (set.prog >= n)
         set.prog = 0;
-    if (set.bank == 0)
-        test_patch(set.prog, &base_patch);
-    else if ((b = bank_data(set.bank - 1u, 0)) != 0)
-        sq80_decode_patch(b + 102u * set.prog, &base_patch);
+    if (n && bank_read(set.bank - 1u, set.prog, prog) == 0) {
+        sq80_decode_patch(prog, &base_patch);
+    } else {
+        sq80_default_patch(&base_patch);     /* no bank yet: a plain sound to play */
+        for (i = 0; i < 6; i++)
+            base_patch.name[i] = "INIT  "[i];
+    }
     for (i = 0; i < 6; i++) {
         char c = base_patch.name[i];
         prog_name[i] = c >= 32 && c < 127 ? c : ' ';
@@ -360,16 +346,12 @@ static int rom_attach(void)
     return p && sq80_rompack_load(&rom, p, SQ80_TEST_PACK_SIZE);
 }
 
-static void settings_defaults(void)          /* (bank_count works from app_init on: the flash is mapped) */
+static void settings_defaults(void)          /* (the flash is mapped from app_init on) */
 {
-    uint32_t b;
     set.magic = SET_MAGIC;
     set.octave = 0;
-    set.bank = 0;
+    set.bank = (uint8_t)first_bank();
     set.prog = 0;
-    for (b = 1; b <= NBANK && !set.bank; b++)    /* the first loaded bank, else T */
-        if (bank_count(b))
-            set.bank = (uint8_t)b;
 }
 
 void app_init(void)
@@ -397,7 +379,7 @@ void app_init(void)
  *   11 O0 O1 O2 O3 DATA..      its bytes from offset O, 7-bit packed (8 bytes carry 7: the first the high bits)
  *   12 C0 C1 C2 C3 C4          the end, its CRC-32 (5 x 7 bits): checked, then kept (its first 8 bytes written last)
  *   13 O0 O1 O2 O3 N           read back N (<= 112) bytes of the pack area from offset O: answered 7E O0..O3 DATA
- *   20 B                       bank B (0..3): erased
+ *   20 B                       bank B (0..7: banks 1..8): erased
  *   21 B P DATA..              program P (0..39) of bank B, 102 bytes as 204 nibbles, low first (as ESQ-1 SysEx)
  *   22 B N                     bank B holds N programs: kept
  * Frames 10..12 and 20..22 end with a check: the sum of the bytes from CMD on, mod 16384, as 2 x 7 bits (low first);
@@ -587,7 +569,7 @@ static int frame_bank(const uint8_t *p, uint32_t n)
     if (b >= NBANK)
         return 1;
     if (cmd == 0x20u) {                      /* (a program playing from it stays: it is in RAM) */
-        return plat_data_erase(BANK_LO + b * SECTOR) != 0 ? 2 : 0;
+        return plat_data_erase(bank_base(b)) != 0 ? 2 : 0;
     }
     if (cmd == 0x21u) {
         uint8_t prog[102];
@@ -596,7 +578,7 @@ static int frame_bank(const uint8_t *p, uint32_t n)
             return 1;
         for (i = 0; i < 102u; i++)
             prog[i] = (uint8_t)((p[6 + 2 * i] & 15u) | (p[7 + 2 * i] & 15u) << 4);
-        return plat_data_write(BANK_LO + b * SECTOR + 8u + 102u * pi, prog, 102) != 0 ? 2 : 0;
+        return bank_write(b, pi, prog) != 0 ? 2 : 0;
     }
     if (cmd == 0x22u) {
         uint8_t h[8] = {0x53, 0x51, 0x42, 0x4B, 0, 0, 0, 0};
@@ -604,9 +586,9 @@ static int frame_bank(const uint8_t *p, uint32_t n)
         if (cnt == 0 || cnt > NPROG)
             return 1;
         h[4] = (uint8_t)cnt;
-        if (plat_data_write(BANK_LO + b * SECTOR, h, 8) != 0)
+        if (plat_data_write(bank_base(b), h, 8) != 0)
             return 2;
-        if (set.bank == b + 1u || set.bank == 0) {   /* from the test sounds to the player's first bank */
+        if (set.bank == b + 1u || set.bank == 0) {   /* (no bank before: this one) */
             if (set.bank == 0) {
                 set.bank = (uint8_t)(b + 1u);
                 set.prog = 0;
@@ -782,9 +764,9 @@ void app_say(const char *a, const char *b)
     }
 }
 
-static void bank_text(char *t)               /* "T" or "1".."4" */
+static void bank_text(char *t)               /* "1".."8", "-" for none */
 {
-    t[0] = set.bank == 0 ? 'T' : (char)('0' + set.bank);
+    t[0] = set.bank == 0 ? '-' : (char)('0' + set.bank);
     t[1] = 0;
 }
 
@@ -847,15 +829,17 @@ static void program_step(int32_t d)          /* PRESET: through the bank, then o
 {
     int32_t p = (int32_t)set.prog + d, b = set.bank, tries;
     char t[24];
-    for (tries = 0; tries < 12; tries++) {
+    if (!first_bank())
+        return;
+    for (tries = 0; tries < 2 * (int32_t)NBANK; tries++) {
         int32_t n = (int32_t)bank_count((uint32_t)b);
         if (n && p >= 0 && p < n)
             break;
         if (p < 0) {
-            b = b == 0 ? (int32_t)NBANK : b - 1;
+            b = b <= 1 ? (int32_t)NBANK : b - 1;
             p = (int32_t)bank_count((uint32_t)b) - 1;
         } else {
-            b = b == (int32_t)NBANK ? 0 : b + 1;
+            b = b >= (int32_t)NBANK ? 1 : b + 1;
             p = 0;
         }
     }
@@ -872,12 +856,12 @@ static void bank_step(int32_t d)             /* SELECT: the next bank that has p
 {
     int32_t b = set.bank, tries;
     char t[24];
-    for (tries = 0; tries < (int32_t)NBANK + 1; tries++) {
-        b = (b + d + (int32_t)NBANK + 1) % ((int32_t)NBANK + 1);
+    for (tries = 0; tries < (int32_t)NBANK; tries++) {
+        b = (b - 1 + d + 2 * (int32_t)NBANK) % (int32_t)NBANK + 1;
         if (bank_count((uint32_t)b))
             break;
     }
-    if (b == set.bank)
+    if (b == set.bank || !bank_count((uint32_t)b))
         return;
     set.bank = (uint8_t)b;
     set.prog = 0;
@@ -1023,7 +1007,7 @@ static void draw(void)
     int_text((int32_t)bank_count(set.bank), n);
     text_cat(t, n);
     cv_text(124, 2, &FONT_XS, t, C_HI);
-    cv_text(10, 20, &FONT_L, prog_name, edited ? C_HI : C_WHITE);
+    cv_text(10, 20, &FONT_L, set.bank ? prog_name : "NO BANKS", edited ? C_HI : C_WHITE);
     cv_blit(0, 34);
     /* the knobs */
     cv_begin(240, 46, C_BLACK);

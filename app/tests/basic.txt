@@ -1,11 +1,12 @@
 # SQ-80 in the host simulator: python3 fm1/base/tools/build.py app --host, then
 #   app/build/host/sq80_host app/tests/basic.txt app/build/host
-# (the loader: tools/fm1_loader.py sim-script makes a script that loads a ROM pack and a bank)
+# (no ROM pack, no banks: the test waves and an INIT program; tools/fm1_loader.py sim-script makes a script that
+# loads a ROM pack and banks)
 wait 600
 shot boot.png
 expect rom 0
 expect bank 0
-expect prog 0
+expect name0 73
 expect cores 2
 wav keys.wav
 key 7 down
@@ -19,35 +20,19 @@ shot playing.png
 key 7 up
 key 11 up
 wait 1500
-turn PRESET 1
-wait 30
-expect prog 1
-expect dirty 1
-key 2 down
-wait 300
-key 2 up
-wait 600
-turn PRESET 2
-wait 30
-expect prog 3
-midi 90 3C 64
-wait 900
-midi 80 3C 00
-wait 300
 wavstop
 turn PRESET 1
 wait 30
-expect prog 0
 expect bank 0
 turn K1 -10
 wait 30
-expect cutoff 50
+expect cutoff 117
 tap HOME
 wait 30
-expect cutoff 60
-midi C0 02 00
-wait 50
-expect prog 2
+expect cutoff 127
+tap OCT+
+wait 30
+expect octave 1
 tap ARP
 wait 300
 expect stress 1
@@ -61,4 +46,4 @@ wait 30
 expect dirty 0
 reboot
 wait 600
-expect prog 2
+expect octave 1

@@ -64,7 +64,7 @@
     for (const f of files) {
       const b = new Uint8Array(await f.arrayBuffer());
       if (isPack(b)) pack = {name: f.name, bytes: b};
-      else if (programsFrom(b).length && banks.length < 4) banks.push({name: f.name, bytes: b});
+      else if (programsFrom(b).length && banks.length < 8) banks.push({name: f.name, bytes: b});
     }
     return {pack, banks};
   }
@@ -73,8 +73,8 @@
     ...s.banks.map((b, i) => `bank ${i + 1}: <b>${esc(b.name)}</b> (${programsFrom(b.bytes).length} programs)`),
   ].join("<br>");
 
-  const PICK = `<p>Choose your ROM pack (<code>.rompack</code>) and up to four ESQ-1 / SQ-80 SysEx banks
-    (<code>.syx</code>) together: hold ⌘ (Mac) or Ctrl to pick several. Banks go into banks 1–4 in name order.</p>
+  const PICK = `<p>Choose your ROM pack (<code>.rompack</code>) and up to eight ESQ-1 / SQ-80 SysEx banks
+    (<code>.syx</code>) together: hold ⌘ (Mac) or Ctrl to pick several. Banks go into banks 1–8 in name order.</p>
     <p><input type="file" id="sq80files" multiple accept=".rompack,.syx,.SYX"></p>
     <p class="small">They stay on this computer, in this browser, so the next install can load them again with one
     click. Nothing is uploaded anywhere but to your FM-1.</p>`;

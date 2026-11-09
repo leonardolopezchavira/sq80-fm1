@@ -61,7 +61,7 @@ SQ-80 would be. What was measured is in [docs/measurements.md](docs/measurements
 
 `app/` is an [fm1-base](https://github.com/charlesvestal/fm1-base) app (fm1-base is the `fm1/base`
 submodule): **SQ-80**, the engine on the FM-1, eight voices over its two cores. It plays your ROM pack and
-your ESQ-1/SQ-80 program banks, loaded into its flash over USB SysEx by the loader page
+up to eight ESQ-1/SQ-80 program banks, loaded into its flash over USB SysEx by the loader page
 (`app/loader/index.html`, also at https://leonardolopezchavira.github.io/sq80-fm1/load/; the protocol is in
 `app/app.c` and `tools/fm1_loader.py`). Without them it plays a synthetic test wave set.
 
