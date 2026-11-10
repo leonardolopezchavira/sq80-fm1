@@ -50,8 +50,10 @@ static int32_t cl_stk_left(uint32_t flags, uint32_t k)   /* bytes (a multiple of
 #if !defined PLAT_DATA_HI || !defined PLAT_XDATA1_LO
 #error "crashlog.c: plat.h first"
 #endif
+#if !(defined PLAT_HOST && defined BOARD_SMK37 && BOARD_SMK37)   /* (the SMK host simulator: the FM-1's flash map) */
 _Static_assert(CL_LO >= PLAT_DATA_HI && CL_LO + CL_SECTORS * 0x1000u <= PLAT_XDATA1_LO - 0x1000u,
                "the crash history: inside the update's staging (0xE0000..0xE4FFF), off its record's sector 0xE4000");
+#endif
 _Static_assert(CL_LO >= 0xE2000u, "the crash history: off backup.c's journal (0xE1000) and the staged loader's head");
 
 typedef struct {

@@ -86,8 +86,10 @@
 #if !defined PLAT_DATA_HI || !defined PLAT_XDATA1_LO
 #error "dbgstats.c: plat.h first"
 #endif
+#if !(defined PLAT_HOST && defined BOARD_SMK37 && BOARD_SMK37)   /* (the SMK host simulator: the FM-1's flash map) */
 _Static_assert(DS_LO >= PLAT_DATA_HI && DS_LO + 0x1000u == PLAT_XDATA1_LO,
                "the debug stats: the update's staging's last sector (0xE4000), below the third data window");
+#endif
 _Static_assert(DS_LO + DS_SLOTS * DS_REC <= 0xE4F00u, "the debug stats: below the update's record (0xE4F00)");
 _Static_assert(DS_LO >= 0xE4000u, "the debug stats: off the crash history (0xE2000..0xE3FFF) and backup.c's journal");
 _Static_assert(DS_KEEP < DS_Q && DS_KEEP < DS_SLOTS, "the debug stats: the write-back fits the queue and the sector");

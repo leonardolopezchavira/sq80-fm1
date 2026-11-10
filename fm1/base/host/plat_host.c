@@ -299,6 +299,77 @@ static int sense_on;                    /* the keys' readings: the simulator has
 void plat_sense(int on) { sense_on = on; }
 uint32_t plat_analog_mask(void) { return 0xFFFFFu; }    /* the keys on rows PA7 / PA8: keys 0..19 (the top row: 20..26) */
 
+#if defined(BOARD_SMK37) && BOARD_SMK37
+/* ---- the SMK-37's own controls, simulated (include/plat.h; script: smkbtn, pad, fader, bend, modw, pedal, outer) ----
+ * The pads: in raw mode the app reads them; otherwise a pad is its white key (plat_keys), as on the device. */
+static const uint8_t SMK_WHITE[16] = PLAT_WHITE_KEYS;
+static uint32_t smk_btn, smk_btn_seen, smk_led, smk_pads, smk_pad_hit, smk_pad_raw;
+static uint8_t smk_pad_v[16], smk_key_v[NKEYS], smk_fader[4] = {64, 64, 64, 64};
+static int8_t smk_pedal = -1;
+static int32_t smk_bend, smk_mod, smk_wheel_new;
+static int32_t smk_outer_q[32];
+static uint32_t smk_outer_r, smk_outer_w;
+static uint8_t smk_pad_rgbv[16][3];
+static int smk_pads_app;
+uint32_t plat_smk_buttons(void) { return smk_btn; }
+uint32_t plat_smk_button_hits(void)
+{
+    uint32_t hit = smk_btn & ~smk_btn_seen;
+    smk_btn_seen = smk_btn;
+    return hit;
+}
+void plat_smk_leds(uint32_t lit) { smk_led = lit; }
+uint64_t plat_keybed(void) { return (uint64_t)held_keys << 5; }   /* (the outer keys: plat_outer_key's queue) */
+int plat_keybed_vel(int k) { return k >= 5 && k - 5 < NKEYS && smk_key_v[k - 5] ? smk_key_v[k - 5] : 100; }
+int32_t plat_outer_key(void) { return smk_outer_r == smk_outer_w ? -1 : smk_outer_q[smk_outer_r++ % 32u]; }
+int plat_key_vel(int k) { return (uint32_t)k < (uint32_t)NKEYS && smk_key_v[k] ? smk_key_v[k] : 100; }
+void plat_pads_raw(int on) { smk_pad_raw = on != 0; }
+uint32_t plat_pads(void) { return smk_pads; }
+uint32_t plat_pad_hits(void)
+{
+    uint32_t h = smk_pad_hit;
+    smk_pad_hit = 0;
+    return h;
+}
+int plat_pad_vel(int p) { return (uint32_t)p < 16u && smk_pad_v[p] ? smk_pad_v[p] : 100; }
+void plat_pad_rgb(int p, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (p < 0) {
+        smk_pads_app = 0;
+        return;
+    }
+    smk_pads_app = 1;
+    if ((uint32_t)p < 16u)
+        smk_pad_rgbv[p][0] = r, smk_pad_rgbv[p][1] = g, smk_pad_rgbv[p][2] = b;
+}
+int plat_fader(int i) { return (uint32_t)i < 4u ? smk_fader[i] : -1; }
+int plat_wheels(int32_t *bend, int32_t *mod)
+{
+    int n = smk_wheel_new;
+    *bend = smk_bend, *mod = smk_mod;
+    smk_wheel_new = 0;
+    return n;
+}
+int plat_pedal(void) { return smk_pedal; }
+static void smk_pad(int p, int down, int vel)
+{
+    if (down) {
+        smk_pads |= 1u << p;
+        smk_pad_v[p] = (uint8_t)(vel ? vel : 100);
+    } else {
+        smk_pads &= ~(1u << p);
+    }
+    if (smk_pad_raw) {
+        if (down)
+            smk_pad_hit |= 1u << p;
+    } else if (down) {
+        held_keys |= 1u << SMK_WHITE[p];
+    } else {
+        held_keys &= ~(1u << SMK_WHITE[p]);
+    }
+}
+#endif
+
 #define MQ 256
 static uint32_t min_q[MQ], mi_w, mi_r;
 static FILE *midi_log;
@@ -2572,6 +2643,10 @@ int main(int argc, char **argv)
 #ifdef APP_KEY_SENSE
             app_host_key((uint32_t)k, down ? (vel ? vel : 100u) : 0u, press);   /* the readings it gives (app.h) */
 #endif
+#if defined(BOARD_SMK37) && BOARD_SMK37
+            if (down && (uint32_t)k < (uint32_t)NKEYS)
+                smk_key_v[k] = (uint8_t)(vel ? (vel > 127u ? 127u : vel) : 100u);
+#endif
             if (down)
                 held_keys |= 1u << k;
             else
@@ -2617,6 +2692,61 @@ int main(int argc, char **argv)
             plat_host_exact = 1;
             run_ms(1);
             plat_host_exact = 0;
+#if defined(BOARD_SMK37) && BOARD_SMK37
+        } else if (!strcmp(cmd, "smkbtn")) {        /* smkbtn KNOB|FADER|LEFT|RIGHT [down|up]: tapped without one */
+            static const char *const SBN[NSB] = {"KNOB", "FADER", "LEFT", "RIGHT"};
+            int i = find_name(SBN, NSB, a);
+            if (i < 0) {
+                printf("line %d: no SMK button %s\n", lineno, a);
+                return 2;
+            }
+            if (strcmp(b, "up"))
+                smk_btn |= 1u << i;
+            run_ms(40);
+            if (strcmp(b, "down"))
+                smk_btn &= ~(1u << i);
+            run_ms(40);
+        } else if (!strcmp(cmd, "pad")) {           /* pad P [VEL] (tapped) | pad P down [VEL] | pad P up */
+            int p = atoi(a) & 15;
+            if (!strcmp(b, "down") || !strcmp(b, "up")) {
+                smk_pad(p, b[0] == 'd', atoi(c));
+                run_ms(2);
+            } else {
+                smk_pad(p, 1, atoi(b));
+                run_ms(60);
+                smk_pad(p, 0, 0);
+                run_ms(30);
+            }
+        } else if (!strcmp(cmd, "fader")) {         /* fader I V (0..127): moved there in a few steps */
+            int i = atoi(a) & 3, v = atoi(b), s;
+            v = v < 0 ? 0 : v > 127 ? 127 : v;
+            for (s = 0; s < 4; s++) {
+                smk_fader[i] = (uint8_t)(smk_fader[i] + (v - smk_fader[i]) / (4 - s));
+                run_ms(10);
+            }
+            smk_fader[i] = (uint8_t)v;
+            run_ms(20);
+        } else if (!strcmp(cmd, "bend")) {          /* bend -8192..8191 */
+            smk_bend = atoi(a), smk_wheel_new = 1;
+            run_ms(10);
+        } else if (!strcmp(cmd, "modw")) {          /* modw 0..127 */
+            smk_mod = atoi(a), smk_wheel_new = 1;
+            run_ms(10);
+        } else if (!strcmp(cmd, "pedal")) {         /* pedal down | up | none */
+            smk_pedal = (int8_t)(!strcmp(a, "down") ? 1 : !strcmp(a, "up") ? 0 : -1);
+            run_ms(10);
+        } else if (!strcmp(cmd, "outer")) {         /* outer K down [VEL] | outer K up: keybed key K (0..4, 32..36) */
+            int k = atoi(a), v = !strcmp(b, "down") ? (c[0] ? atoi(c) : 100) : 0;
+            smk_outer_q[smk_outer_w++ % 32u] = k << 8 | v;
+            run_ms(2);
+        } else if (!strcmp(cmd, "smkleds")) {       /* the SMK's four extra LEDs and the pads' colours */
+            int p;
+            printf("  smkleds: %s%s%s%s pads", smk_led & 1u ? " KNOB" : "", smk_led & 2u ? " FADER" : "",
+                   smk_led & 4u ? " LEFT" : "", smk_led & 8u ? " RIGHT" : "");
+            for (p = 0; p < 16; p++)
+                printf(smk_pads_app ? " %02X%02X%02X" : " -", smk_pad_rgbv[p][0], smk_pad_rgbv[p][1], smk_pad_rgbv[p][2]);
+            printf("\n");
+#endif
         } else if (!strcmp(cmd, "jack")) {          /* jack in | jack out: the headphone jack (plat_headphones) */
             host_hp = !strcmp(a, "in");
             run_ms(2);

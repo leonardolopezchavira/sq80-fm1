@@ -27,6 +27,11 @@
 #include "sloop_seq.h"
 #include "sq80_waves.h"                 /* the built-in waves (tools/gen_waves.py: no Ensoniq data) */
 #include "seg_font.h"                   /* the program name's letters (tools/gen_seg_font.py) */
+#if defined(BOARD_SMK37) && BOARD_SMK37
+#define APP_SMK 1                       /* the M-Vave SMK-37 (fm1-base BOARD=smk37): pads, faders, wheels, pedal */
+#else
+#define APP_SMK 0
+#endif
 
 #define C_ACCENT RGB(64, 220, 230)          /* the highlight: cyan, as the boot screen's */
 
@@ -146,7 +151,7 @@ static int prog_read(uint32_t bank, uint32_t pi, uint8_t out[102])   /* program 
 }
 
 /* the main loop's events for the audio interrupt: one writer (the main loop), one reader (app_render) */
-enum { Q_ON, Q_OFF, Q_PATCH, Q_EDIT, Q_ALLOFF, Q_SEQ };
+enum { Q_ON, Q_OFF, Q_PATCH, Q_EDIT, Q_ALLOFF, Q_SEQ, Q_CC, Q_BEND };   /* (CC: a = number, b = value; BEND: b 0..16383) */
 #define NEV 64u
 static volatile uint32_t ev_q[NEV];
 static volatile uint32_t ev_w, ev_r;
@@ -351,6 +356,12 @@ static void events(void)                     /* audio interrupt */
         case Q_ALLOFF:
             sq80_all_notes_off(&syn);
             notes_forget();
+            break;
+        case Q_CC:                           /* (the SMK-37's mod wheel and pedal) */
+            sq80_control_change(&syn, (int)a, (int)(b & 127u));
+            break;
+        case Q_BEND:
+            sq80_pitch_bend(&syn, (int)b);
             break;
         }
         ev_r = ev_r + 1u;
@@ -1495,6 +1506,279 @@ static void step_turn(uint32_t k, int32_t e) /* a step held: K1 its notes, K2 ve
     ui.redraw = 1;
 }
 
+#if APP_SMK
+/* ------------------------------------------------------------------ SMK-37 --- */
+/* The SMK-37's own controls. FADER BANK steps the four faders through A: REVERB DELAY CHORUS DRIVE, B: CUTOFF RESON
+ * ATTACK RELEASE (ENV 4), C: OSC 1..3 levels and the program's volume, D: LFO 1 and 2 rate and depth (the level it
+ * settles at: L2 with a DELAY, else L1). A fader takes over a value once it reaches it (no jumps): until then the
+ * screen says where it is. The pads choose the program (16 of the bank at a time; < and > move them on the play
+ * screen), or are the 16 steps while the keys are (SEQ held or locked); < and > turn the pages elsewhere. The pitch
+ * wheel bends, the mod wheel is the SQ-80's WHEEL, the pedal sustains, the keys play with their velocity and the
+ * outer keys (C3..E3, G#5..C6) play too. */
+static const char *const FADER_NAME[4][4] = {
+    {"REVERB", "DELAY", "CHORUS", "DRIVE"},
+    {"CUTOFF", "RESON", "ATTACK", "RELEASE"},
+    {"OSC 1", "OSC 2", "OSC 3", "VOLUME"},
+    {"LFO1 RATE", "LFO1 DEPTH", "LFO2 RATE", "LFO2 DEPTH"}};
+static const char *const FADER_SHORT[4] = {"REV DLY CHO DRV", "CUT RES ATK REL", "OSC1 OSC2 OSC3 VOL",
+                                           "LFO1 RATE DEPTH LFO2"};
+static struct {
+    uint8_t bank;                            /* the faders' bank, 0..3 (A..D) */
+    int16_t last[4];                         /* each fader's last reading (-1: none yet) */
+    uint8_t caught[4];                       /* 1: the fader holds the value (it reached it) */
+    int16_t wrote[4];                        /* the value it last set (another change lets it go) */
+    uint8_t group;                           /* the pads' programs: group * 16 + pad */
+    uint32_t pads_was;                       /* pads held at the last look */
+    int8_t pedal;                            /* the pedal's last state (-1 none) */
+    uint8_t outer[SMK_NKEYBED];              /* an outer key's note + 1 while it sounds (0: none) */
+    int32_t pad_said;                        /* (the pad colours last sent, a cheap hash) */
+} smk = {0, {-1, -1, -1, -1}, {0}, {0}, 0, 0, -1, {0}, -1};
+
+static int smk_fader_id(uint32_t i, int *fx)   /* the parameter fader i holds now (fx: an effect's id) */
+{
+    *fx = smk.bank == 0u;
+    switch (smk.bank) {
+    case 0: { static const int8_t F[4] = {FXP_REV, FXP_DLY, FXP_CHO, FXP_DRIVE}; return F[i]; }
+    case 1: return i == 0 ? SQ80_PARAM_PROG(SQ80_P_FREQ) : i == 1 ? SQ80_PARAM_PROG(SQ80_P_RES) :
+                   SQ80_PARAM_ENV(3, i == 2 ? SQ80_P_ENV_T1 : SQ80_P_ENV_T4);
+    case 2: return i < 3u ? SQ80_PARAM_OSC(i, SQ80_P_OSC_LEVEL) : SQ80_PARAM_PROG(SQ80_P_FINAL);
+    default: {
+        uint32_t n = i / 2u;
+        if (!(i & 1u))
+            return SQ80_PARAM_LFO(n, SQ80_P_LFO_FREQ);
+        return SQ80_PARAM_LFO(n, sq80_param_get(prog_raw, SQ80_PARAM_LFO(n, SQ80_P_LFO_DELAY)) ? SQ80_P_LFO_L2 :
+                                                                                                 SQ80_P_LFO_L1);
+    }
+    }
+}
+
+static void smk_range(int id, int fx, int *lo, int *hi)
+{
+    if (fx) {
+        *lo = 0;
+        *hi = fx_param(id)->max;
+    } else {
+        *lo = sq80_param(id)->min;
+        *hi = sq80_param(id)->max;
+    }
+}
+
+static void smk_fader_bank(uint32_t b)
+{
+    uint32_t i;
+    smk.bank = (uint8_t)(b & 3u);
+    for (i = 0; i < 4u; i++)
+        smk.caught[i] = 0;
+    {
+        char t[12] = "FADERS ";
+        t[7] = (char)('A' + smk.bank);
+        t[8] = 0;
+        app_say(t, FADER_SHORT[smk.bank]);
+    }
+}
+
+static void smk_faders(void)
+{
+    uint32_t i;
+    for (i = 0; i < 4u; i++) {
+        int f = plat_fader((int)i), fx, id, lo, hi, cur, at, v;
+        char t[24], n[12];
+        if (f < 0 || f == smk.last[i])
+            continue;
+        if (smk.last[i] < 0) {               /* (the first reading: where it is, nothing moved) */
+            smk.last[i] = (int16_t)f;
+            continue;
+        }
+        id = smk_fader_id(i, &fx);
+        smk_range(id, fx, &lo, &hi);
+        cur = fx ? set.fx[id] : sq80_param_get(prog_raw, id);
+        if (smk.caught[i] && cur != smk.wrote[i])
+            smk.caught[i] = 0;               /* (changed elsewhere: a knob, another program) */
+        at = hi > lo ? (cur - lo) * 127 / (hi - lo) : 0;
+        if (!smk.caught[i] && ((smk.last[i] <= at && f >= at) || (smk.last[i] >= at && f <= at) ||
+                               (f - at <= 1 && at - f <= 1)))
+            smk.caught[i] = 1;
+        smk.last[i] = (int16_t)f;
+        if (!smk.caught[i]) {                /* not there yet: which way */
+            t[0] = 0;
+            text_cat(t, f < at ? "UP TO " : "DOWN TO ");
+            int_text(cur, n);
+            text_cat(t, n);
+            app_say(FADER_NAME[smk.bank][i], t);
+            continue;
+        }
+        v = lo + (f * (hi - lo) + 63) / 127;
+        if (v != cur) {
+            if (fx) {
+                set.fx[id] = (uint8_t)v;
+                fx_set(set.fx);
+                set_dirty = 1;
+            } else {
+                sq80_param_set(prog_raw, id, v);
+                edited = 1;
+                program_play(0);
+            }
+        }
+        smk.wrote[i] = (int16_t)(fx ? set.fx[id] : sq80_param_get(prog_raw, id));
+        if (fx)
+            int_text(smk.wrote[i], t);
+        else
+            value_text(id, t);
+        app_say(FADER_NAME[smk.bank][i], t);
+        ui.redraw = 1;
+    }
+}
+
+static void smk_note(uint32_t note, uint32_t v)   /* an outer key's note: on (v 1..127, as GLO MIN VEL takes it) or off */
+{
+    if (v) {
+        v = set.minvel + v * (127u - set.minvel) / 127u;
+        if (v < 1u)
+            v = 1u;
+        post(Q_ON, note, v);
+        plat_midi_send(0x09u | 0x90u << 8 | note << 16 | v << 24, TO_USB | TO_BLE);
+    } else {
+        post(Q_OFF, note, 0);
+        plat_midi_send(0x08u | 0x80u << 8 | note << 16, TO_USB | TO_BLE);
+    }
+}
+
+static void smk_page(int32_t d)              /* < and >: the section's pages, the steps' pages, the pads' programs */
+{
+    uint32_t n;
+    if (steps_on()) {
+        ui.step_page = (uint8_t)((ui.step_page + (d > 0 ? 1u : 3u)) % 4u);
+        ui.seq_used = 1;
+    } else if (ed.sec == ED_PLAY || ed.sec == ED_SAVE) {
+        uint32_t groups = ((ed.sec == ED_SAVE ? NPROG : bank_count(set.bank)) + 15u) / 16u;
+        char t[12], m[6];
+        if (!groups)
+            return;
+        smk.group = (uint8_t)((smk.group + (d > 0 ? 1u : groups - 1u)) % groups);
+        int_text(smk.group * 16 + 1, t);
+        text_cat(t, "-");
+        int_text(smk.group * 16 + 16, m);
+        text_cat(t, m);
+        app_say("PADS", t);
+    } else if (ed.sec == ED_RAND) {
+        rand_turn(2, d);                     /* (RANDOM: the next one, or the one before) */
+    } else if (ed.sec <= ED_FX || ed.sec >= ED_ARP) {
+        ed_pages(ed.sec, &n);
+        ed.page[ed.sec] = (uint8_t)((ed.page[ed.sec] + (uint32_t)(d > 0 ? 1 : (int32_t)n - 1)) % n);
+    }
+    ui.redraw = 1;
+}
+
+static void smk_pad_input(uint32_t now)
+{
+    uint32_t held = plat_pads(), hits = plat_pad_hits(), p;
+    for (p = 0; p < 16u; p++) {
+        uint32_t bit = 1u << p;
+        if (hits & bit) {
+            ui.touched = now;
+            if (steps_on()) {
+                step_down(p);
+            } else if (ed.sec == ED_SAVE) {
+                if (smk.group * 16u + p < NPROG)
+                    ed.to_prog = (uint8_t)(smk.group * 16u + p);
+            } else if (smk.group * 16u + p < bank_count(set.bank)) {
+                char t[24];
+                set.prog = (uint8_t)(smk.group * 16u + p);
+                set_dirty = 1;
+                ui.stress = 0;
+                program_load(1);
+                prog_text(t);
+                app_say("", t);
+            }
+            ui.redraw = 1;
+        } else if (!(held & bit) && (smk.pads_was & bit) && steps_on()) {
+            step_up(p);
+        }
+    }
+    smk.pads_was = held;
+}
+
+static void smk_pad_lights(uint32_t now)     /* the pads: the programs (this one bright), or the steps */
+{
+    int32_t h = 0;
+    uint32_t p, col[16];
+    if (steps_on()) {
+        int32_t pos = sl_pos();
+        for (p = 0; p < 16u; p++) {
+            uint32_t idx = ui.step_page * 16u + p, on = idx < seq_len() && !step_empty(idx);
+            col[p] = (int32_t)idx == pos ? 0xB43C00u : on ? 0x00A0AAu : idx < seq_len() ? 0x060606u : 0u;
+        }
+    } else {
+        uint32_t cnt = ed.sec == ED_SAVE ? NPROG : bank_count(set.bank),
+                 sel = ed.sec == ED_SAVE ? ed.to_prog : set.prog;
+        for (p = 0; p < 16u; p++) {
+            uint32_t i = smk.group * 16u + p;
+            col[p] = i == sel ? (ed.sec == ED_SAVE ? 0xB43C00u : 0x00A0AAu) : i < cnt ? 0x000A0Au : 0u;
+        }
+    }
+    (void)now;
+    for (p = 0; p < 16u; p++)
+        h = h * 31 + (int32_t)col[p];
+    if (h == smk.pad_said)
+        return;
+    smk.pad_said = h;
+    for (p = 0; p < 16u; p++)
+        plat_pad_rgb((int)p, (uint8_t)(col[p] >> 16), (uint8_t)(col[p] >> 8), (uint8_t)col[p]);
+}
+
+static void smk_input(uint32_t now)
+{
+    uint32_t hits = plat_smk_button_hits();
+    int32_t k, bend, mod;
+    int ped;
+    if (hits & (1u << SB_FADER_BANK)) {
+        ui.touched = now;
+        smk_fader_bank(smk.bank + 1u);
+    }
+    if (hits & (1u << SB_LEFT))
+        smk_page(-1);
+    if (hits & (1u << SB_RIGHT))
+        smk_page(1);
+    smk_pad_input(now);
+    smk_faders();
+    if (plat_wheels(&bend, &mod)) {
+        uint32_t b14 = (uint32_t)(bend + 8192);
+        post(Q_BEND, 0, b14);
+        post(Q_CC, 1, (uint32_t)mod);
+        plat_midi_send(0x0Eu | 0xE0u << 8 | (b14 & 127u) << 16 | (b14 >> 7) << 24, TO_USB | TO_BLE);
+        plat_midi_send(0x0Bu | 0xB0u << 8 | 1u << 16 | (uint32_t)mod << 24, TO_USB | TO_BLE);
+    }
+    if ((ped = plat_pedal()) != smk.pedal) {
+        if (ped >= 0 || smk.pedal > 0) {     /* (unplugged while held: let go) */
+            uint32_t v = ped > 0 ? 127u : 0u;
+            post(Q_CC, 64, v);
+            plat_midi_send(0x0Bu | 0xB0u << 8 | 64u << 16 | v << 24, TO_USB | TO_BLE);
+        }
+        smk.pedal = (int8_t)ped;
+    }
+    while ((k = plat_outer_key()) >= 0) {    /* C3..E3, G#5..C6 */
+        uint32_t key = (uint32_t)k >> 8, v = (uint32_t)k & 127u;
+        if (key >= SMK_NKEYBED)
+            continue;
+        ui.touched = now;
+        if (v) {
+            int32_t note = 48 + (int32_t)key + 12 * set.octave;
+            if (note < 0 || note > 127)
+                continue;
+            if (smk.outer[key])
+                smk_note(smk.outer[key] - 1u, 0);
+            smk.outer[key] = (uint8_t)(note + 1);
+            smk_note((uint32_t)note, v);
+        } else if (smk.outer[key]) {
+            smk_note(smk.outer[key] - 1u, 0);
+            smk.outer[key] = 0;
+        }
+    }
+    plat_smk_leds(smk.bank ? 1u << SB_FADER_BANK : 0u);
+    smk_pad_lights(now);
+}
+#endif
+
 static void input(void)
 {
     uint32_t keys, btn = plat_buttons(), k, now = plat_ms(), prev = ui.btn;
@@ -1517,7 +1801,11 @@ static void input(void)
                 }
                 continue;
             }
+#if APP_SMK
+            v = (uint32_t)plat_key_vel((int)k);   /* (the SMK-37's keys give it themselves) */
+#else
             v = touch_vel(k);
+#endif
             if (v > 127u)
                 v = 127u;
             v = set.minvel + v * (127u - set.minvel) / 127u;   /* (GLO MIN VEL: the range above it, as played) */
@@ -1538,6 +1826,9 @@ static void input(void)
             }
         }
     }
+#if APP_SMK
+    smk_input(now);
+#endif
     for (k = 0; k < NB; k++) {               /* let go: EDIT, SEQ, REC act on a tap */
         uint32_t bit = 1u << k;
         if ((btn & bit) || !(prev & bit))
@@ -2255,6 +2546,13 @@ static void draw(void)
         nm[i] = 0;
         cv_text(10, 22, &FONT_SEG, nm, edited ? C_ACCENT : C_WHITE);
     }
+#if APP_SMK
+    {                                        /* the faders' bank */
+        char fb[10] = "FADERS A";
+        fb[7] = (char)('A' + smk.bank);
+        cv_text(230 - text_w(&FONT_XS, fb), 44, &FONT_XS, fb, C_GRAY);
+    }
+#endif
     cv_blit(0, 34);
     if (ed.sec == ED_SAVE) {                 /* where to save */
         uint8_t there[102];
@@ -2278,7 +2576,7 @@ static void draw(void)
         } else {
             cv_text(10, 44, &FONT_XS, "AN EMPTY PLACE", C_GRAY);
         }
-        cv_text(10, 84, &FONT_XS, "SELECT / K1: BANK   PRESET / K2: PROGRAM", C_DIM);
+        cv_text(10, 84, &FONT_XS, APP_SMK ? "K2 / K5: BANK   K4 / K6 / PADS: PROGRAM" : "SELECT / K1: BANK   PRESET / K2: PROGRAM", C_DIM);
         cv_text(10, 104, &FONT_XS, "SAVE: WRITE IT   HOME: CANCEL", C_DIM);
         cv_blit(0, 100);
         return;
@@ -2312,7 +2610,7 @@ static void draw(void)
         cv_text(10, 104, &FONT_XS, "MIN VEL", C_GRAY);
         int_text(set.minvel, t);
         cv_text(70, 104, &FONT_XS, set.minvel ? t : "OFF", C_ACCENT);
-        cv_text(10, 122, &FONT_XS, "K1 CLICK  K2 MIN VEL  PLAY: 8 VOICES", C_DIM);
+        cv_text(10, 122, &FONT_XS, APP_SMK ? "K5 CLICK  K6 MIN VEL  PLAY: 8 VOICES" : "K1 CLICK  K2 MIN VEL  PLAY: 8 VOICES", C_DIM);
         cv_blit(0, 100);
         return;
     }
@@ -2491,6 +2789,9 @@ void app_ui_init(void)
 {
     ui.rnd_amt = 30;
     touch_on(1);
+#if APP_SMK
+    plat_pads_raw(1);                        /* (the pads are the app's: programs, steps) */
+#endif
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.redraw = 1;
 }
@@ -2619,6 +2920,26 @@ int app_expect(const char *what, int *got)
         *got = edited;
     else if (!strcmp(what, "cutoff"))
         *got = play_patch[play_ix].cutoff;
+#if APP_SMK
+    else if (!strcmp(what, "fbank"))         /* the SMK-37's faders' bank, 0..3 */
+        *got = smk.bank;
+    else if (!strcmp(what, "padgroup"))
+        *got = smk.group;
+    else if (!strcmp(what, "wheel"))         /* the engine's mod wheel, sustain, bend (cents) */
+        *got = syn.wheel;
+    else if (!strcmp(what, "sustain"))
+        *got = syn.sustain;
+    else if (!strcmp(what, "bend"))
+        *got = (int)(syn.bend_semis * 100.0f + (syn.bend_semis < 0 ? -0.5f : 0.5f));
+    else if (!strcmp(what, "freq"))          /* program values the faders hold */
+        *got = sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_FREQ));
+    else if (!strcmp(what, "attack"))
+        *got = sq80_param_get(prog_raw, SQ80_PARAM_ENV(3, SQ80_P_ENV_T1));
+    else if (!strcmp(what, "osc2lvl"))
+        *got = sq80_param_get(prog_raw, SQ80_PARAM_OSC(1, SQ80_P_OSC_LEVEL));
+    else if (!strcmp(what, "lfo1freq"))
+        *got = sq80_param_get(prog_raw, SQ80_PARAM_LFO(0, SQ80_P_LFO_FREQ));
+#endif
     else if (!strcmp(what, "name0"))         /* the program name's first letter */
         *got = prog_name[0];
     else if (!strcmp(what, "cores"))

@@ -26,4 +26,6 @@ jobs:
         for d in "" "-DLOADER"; do cc -I fm1/base/bsp/chip -DBOARD_SMK37=1 $d fm1/base/tests/smk_flash_test.c -o /tmp/sft && /tmp/sft; done
         python3 fm1/base/tools/build.py app --host
         app/build/host/sq80_host app/tests/basic.txt app/build/host
+        BOARD=smk37 python3 fm1/base/tools/build.py app --host
+        app/build/host/sq80-smk37_host app/tests/smk37.txt app/build/host
       tests-block: false

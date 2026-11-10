@@ -1,0 +1,121 @@
+# SQ-80 on the SMK-37 in the host simulator: BOARD=smk37 python3 fm1/base/tools/build.py app --host, then
+#   app/build/host/sq80-smk37_host app/tests/smk37.txt app/build/host
+# the faders' banks (soft takeover), the pads (programs, steps), < and >, the wheels, the pedal, the outer keys
+wait 600
+shot smk_boot.png
+expect fbank 0
+# bank A: REVERB DELAY CHORUS DRIVE (the faders start at 64 in the simulator)
+fader 0 0
+wait 30
+expect fx0 0
+fader 0 127
+wait 30
+expect fx0 127
+# bank B: CUTOFF RESON ATTACK RELEASE; ATTACK's fader is above its value: it takes over only once it reaches it
+smkbtn FADER
+wait 30
+expect fbank 1
+shot smk_faders_b.png
+fader 2 100
+wait 30
+expect attack 0
+fader 2 0
+wait 30
+fader 2 63
+wait 30
+expect attack 31
+fader 0 127
+wait 30
+fader 0 20
+wait 30
+expect freq 20
+expect edited 1
+# bank C: the oscillators' levels and the volume; D: the LFOs
+smkbtn FADER
+wait 30
+expect fbank 2
+smkbtn FADER
+expect fbank 3
+smkbtn FADER
+expect fbank 0
+# the wheels and the pedal
+bend 8191
+wait 30
+expect bend 200
+bend 0
+wait 30
+expect bend 0
+modw 100
+wait 30
+expect wheel 100
+pedal down
+wait 30
+expect sustain 127
+pedal up
+wait 30
+expect sustain 0
+# the outer keys: C3 (keybed key 0) and C6 (36)
+outer 0 down 90
+wait 200
+expect note 48
+expect voices 1
+outer 0 up
+outer 36 down 90
+wait 200
+expect note 84
+outer 36 up
+wait 1500
+expect voices 0
+# the middle keys with their velocity
+key 7 down 40
+wait 200
+expect note 60
+key 7 up
+wait 1500
+# the pads: the programs of the bank
+pad 1
+wait 30
+expect prog 1
+pad 0
+wait 30
+expect prog 0
+smkbtn RIGHT
+wait 30
+expect padgroup 1
+pad 0
+wait 30
+expect prog 16
+smkbtn LEFT
+wait 30
+expect padgroup 0
+pad 0
+wait 30
+expect prog 0
+# < and > turn an editor's pages
+tap SEL
+wait 30
+expect sec 1
+smkbtn RIGHT
+wait 30
+expect page 1
+smkbtn LEFT
+wait 30
+expect page 0
+tap HOME
+wait 30
+expect sec 0
+# SEQ held: the pads are the steps (with the last note played)
+tap SEQ
+wait 30
+expect sec 9
+press SEQ
+wait 30
+pad 0
+pad 2
+wait 30
+smkleds
+release SEQ
+wait 30
+expect step0 60
+expect step2 60
+shot smk_seq.png
