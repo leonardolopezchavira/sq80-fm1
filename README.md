@@ -152,6 +152,11 @@ Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq
 
 Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills, rolls, the free take and count-in.
 
+## The front page
+
+`app/site/home.html` is the site's front page (`tools/make_home.py` fills in the version and the package, in place of
+fm1-base's page from `app/site/landing.md`); its pictures are the manual's.
+
 ## The manual
 
 `app/docs/MANUAL.md` becomes the site's `/manual/` page. Its screen pictures in `app/docs/img/` come from the

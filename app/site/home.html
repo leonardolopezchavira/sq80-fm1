@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the FM-1: the front page (tools/make_home.py fills {{VERSION}} and {{PKG}}; tools/site_theme.py adds the
+     menu, the colours and the wordmark at the marker). Its pictures are the manual's (app/docs/img). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQ-80 · an Ensoniq SQ-80 for the M-VAVE FM-1</title>
+<meta name="description" content="An unofficial Ensoniq SQ-80 for the M-VAVE FM-1, written from scratch: three wavetable oscillators, a resonant 4-pole filter, four envelopes and three LFOs per voice, eight voices, effects, an arpeggiator and a sequencer.">
+<style>
+  :root { --bg: #000; --s1: #0b0b0b; --s2: #141414; --line: #222; --dim: #8a857a; --fg2: #d6cfbd; --fg: #f2ead6; --hi: #40dce6; }
+  * { box-sizing: border-box; }
+  html body.home { margin: 0; background: var(--bg); color: var(--fg2); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body.home a { color: inherit; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+  .kick { font: 500 12px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .14em; text-transform: uppercase;
+          color: var(--dim); }
+  .kick.hi { color: var(--hi); }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+
+  /* the top: who, what, the big name */
+  .top { padding: 44px 0 0; }
+  .mark { margin: 34px 0 18px; }
+  .mark svg { width: min(620px, 100%); height: auto; display: block; }
+  .by { padding: 14px 0 22px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--dim); }
+  .by b { color: var(--fg); font-weight: 600; margin-right: 12px; }
+  .links { display: flex; gap: 22px; flex-wrap: wrap; }
+  .links a { font: 500 12px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .08em; text-decoration: none;
+             border-bottom: 1px solid #555; padding-bottom: 2px; color: var(--fg2); }
+  .links a:hover { color: var(--fg); border-color: var(--fg); }
+
+  /* the hero: the FM-1, the pitch, the buttons */
+  .hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 56px; align-items: center; padding: 56px 0 64px; }
+  .hero figure { margin: 0; }
+  .hero figure img { width: 100%; height: auto; display: block; }
+  .hero figcaption { margin-top: 12px; }
+  html body.home h1.pitch { font: 800 clamp(34px, 4.4vw, 56px)/1.04 system-ui, -apple-system, sans-serif; letter-spacing: -.03em;
+             text-transform: none; color: var(--fg); margin: 0 0 14px; }
+  .hero p { margin: 18px 0 0; font-size: 17px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .btn { font: 600 12px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; text-decoration: none;
+         padding: 14px 20px; border: 1px solid #444; color: var(--fg); background: var(--s1); }
+  .btn:hover { border-color: var(--fg); }
+  body.home .btn.pri { background: var(--hi); border-color: var(--hi); color: #001215; }
+  body.home .btn.pri:hover { background: var(--fg); border-color: var(--fg); }
+
+  /* the numbers */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .stat { padding: 26px 24px 24px; border-left: 1px solid var(--line); }
+  .stat:first-child { border-left: 0; padding-left: 0; }
+  .stat .n { font: 300 46px/1 system-ui, -apple-system, sans-serif; color: var(--fg); letter-spacing: -.02em; }
+  .stat .kick { margin-top: 14px; }
+
+  /* the sections */
+  section.part { padding: 84px 0 10px; }
+  html body.home h2.big { font: 700 clamp(28px, 3.4vw, 42px)/1.1 system-ui, -apple-system, sans-serif; letter-spacing: -.02em;
+             text-transform: none; color: var(--fg); margin: 12px 0 0; max-width: 16em; }
+  .intro { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: end; margin-bottom: 34px; }
+  .intro p { margin: 0; }
+  .screens { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .screen { background: var(--s1); border: 1px solid var(--line); padding: 10px; text-decoration: none; display: block; }
+  .screen:hover { border-color: #555; }
+  .screen img { width: 100%; height: auto; display: block; image-rendering: pixelated; }
+  .screen h3 { font: 600 14px system-ui, sans-serif; color: var(--fg); margin: 12px 2px 2px; text-transform: none; letter-spacing: 0; }
+  .screen p { font-size: 13px; color: var(--dim); margin: 0 2px 4px; line-height: 1.45; }
+  .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .tool { background: var(--bg); padding: 26px 24px 28px; text-decoration: none; display: block; }
+  .tool:hover { background: var(--s1); }
+  .tool .kick { margin-bottom: 10px; }
+  .tool h3 { font: 700 20px system-ui, sans-serif; color: var(--fg); margin: 0 0 8px; text-transform: none; letter-spacing: -.01em; }
+  .tool p { margin: 0; font-size: 14px; color: var(--dim); }
+  .tool .go { display: inline-block; margin-top: 16px; font: 600 12px ui-monospace, Menlo, monospace; letter-spacing: .08em; color: var(--fg2); }
+  .roms { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+  .roms h3 { font: 700 18px system-ui, sans-serif; color: var(--fg); margin: 0 0 8px; text-transform: none; }
+  .roms p { margin: 0 0 12px; }
+  footer { margin-top: 96px; padding: 30px 0 60px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+  footer p { margin: 0 0 10px; max-width: 70em; }
+
+  @media (max-width: 900px) {
+    .hero, .intro, .roms { grid-template-columns: 1fr; gap: 28px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stat:nth-child(3) { border-left: 0; padding-left: 0; }
+    .screens { grid-template-columns: 1fr 1fr; }
+    .tools { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body class="home">
+<div class="wrap">
+
+<div class="top">
+  <div class="row"><span class="kick">Free / open source / M-VAVE FM-1</span><span class="kick">Version {{VERSION}}</span></div>
+  <div class="mark"><!--SQ80-LOGO--></div>
+  <div class="row by">
+    <span><b>SQ-80 for the FM-1</b>An unofficial Ensoniq SQ-80, written from scratch.</span>
+    <span class="links">
+      <a href="manual/">Manual ↗</a>
+      <a href="https://github.com/leonardolopezchavira/sq80-fm1">Source ↗</a>
+      <a href="https://github.com/leonardolopezchavira/sq80-fm1/issues">Report a problem ↗</a>
+      <a href="firmware/{{PKG}}">Download ↓</a>
+    </span>
+  </div>
+</div>
+
+<div class="hero">
+  <figure>
+    <img src="manual/img/panel.svg" alt="The M-VAVE FM-1 running SQ-80, its screen showing the program GLASS">
+    <figcaption class="kick">The FM-1 / SQ-80's play screen</figcaption>
+  </figure>
+  <div>
+    <h1 class="pitch">A 1987 wavetable synth, in your hands.</h1>
+    <div class="kick hi">Three oscillators. Four envelopes. One filter that sings.</div>
+    <p>SQ-80 turns the M-VAVE FM-1 into an Ensoniq SQ-80: three wavetable oscillators, a resonant 4-pole filter, four
+    envelopes and three LFOs per voice, eight voices on the FM-1's two cores, with effects, an arpeggiator and a step
+    sequencer. It is measured against the SQ8L emulation to sound like the real instrument.</p>
+    <div class="cta">
+      <a class="btn pri" href="install/">Install SQ-80 →</a>
+      <a class="btn" href="emu/">Try it in the browser</a>
+    </div>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="n">75</div><div class="kick">Waves, built in</div></div>
+  <div class="stat"><div class="n">8</div><div class="kick">Voices on two cores</div></div>
+  <div class="stat"><div class="n">3 · 4 · 3</div><div class="kick">Oscillators · envelopes · LFOs</div></div>
+  <div class="stat"><div class="n">8 × 40</div><div class="kick">Banks of programs</div></div>
+</div>
+
+<section class="part">
+  <div class="intro">
+    <div>
+      <div class="kick hi">01 / On the FM-1</div>
+      <h2 class="big">Every value, on the FM-1's own screen.</h2>
+    </div>
+    <p>Four knobs and a few buttons reach every parameter of an SQ-80 program, each page drawn as you turn: the wave
+    you picked, the envelope's shape, the filter's curve, the output as it plays. Then make something new at random,
+    or play it from the arpeggiator and the sequencer.</p>
+  </div>
+  <div class="screens">
+    <a class="screen" href="manual/#s3"><img src="manual/img/play.png" alt="The play screen" loading="lazy"><h3>Play</h3><p>The program, four knobs at hand, the output drawn.</p></a>
+    <a class="screen" href="manual/#s5"><img src="manual/img/osc.png" alt="An oscillator page" loading="lazy"><h3>Oscillators</h3><p>75 waves, each drawn as it is chosen.</p></a>
+    <a class="screen" href="manual/#s5"><img src="manual/img/env.png" alt="An envelope page" loading="lazy"><h3>Envelopes</h3><p>Four of them, their shape on screen.</p></a>
+    <a class="screen" href="manual/#s5"><img src="manual/img/filter.png" alt="The filter page" loading="lazy"><h3>Filter</h3><p>The 4-pole low-pass, its curve and cutoff.</p></a>
+    <a class="screen" href="manual/#s4"><img src="manual/img/random.png" alt="The RANDOM screen" loading="lazy"><h3>Random</h3><p>New programs from the one you play.</p></a>
+    <a class="screen" href="manual/#s7"><img src="manual/img/fx.png" alt="The effects page" loading="lazy"><h3>Effects</h3><p>Reverb, delay, chorus and drive.</p></a>
+    <a class="screen" href="manual/#s8"><img src="manual/img/arp.png" alt="The arpeggiator" loading="lazy"><h3>Arpeggiator</h3><p>Hold a chord, let it run.</p></a>
+    <a class="screen" href="manual/#s9"><img src="manual/img/seq_step.png" alt="The sequencer" loading="lazy"><h3>Sequencer</h3><p>64 steps, entered by hand or played in.</p></a>
+  </div>
+</section>
+
+<section class="part">
+  <div class="intro">
+    <div>
+      <div class="kick hi">02 / In the browser</div>
+      <h2 class="big">Everything else, one page away.</h2>
+    </div>
+    <p>Install and update from Chrome or Edge with the FM-1 on USB. Shape programs on a big screen, hear them as you go,
+    and send them to the FM-1. Nothing is uploaded anywhere: your files stay in your browser.</p>
+  </div>
+  <div class="tools">
+    <a class="tool" href="install/"><div class="kick">Install</div><h3>The installer</h3><p>SQ-80 onto the FM-1, with your ROM pack and banks if you have them. It can put M-VAVE's firmware back.</p><span class="go">Open →</span></a>
+    <a class="tool" href="edit/"><div class="kick">Editor</div><h3>The program editor</h3><p>Every value at once, drawn and heard as it changes, live on the FM-1. Randomize for new ones.</p><span class="go">Open →</span></a>
+    <a class="tool" href="emu/"><div class="kick">Emulator</div><h3>SQ-80 in the browser</h3><p>The whole firmware, panel and all, running in the page. Play it from your keyboard.</p><span class="go">Open →</span></a>
+    <a class="tool" href="manual/"><div class="kick">Manual</div><h3>Screen by screen</h3><p>What every knob and button does, with a picture of each page.</p><span class="go">Read →</span></a>
+    <a class="tool" href="wavepack/"><div class="kick">Wave pack</div><h3>Your own waves</h3><p>WAV, AIFF, FLAC or MP3 into any of the 75 wave slots.</p><span class="go">Open →</span></a>
+    <a class="tool" href="rompack/"><div class="kick">ROM pack</div><h3>Your SQ-80's ROMs</h3><p>The original waves, from the dumps of your own SQ-80's chips.</p><span class="go">Open →</span></a>
+  </div>
+</section>
+
+<section class="part">
+  <div class="intro">
+    <div>
+      <div class="kick hi">03 / The waves</div>
+      <h2 class="big">It plays from the start. It can play yours.</h2>
+    </div>
+    <p></p>
+  </div>
+  <div class="roms">
+    <div>
+      <h3>75 waves of its own</h3>
+      <p>SQ-80 comes with a set of 75 waves made from scratch, in the SQ-80's slots and under its names: the plain shapes,
+      the sampled kinds, the drums. No Ensoniq data, so it is ready to play the moment it is installed.</p>
+    </div>
+    <div>
+      <h3>Or the originals, from your own ROMs</h3>
+      <p>If you own an SQ-80 or its ROMs, <a href="rompack/">make a ROM pack</a> from your dumps of the four wave ROMs and
+      the OS ROM, in your browser. The <a href="install/">installer</a> loads it with your ESQ-1 / SQ-80 SysEx banks,
+      the <a href="load/">loader</a> on its own, and the emulator takes it too. Up to eight banks of 40 programs.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>This is version {{VERSION}}. You install it at your own risk; the installer can put M-VAVE's own firmware back.</p>
+  <p>The firmware is GPL-3.0-only (the engine MIT), <a href="https://github.com/leonardolopezchavira/sq80-fm1">source on GitHub</a>.
+  It's built on fm1-base (MPL-2.0) and felucca-bsp, which come from Felucca by Leo Kuroshita, Hügelton Instruments; its
+  effects are FMini-1's, by Ruppert, after Felucca's; its arpeggiator, sequencer and recording are SLOOP's. The
+  segment lettering is DSEG14 by keshikan (SIL OFL 1.1).</p>
+  <p>Ensoniq, SQ-80, M-VAVE and FM-1 are trademarks of their owners. This project is not affiliated with any of them.</p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -180,6 +180,8 @@ def theme(html, sub, home=False, extra="", current=""):
     html = html.replace("</head>", CSS + NAV_CSS + VFD.replace("{base}", BASE) + extra + ('<style>html body a.home { display: none !important; } html body a.sq80-home { display: block; margin-top: 28px; }</style>\n' if home else "")
                         + "</head>", 1)
     html = re.sub(r"(<body[^>]*>)", lambda k: k.group(1) + nav(current), html, count=1)
+    if "<!--SQ80-LOGO-->" in html:   # a page that places the wordmark itself (app/site/home.html): big, as it says
+        return html.replace("<!--SQ80-LOGO-->", logo_svg(160), 1)
     head = (f'<a class="sq80-home" href="{BASE}install/" title="Install SQ-80">{logo_svg()}</a>'
             + (f'<p class="sq80-sub">{sub}</p>' if sub else ""))
     m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S)
