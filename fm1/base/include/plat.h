@@ -93,6 +93,35 @@ void plat_leds(uint32_t buttons, uint32_t keys);
 void plat_glow(int on);
 void plat_play_red(int red);
 
+#if defined(BOARD_SMK37) && BOARD_SMK37
+/* The M-Vave SMK-37 (SQ-80's copy of fm1-base, BOARD=smk37: bsp/boards/smk37; after genkigenki's SMK-37 layer of
+ * fm1-fomni). Everything above works as on the FM-1: B_* are the SMK's buttons by the FM-1's meaning (FX = FX, SCALE =
+ * SEL, CHORD = ENV, NOTE REPEAT = LFO, PARA = EDIT, GLOBE = GLO, PATCH = HOME, BT = SAVE, ARP, SEQ, SEQ PLAY = PLAY,
+ * SEQ REC = REC, OCTAVE- / +), EN_* the knobs K2..K8 (K1 is MASTER, a virtual pot: plat_master), plat_keys the 27
+ * middle keys F3..G5 (and, unless plat_pads_raw(1), the pads as its 16 white keys). plat_lights lights the buttons;
+ * the keys have no LEDs (the pads show the white keys' lights unless the app colours them: plat_pad_rgb). These add
+ * the SMK's own. */
+#define SMK_NKEYBED 37                 /* the keybed: C3 .. C6; keys 5..31 are plat_keys' 27 */
+enum { SB_KNOB_BANK, SB_FADER_BANK, SB_LEFT, SB_RIGHT, NSB };   /* the four buttons the FM-1 has not */
+uint32_t plat_smk_buttons(void);       /* held: bit SB_* */
+uint32_t plat_smk_button_hits(void);   /* pressed since the last call: bit SB_* */
+void plat_smk_leds(uint32_t lit);      /* their LEDs, bit SB_* (kept until the next call) */
+uint64_t plat_keybed(void);            /* keybed keys held: bit k = key k (0 = C3) */
+int plat_keybed_vel(int k);            /* velocity 1..127 of keybed key k's last press (k 0..36) */
+int32_t plat_outer_key(void);          /* the next press or release of the keys outside the 27 (C3..E3, G#5..C6):
+                                        * key << 8 | velocity (0 = released), -1 none */
+int plat_key_vel(int k);               /* velocity of note key k's (0 = F3) last press, 1..127 */
+void plat_pads_raw(int on);            /* 1: the pads play no note (the app reads them below); 0: the white keys */
+uint32_t plat_pads(void);              /* pads held: bit p (0..7 the top row, 8..15 the bottom row, left to right) */
+uint32_t plat_pad_hits(void);          /* pads pressed since the last call, bit p */
+int plat_pad_vel(int p);               /* pad p's last hit, 1..127 */
+void plat_pad_rgb(int p, uint8_t r, uint8_t g, uint8_t b);   /* pad p's colour (the app owns the pads from its first
+                                        * call; plat_pad_rgb(-1, ...) gives them back to plat_lights' keys) */
+int plat_fader(int i);                 /* fader 0..3 (left to right): 0..127, -1 while the readings settle */
+int plat_wheels(int32_t *bend, int32_t *mod);   /* 1 = new values: bend -8192..8191 (a MIDI bend), mod 0..127 */
+int plat_pedal(void);                  /* the pedal jack: 1 pressed, 0 not, -1 none plugged / not read yet */
+#endif
+
 /* MIDI: 4-byte USB-MIDI event packets (byte 0 = cable / CIN, then status, data 1, data 2). In from USB, the TRS jack
  * (in only: the FM-1 has no MIDI out jack) and Bluetooth (FM1B_BLE); out to USB and Bluetooth. Bluetooth has two
  * links with FM1B_BLE_CENTRAL (below), the computer's and the device's: both come in on PORT_BLE, TO_BLE goes to
@@ -357,6 +386,20 @@ void plat_log(const char *line);
  * looks for records below 0xFC000 only, so no 0xF00 rule here. Store objects may sit there too (the template's
  * settings pair is 0xFC000 / 0xFD000): with the window on, plat_data_erase and plat_data_write refuse a store
  * object's sectors in it, so an app with this window puts its objects elsewhere (or keeps to the rest) */
+#if defined(BOARD_SMK37) && BOARD_SMK37
+/* the M-Vave SMK-37 (bsp/chip/fm1_flash_policy.h): its store and data area 0x9D000..0xBAFFF (its VM below the update's
+ * staging), and one more window, PLAT_XDATA1 0xC2000..0xE9FFF (its USRFLASH: the stock firmware's presets, taken by a
+ * custom firmware as the reference ports do); its factory calibration, Bluetooth pairing and stock resources are never
+ * written (the flash driver refuses them). No XDATA0 / XDATA2 (both stay empty windows) */
+#define PLAT_DATA_LO 0x9D000u
+#define PLAT_DATA_HI 0xBB000u
+#define PLAT_XDATA0_LO 0x9D000u
+#define PLAT_XDATA0_HI 0x9D000u
+#define PLAT_XDATA1_LO 0xC2000u
+#define PLAT_XDATA1_HI 0xEA000u
+#define PLAT_XDATA2_LO 0xEA000u
+#define PLAT_XDATA2_HI 0xEA000u
+#else
 #define PLAT_DATA_LO 0x97000u
 #define PLAT_DATA_HI 0xE0000u
 #define PLAT_XDATA0_LO 0x93000u
@@ -365,6 +408,7 @@ void plat_log(const char *line);
 #define PLAT_XDATA1_HI 0xFC000u
 #define PLAT_XDATA2_LO 0xFC000u
 #define PLAT_XDATA2_HI 0xFF000u
+#endif
 #if FM1B_XDATA2
 #define PLAT_DATA_OK(off, n) (plat_in((off), (n), PLAT_DATA_LO, PLAT_DATA_HI) || \
                               plat_in((off), (n), PLAT_XDATA0_LO, PLAT_XDATA0_HI) || \

@@ -18,7 +18,12 @@
 
 /* the Puya P25Q80 (the stock part) and the UC25HQ80 (the newer units' part): both 1 MiB */
 #ifndef FM1B_FLASH_JEDEC_OK
+#if BOARD_SMK37                   /* the M-Vave SMK-37: 0xEB6014 on the units read so far (fm1-to-smk37), 1 MiB, the same
+                                   * plain SPI NOR commands; the FM-1's parts as well */
+#define FM1B_FLASH_JEDEC_OK(id) ((id) == 0xEB6014u || (id) == 0x856014u || (id) == 0xB36014u)
+#else
 #define FM1B_FLASH_JEDEC_OK(id) ((id) == 0x856014u || (id) == 0xB36014u)
+#endif
 #endif
 
 #endif

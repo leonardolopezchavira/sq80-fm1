@@ -33,6 +33,7 @@
  *   FM1B_CACHE_RAM 0        data-cache ways as RAM, 2, 4 or 7 (fm1.toml cache_ram_ways: plat_cache_ram, felucca-bsp's
  *                           fm1_cache_ram.h; set and tested in fm1_cstart, main_fm1.c) */
 #include <stdint.h>
+#include "fm1_board.h"            /* BOARD_SMK37: the M-Vave SMK-37 (SQ-80's copy; BOARD=smk37), else the FM-1 */
 #include "plat.h"
 #include "app.h"                  /* first: the scan's hooks below may call the app */
 #ifdef APP_TOUCH
@@ -168,6 +169,13 @@ static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIME
 #endif
 #include "usb.c"
 #include "console.c"              /* the USB serial console's bytes for the app (plat_console_*, FM1B_CDC) */
+#if BOARD_SMK37 && !defined(FM1B_TRS)
+#define FM1B_TRS 0                /* the SMK-37: its TRS jack is MIDI OUT, and PH8, the FM-1's MIDI IN pin, is one of its key
+                                   * matrix's rows there: it must never become a UART's RX */
+#endif
+#if BOARD_SMK37 && FM1B_TRS
+#error "BOARD_SMK37: midi_uart.c is the FM-1's MIDI IN (RX on PH8, a key-matrix row on the SMK-37)"
+#endif
 #ifndef FM1B_TRS
 #define FM1B_TRS 1
 #endif

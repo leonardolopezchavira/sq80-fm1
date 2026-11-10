@@ -11,7 +11,11 @@
  * IPS inversion), polled, at Felucca's SPI1 rate (BAUD 4).
  * Part of loader.c's single unit; every buffer is in RAM (the SPI DMA reads RAM only). */
 #ifndef LDR_SCREEN_TEST                             /* (tests/ldr_screen_test.c brings a model of the panel) */
+#if BOARD_SMK37
+#include "../boards/smk37/fm1_lcd_hw.h"                 /* the SMK-37's pins (PC9 never touched: an analog input there) */
+#else
 #include "../boards/fm1/fm1_lcd_hw.h"
+#endif
 #endif
 
 #define SCR_BG 0xFFBDu                              /* #faf4e8 cream */

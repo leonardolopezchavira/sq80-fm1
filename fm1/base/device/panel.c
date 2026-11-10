@@ -8,7 +8,15 @@ static const char *const B_NAME[NB] = {"FX", "SEL", "ENV", "LFO", "EDIT", "GLO",
                                         "ARP", "SEQ", "PLAY", "REC", "OCT-", "OCT+"};
 static const char *const E_NAME[NE] = {"SELECT", "ALGORITHM", "PRESETS", "KNOB 1", "KNOB 2",
                                         "KNOB 3", "KNOB 4"};
+#if BOARD_SMK37
+#define PANEL_MAGIC 0x534D4B31u          /* "SMK1" (the SMK-37 build): never an FM-1 table */
+#define PANEL_NBTN FM1_NBTN              /* the SMK-37's 18 buttons, 8 knobs (bsp/boards/smk37/fm1_input.h) */
+#define PANEL_NENC FM1_NENC
+#else
 #define PANEL_MAGIC 0x50414E35u          /* "PAN5": Felucca's layout, so its calibration stays valid */
+#define PANEL_NBTN 14u
+#define PANEL_NENC 7u
+#endif
 
 typedef struct {
     uint32_t magic;
@@ -18,20 +26,34 @@ typedef struct {
 } panel_t;
 panel_t panel __attribute__((section(".noinit")));
 
+#if BOARD_SMK37
+/* the SMK-37 (its button ids, confirmed on a unit by genkigenki): the printed label -> the FM-1 function: FX = FX,
+ * SCALE = SEL, CHORD = ENV, NOTE REPEAT = LFO, PARA = EDIT, GLOBE = GLO, PATCH = HOME, BT = SAVE, ARP, SEQ as printed,
+ * SEQ PLAY = PLAY, SEQ REC = REC, OCTAVE- / + as printed (KNOB BANK, FADER BANK, < and >: plat_smk_buttons). Knobs as
+ * the FM-1's top row: K1 = MASTER (a virtual pot, fm1_adc.h), K2 = SELECT, K3 = ALGORITHM, K4 = PRESETS; K5..K8 = KNOB
+ * 1..4. HARDWARE CALIBRATION (OCTAVE- + OCTAVE+ at power-on) teaches it again */
+static const panel_t PANEL_DEFAULT = {
+    PANEL_MAGIC,
+    {14, 8, 9, 7, 13, 10, 12, 11, 6, 15, 16, 17, 4, 5},
+    {1, 2, 3, 4, 5, 6, 7},
+    {1, 1, 1, 1, 1, 1, 1},
+};
+#else
 static const panel_t PANEL_DEFAULT = {
     PANEL_MAGIC,
     {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1},
     {0, 1, 6, 2, 3, 4, 5},
     {1, 1, 1, 1, 1, 1, 1},
 };
+#endif
 
 static int panel_valid(const panel_t *p)
 {
     uint32_t i, ok = p->magic == PANEL_MAGIC;
     for (i = 0; ok && i < NB; i++)
-        ok = p->btn[i] < 14u;
+        ok = p->btn[i] < PANEL_NBTN;
     for (i = 0; ok && i < NE; i++)
-        ok = p->enc[i] < 7u && (p->dir[i] == 1 || p->dir[i] == -1);
+        ok = p->enc[i] < PANEL_NENC && (p->dir[i] == 1 || p->dir[i] == -1);
     return (int)ok;
 }
 
@@ -69,7 +91,7 @@ static void panel_setup(void)
             if (fm1_ms - t0 > SETUP_IDLE_MS)
                 goto timeout;
         }
-        for (id = 0; id < 14u; id++)
+        for (id = 0; id < PANEL_NBTN; id++)
             if (((p & ~used) >> id) & 1u)
                 break;
         panel.btn[i] = (uint8_t)id;
@@ -81,17 +103,17 @@ static void panel_setup(void)
         int32_t st = 0;
         sys_box(0, 80, 240, SYS_S, "TURN RIGHT", C_GRAY, 1);
         sys_box(0, 100, 240, SYS_BIG, E_NAME[i], C_WHITE, 1);
-        for (e = 0; e < 7u; e++)
+        for (e = 0; e < PANEL_NENC; e++)
             fm1_enc_take(e);
         t0 = fm1_ms;
         for (;;) {
             fm1_wdt_feed();
             if (fm1_ms - t0 > SETUP_IDLE_MS)
                 goto timeout;
-            for (e = 0; e < 7u; e++)
+            for (e = 0; e < PANEL_NENC; e++)
                 if (!((used >> e) & 1u) && (st = fm1_enc_take(e)) != 0)
                     break;
-            if (e < 7u)
+            if (e < PANEL_NENC)
                 break;
         }
         panel.enc[i] = (uint8_t)e;

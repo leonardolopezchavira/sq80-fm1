@@ -1,0 +1,29 @@
+# SQ-80 for the M-Vave SMK-37 (SQ-80's copy of fm1-base, BOARD=smk37): its three packages (the SMK-37 Pro, which
+# the Donner Starrykey 37 Play takes too, the SMK-37 Elite and the MKE-P37), built with JieLi's toolchain by the
+# shared fm1-build workflow, as the run's "packages" artifact. Not published yet: the board is being brought up.
+name: smk37
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.github/workflows/smk37.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      build: |
+        for m in pro elite mke; do
+          BOARD=smk37 MODEL=$m python3 fm1/base/tools/build.py app --release "$(cat app/VERSION)"
+        done
+      packages: app/build/*-smk37*.fwsc
+      test: |
+        for d in "" "-DLOADER"; do cc -I fm1/base/bsp/chip -DBOARD_SMK37=1 $d fm1/base/tests/smk_flash_test.c -o /tmp/sft && /tmp/sft; done
+        python3 fm1/base/tools/build.py app --host
+        app/build/host/sq80_host app/tests/basic.txt app/build/host
+      tests-block: false

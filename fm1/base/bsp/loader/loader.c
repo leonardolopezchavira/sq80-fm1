@@ -12,7 +12,12 @@
 #define FELUCCA_OTA 1
 #define FELUCCA_OTA_DRYRUN 0
 #define FELUCCA_USB_PID 0x0002
+#include "fm1_board.h"                 /* BOARD_SMK37, SMK_MODEL */
+#if BOARD_SMK37
+#define FELUCCA_ID "ota-" SMK_MODEL "_900"
+#else
 #define FELUCCA_ID "ota-FM-1_900"
+#endif
 #define LDR_FAST_CHUNK 4096u           /* the fast install (ldr_core.c): one sector per read */
 #define OTA_FRAME_MAX 4200u            /* a decoded 4 KiB response (4111 B) */
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
@@ -20,7 +25,12 @@
 #include "fm1_sys.h"
 /* the loader may write the app area and clear update records (program over one, or erase its own staging); never
  * the head, nor Felucca's store [0x97000, 0xE0000) (user data, never a record: ldr_core.c) */
+#if BOARD_SMK37                        /* the SMK-37: the app area, and records only in its staging below BTIF / USRTRIM
+                                        * (the RAM driver refuses the protected ranges on its own: FL_PROTECTED) */
+#define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x9D000u) || FL_IN(off, n, 0xBB000u, 0xC0000u))
+#else
 #define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x97000u) || FL_IN(off, n, 0xE0000u, 0xFC000u))
+#endif
 #include "fm1_flash.h"
 #include "../chip/libc.c"
 #include "../chip/usb.c"

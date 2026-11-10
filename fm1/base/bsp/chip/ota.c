@@ -30,9 +30,21 @@
  *   ota_show(step, code)       progress / result for the screen
  *   ota_commit(parm)           write RAM record + reset (never returns on hardware)
  */
+#include "fm1_board.h"                          /* BOARD_SMK37, SMK_MODEL */
+#if BOARD_SMK37
+/* the SMK-37: the last 5 sectors of its VM (0xBB000..0xBFFFF, fm1_flash_policy.h FL_OTA), below BTIF / USRTRIM
+ * 0xC0000..0xC1FFF (after genkigenki's SMK-37 layer, GPL-3.0) */
+#define OTA_AREA 0x000BB000u                     /* staged loader, 5 x 4 KiB */
+#define OTA_AREA_LEN 0x5000u
+#define OTA_RES (OTA_AREA + OTA_AREA_LEN - 0x100u)  /* 0xBFF00 = 4K boundary - 256: SPL scan */
+#define OTA_PARM_ID "ota-" SMK_MODEL "_016"       /* the stock app's record identity (Pro 18 B, Elite 20 B) */
+_Static_assert(OTA_AREA + OTA_AREA_LEN <= 0xC0000u && OTA_AREA >= 0x9D000u, "SMK: the update's staging outside the VM");
+#else
 #define OTA_AREA 0x000E0000u                     /* staged loader, 5 x 4 KiB */
 #define OTA_AREA_LEN 0x5000u
 #define OTA_RES (OTA_AREA + OTA_AREA_LEN - 0x100u)  /* 0xE4F00 = 4K boundary - 256: SPL scan */
+#define OTA_PARM_ID "ota-FM-1_015"
+#endif
 #ifndef OTA_FRAME_MAX
 #define OTA_FRAME_MAX 640u                       /* 512-B response = 605 wire bytes (the loader: a 4 KiB one) */
 #endif
@@ -447,8 +459,8 @@ static int ota_session(void)
     ota_wr16(parm + 2, 0x5A0Du);
     ota_wr16(parm + 4, 0x5A01u);
     ota_wr16(parm + 6, 0x5441u);
-    for (i = 0; i < 12u; i++)
-        parm[8 + i] = (uint8_t)"ota-FM-1_015"[i];    /* the loader's own USB identity */
+    for (i = 0; i < sizeof OTA_PARM_ID - 1u; i++)    /* the loader's own USB identity (FM-1 12 B, SMK 18 / 20 B) */
+        parm[8 + i] = (uint8_t)OTA_PARM_ID[i];
     ota_wr32(parm + 72, OTA_AREA);
     ota_wr16(parm, ota_crc16(parm + 2, 78, 0));
 #if FELUCCA_OTA_DRYRUN

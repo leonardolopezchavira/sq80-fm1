@@ -6,7 +6,11 @@
  * in RAM. A pixel transfer is left running (lcd_busy): the next LCD access, or
  * a write to its source buffer (lcd_sync), waits for it, so the main loop works
  * while the last strip of a frame goes out. */
-/* pins and SPI1: hal/fm1_lcd_hw.h */
+/* pins and SPI1: hal/fm1_lcd_hw.h (the SMK-37: bsp/boards/smk37/fm1_lcd_hw.h, FM1_LCD_SMK37) */
+#if defined(FM1_LCD_SMK37) && !defined(LCD_BAUD)
+#define LCD_BAUD 4u                /* the SMK-37: the stock firmware's and the reference port's 12 MHz (checked on a unit);
+                                    * a faster clock is not yet tried there */
+#endif
 #ifndef LCD_BAUD
 #define LCD_BAUD 0u                /* lsb/(BAUD+1): 0 = 60 MHz (~44 MHz effective, measured). Felucca's
                                     * 4 (12 MHz) took 23 ms for a 240x72 strip, longer than the panel's
@@ -116,6 +120,30 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 /* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion;
  * voltage and gamma stay at the defaults. Format: cmd, n, n data bytes;
  * cmd 0x00 = wait (data byte: ~ms). */
+#ifdef FM1_LCD_SMK37
+/* the SMK-37's ST7789V, its stock (v016) table with a SWRESET in front and NORON at the end (genkigenki's SMK-37 layer,
+ * GPL-3.0); lcd_init sends DISPON after the clear */
+static const uint8_t LCD_SEQ[] = {
+    0x01, 0,                     /* SWRESET */
+    0x00, 1, 150,
+    0x11, 0,                     /* SLPOUT */
+    0x00, 1, 120,
+    0x36, 1, 0x00,               /* MADCTL: top-left origin, RGB order */
+    0x3A, 1, 0x55,               /* COLMOD: RGB565 */
+    0xB2, 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,
+    0xB7, 1, 0x35,
+    0xBB, 1, 0x32,
+    0xC2, 1, 0x01,
+    0xC3, 1, 0x15,
+    0xC4, 1, 0x20,
+    0xC6, 1, 0x0F,
+    0xD0, 2, 0xA4, 0xA1,
+    0xE0, 14, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x05, 0x31, 0x33, 0x48, 0x17, 0x14, 0x15, 0x31, 0x34,
+    0xE1, 14, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x05, 0x31, 0x33, 0x48, 0x17, 0x14, 0x15, 0x31, 0x34,
+    0x21, 0,                     /* INVON: IPS panel */
+    0x13, 0,                     /* NORON */
+};
+#else
 static const uint8_t LCD_SEQ[] = {
     0x01, 0,                     /* SWRESET */
     0x00, 1, 150,
@@ -142,6 +170,7 @@ static const uint8_t LCD_SEQ[] = {
     0xE1, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,   /* NVGAMCTRL */
 #endif
 };
+#endif
 
 static void lcd_init(void)
 {
@@ -163,3 +192,44 @@ static void lcd_init(void)
     lcd_fill(0, 0, 240, 240, 0);
     lcd_cmd(0x29);
 }
+
+#ifdef FM1_LCD_SMK37
+/* The M-Vave SMK-37's 16 RGB pads (genkigenki's SMK-37 layer of fm1-fomni, GPL-3.0): WS2812-class LEDs on SPI1 group B
+ * (PC10), one SPI byte per LED bit (0xF0 = 1, 0xC0 = 0, MSB first, GRB), 250 zero bytes of reset first (~300 us; the
+ * stock firmware's 36 bytes are too short for newer WS2812 parts: a glitch on PC10 at the pin switch then counts as a
+ * first bit and shifts the chain by one). The frame goes out between LCD transfers (the LCD's CS high), blocking for
+ * ~0.8 ms; padled_flush sends only when a colour changed (main_fm1.c, after each of the app's frames). */
+#define PADLED_N 16u
+#define PADLED_LATCH 250u
+static uint8_t padled_buf[PADLED_LATCH + PADLED_N * 24u];
+static uint32_t padled_rgb[PADLED_N];
+static uint8_t padled_dirty = 1;
+/* hardware pad (0..7 the top row, 8..15 the bottom row, left to right) -> its place in the chain (the stock table) */
+static const uint8_t PADLED_SLOT[PADLED_N] = {0, 15, 14, 13, 12, 11, 10, 9, 1, 2, 3, 4, 5, 6, 7, 8};
+
+static void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
+{
+    uint32_t c = (uint32_t)g << 16 | (uint32_t)r << 8 | b;
+    if (pad < PADLED_N && padled_rgb[pad] != c) {
+        padled_rgb[pad] = c;
+        padled_dirty = 1;
+    }
+}
+
+static void padled_flush(void)
+{
+    uint32_t p, i;
+    if (!padled_dirty)
+        return;
+    padled_dirty = 0;
+    for (p = 0; p < PADLED_N; p++) {
+        uint8_t *o = padled_buf + PADLED_LATCH + PADLED_SLOT[p] * 24u;
+        for (i = 0; i < 24u; i++)
+            o[i] = (padled_rgb[p] >> (23u - i)) & 1u ? 0xF0u : 0xC0u;
+    }
+    lcd_sync();
+    fm1_padled_send(padled_buf, sizeof padled_buf);
+    fm1_lcd_wait();
+    fm1_padled_done();
+}
+#endif

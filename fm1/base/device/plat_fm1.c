@@ -71,6 +71,144 @@ int32_t plat_battery_raw(void) { return batt_raw; }
 int plat_headphones(void) { return -1; }  /* (fm1.toml headphones = true reads it) */
 #endif
 
+#if BOARD_SMK37
+/* ---- the M-Vave SMK-37 (bsp/boards/smk37/fm1_input.h; after genkigenki's SMK-37 layer of fm1-fomni, GPL-3.0) ----
+ * Button LEDs: one flag per button id (no dim level, no glow); SEQ PLAY's LED is two-coloured (id 16 green, id 18
+ * red). The keys have no LEDs: the pads show the lit white keys (in the screen's cyan, the dim ones dark grey) until
+ * the app colours them itself (plat_pad_rgb). */
+static void led_pos_init(void) {}
+static uint8_t play_red;
+static uint32_t smk_xled;
+static int8_t pads_app = -1;                     /* -1: the pads show plat_lights' keys; 1: the app's colours */
+void plat_glow(int on) { (void)on; }
+void plat_play_red(int red) { play_red = (uint8_t)(red != 0); }
+void plat_smk_leds(uint32_t lit) { smk_xled = lit; }
+#ifdef APP_DIM_LEVELS
+void plat_dim_ns(uint32_t ns) { (void)ns; }
+#endif
+void plat_lights(uint32_t buttons, uint32_t keys, uint32_t dim_buttons, uint32_t dim_keys, int glow)
+{
+    static const uint8_t WHITE[16] = PLAT_WHITE_KEYS;
+    uint8_t nl[SMK_NLED] = {0};
+    uint32_t i;
+    (void)dim_buttons;
+    for (i = 0; i < NB; i++)
+        if ((buttons >> i) & 1u)
+            nl[panel.btn[i]] = 1;
+    if (buttons & (1u << B_PLAY) && play_red) {  /* recording: SEQ PLAY red */
+        nl[panel.btn[B_PLAY]] = 0;
+        nl[18] = 1;
+    }
+    if (buttons & LED_PLAY_GREEN)
+        nl[panel.btn[B_PLAY]] = 1;
+    for (i = 0; i < NSB; i++)                    /* KNOB BANK, FADER BANK, <, >: button ids 0..3 */
+        if ((smk_xled >> i) & 1u)
+            nl[i] = 1;
+    for (i = 0; i < SMK_NLED; i++)
+        fm1_led[i] = nl[i];
+    if (pads_app < 0)
+        for (i = 0; i < 16u; i++) {
+            uint32_t k = WHITE[i], on = (keys >> k) & 1u, dim = glow > 0 && ((dim_keys >> k) & 1u);
+            padled_set(SMK_PAD_OF_WHITE(i), 0, (uint8_t)(on ? 160 : dim ? 10 : 0), (uint8_t)(on ? 170 : dim ? 10 : 0));
+        }
+    mirror_leds(buttons & ((1u << NB) - 1u), keys, 0, 0);
+}
+void plat_lights_mid(uint32_t buttons, uint32_t keys) { (void)buttons; (void)keys; }
+void plat_leds(uint32_t buttons, uint32_t keys)
+{
+    plat_lights(buttons, keys, 0, 0, 0);
+}
+static uint32_t smk_btn_seen;
+uint32_t plat_smk_buttons(void) { return fm1_in.buttons & 0xFu; }   /* (ids 0..3 are KNOB BANK, FADER BANK, <, >) */
+uint32_t plat_smk_button_hits(void)
+{
+    uint32_t now = fm1_in.buttons & 0xFu, hit = now & ~smk_btn_seen;
+    smk_btn_seen = now;
+    return hit;
+}
+uint64_t plat_keybed(void)
+{
+    uint32_t k = fm1__lock();                    /* (64 bits, written by the scan's interrupt) */
+    uint64_t v = fm1_in.keys;
+    fm1__unlock(k);
+    return v;
+}
+int plat_keybed_vel(int k) { return (uint32_t)k < FM1_NKEY && fm1_in.key_vel[k] ? fm1_in.key_vel[k] : 100; }
+int32_t plat_outer_key(void) { return smk_extkey_take(); }
+int plat_key_vel(int k) { return (uint32_t)k < (uint32_t)NKEYS ? plat_keybed_vel(SMK_KEY_F3 + k) : 100; }
+void plat_pads_raw(int on) { smk_pad_raw_mode = (uint8_t)(on != 0); }
+uint32_t plat_pads(void) { return fm1_in.pads; }
+uint32_t plat_pad_hits(void) { return smk_pad_take(); }
+int plat_pad_vel(int p) { return (uint32_t)p < SMK_NPAD && fm1_in.pad_vel[p] ? fm1_in.pad_vel[p] : 100; }
+void plat_pad_rgb(int p, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (p < 0) {
+        pads_app = -1;
+        return;
+    }
+    pads_app = 1;
+    if ((uint32_t)p < SMK_NPAD)
+        padled_set((uint32_t)p, r, g, b);
+}
+int plat_fader(int i) { return fm1_in.frames < 200u || (uint32_t)i > 3u ? -1 : (int)fm1_in.fader[i]; }
+int plat_pedal(void) { return fm1_in.frames < 200u || fm1_in.pedal > 1000u ? -1 : fm1_in.pedal < 300u; }
+/* the wheels (mux C address 4 = pitch, 5 = mod), self-calibrating as in the reference port: the pitch wheel's rest is
+ * its centre (taken once the readings settle, followed slowly while it rests), each wheel's range grows to what it has
+ * reached (the travel is short: raw ~445..640 pitch, ~474..629 mod on a unit). Up (lower raw) = more mod */
+int plat_wheels(int32_t *bend, int32_t *mod)
+{
+    enum { DEAD = 12, SPAN0 = 80, MOD_LO = 485, MOD_HI = 615 };
+    static int32_t pc, plo, phi, mlo, mhi, rest, last_b = -99999, last_m = -1;
+    int32_t p = fm1_in.wheel[0], m = fm1_in.wheel[1], d, b, mw;
+    if (fm1_in.frames < 300u)                    /* (the readings settle) */
+        return 0;
+    if (!pc) {
+        pc = p;
+        plo = p - SPAN0;
+        phi = p + SPAN0;
+        mlo = m < MOD_LO ? m : MOD_LO;
+        mhi = m > MOD_HI ? m : MOD_HI;
+    }
+    if (p < plo)
+        plo = p;
+    if (p > phi)
+        phi = p;
+    if (m < mlo)
+        mlo = m;
+    if (m > mhi)
+        mhi = m;
+    d = p - pc;
+    if (d > -DEAD && d < DEAD) {
+        b = 0;
+        if (++rest > 200) {                      /* resting: the centre follows a slow drift */
+            pc += d > 0 ? 1 : d < 0 ? -1 : 0;
+            rest = 0;
+        }
+    } else {
+        rest = 0;
+        b = d > 0 ? (d - DEAD) * 8191 / (phi - pc - DEAD > 1 ? phi - pc - DEAD : 1)
+                  : (d + DEAD) * 8192 / (pc - plo - DEAD > 1 ? pc - plo - DEAD : 1);
+        b = clamp(b, -8192, 8191);
+    }
+    mw = mhi - m <= DEAD ? 0 : (mhi - m - DEAD) * 127 / (mhi - mlo - DEAD > 1 ? mhi - mlo - DEAD : 1);
+    mw = clamp(mw, 0, 127);
+    if (b == last_b && mw == last_m)
+        return 0;
+    last_b = b;
+    last_m = mw;
+    *bend = b;
+    *mod = mw;
+    return 1;
+}
+/* the unit's factory velocity curves of its keys and pads: USRTRIM (flash 0xC1000, "trimdat" at +0x224), read only
+ * (the flash driver refuses a write there); smk_trim_load ignores a record that does not check out */
+static uint8_t smk_trim_buf[0x22Cu] __attribute__((aligned(4)));
+static void smk_trim_init(void)
+{
+    if (flash_ok && fl_read(SMK_TRIM_FLASH, smk_trim_buf, sizeof smk_trim_buf) == 0)
+        smk_trim_load(smk_trim_buf);
+}
+#else
 /* LEDs: the picture is built off-line and copied one byte per column (Felucca: clearing
  * and relighting would let the 10 kHz scan catch the dark gap and flicker) */
 static uint8_t led_pos[FM1_NKEY];
@@ -175,6 +313,7 @@ void plat_leds(uint32_t buttons, uint32_t keys)    /* PLAY green, unless red (re
     }
     plat_lights(b, keys, dim, 0, glow_on ? 2 : 0);
 }
+#endif /* BOARD_SMK37 */
 
 /* the 1 kHz tick (app_tick) runs in the timer interrupt: the main loop locks it out around what they share. The lock
  * nests and restores the interrupts as it found them (plat_lock.c); MIDI sent from the tick itself needs none (nothing
@@ -255,8 +394,13 @@ int plat_sysex_send(const uint8_t *frame, uint32_t n) { return ota_wire_send(fra
 /* the data area and its two more windows (plat.h): read through the unencrypted XIP window (main_fm1.c
  * fl_plain_window_init, from 0x93000 up); erased and written by felucca-bsp's RAM driver (FL_RANGE_OK: the store, its
  * FL_XDATA windows) */
+#if BOARD_SMK37
+_Static_assert(FL_DATA_LO == PLAT_DATA_LO && FL_DATA_HI == PLAT_DATA_HI && FL_XDATA1_LO == PLAT_XDATA1_LO &&
+               FL_XDATA1_HI == PLAT_XDATA1_HI, "plat.h's windows are felucca-bsp's (the SMK-37's)");
+#else
 _Static_assert(FL_XDATA0_LO == PLAT_XDATA0_LO && FL_XDATA0_HI == PLAT_XDATA0_HI && FL_XDATA1_HI == PLAT_XDATA1_HI &&
                FL_AUTO_LO == PLAT_XDATA1_LO && FL_AUTO_HI == FL_XDATA1_LO, "plat.h's windows are felucca-bsp's");
+#endif
 #if FM1B_XDATA2                                   /* the fourth window: felucca-bsp's FL_GLOB (in its FL_STORE_OK), the
                                                    * store's objects there refused (plat_xdata2.h) */
 #include "plat_xdata2.h"
@@ -423,6 +567,10 @@ const char *plat_usb_host_name(void) { return ""; }
 #endif
 #endif
 
+#if BOARD_SMK37
+void plat_sense(int on) { (void)on; }          /* (the SMK-37's keys give their velocity themselves: plat_key_vel) */
+uint32_t plat_analog_mask(void) { return 0; }
+#else
 /* the keys' velocity and pressure (APP_KEY_SENSE): felucca-bsp's analog rows, as fm1-ctl and fm1-monk read them (the
  * converter's clock, a held key driven, the top row probed). Off, the converter is the main loop's (MASTER). */
 void plat_sense(int on)
@@ -449,6 +597,7 @@ uint32_t plat_analog_mask(void)
                 m |= 1u << (FM1_KEYMAP[r][c] - 14);
     return m;
 }
+#endif
 
 #if FM1B_WIFI || FM1B_BLE
 const uint8_t *plat_chip_uid(void) { return flash_ok ? flash_uid : 0; }

@@ -1297,6 +1297,9 @@ static void fm1_main(void)
     fm1b_dbg.max_us = 0;
     fm1_input_init();
     fm1_adc_init();
+#if BOARD_SMK37
+    smk_trim_init();                                /* the unit's key and pad velocity curves (USRTRIM, read only) */
+#endif
     panel_init();
     led_pos_init();
 #if FM1B_CPU2
@@ -1318,7 +1321,11 @@ static void fm1_main(void)
     fm1_guard_lock_top();
     fm1_irq_enable_all();
     fm1_delay_ms(30);
+#if BOARD_SMK37
+    if ((fm1_in.buttons & FM1_OCT_BOTH) == FM1_OCT_BOTH)
+#else
     if ((fm1_in.buttons & 3u) == 3u)
+#endif
         panel_setup();                              /* OCT- + OCT+ held at power-on */
     if (fm1_in.buttons & (1u << panel.btn[B_REC]))
         enter_uboot("UPDATE MODE (REC)");           /* REC held at power-on: the chip's update mode, the same key as
@@ -1433,6 +1440,9 @@ static void fm1_main(void)
             fm1b_dbg.ui_frames++;
             fm1b_dbg.stage = 5;
             app_frame();
+#if BOARD_SMK37
+            padled_flush();                         /* the pads' colours, between LCD transfers (lcd.c) */
+#endif
         } else {
             fm1b_dbg.stage = 6;
             app_input_only();
