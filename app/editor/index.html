@@ -833,6 +833,14 @@ async function keptFiles() {
   buildTabs(); buildPage(); buildKbd();
   const k = await keptFiles();
   if (k && k.pack) usePack(k.pack.bytes, k.pack.name + " (from the installer)", true);
+  try {                                  // a program the librarian sent ("open in the editor")
+    const h = JSON.parse(localStorage.getItem("sq80-editor-handoff") || "null");
+    if (h) {
+      localStorage.removeItem("sq80-editor-handoff");
+      loadProgram(Uint8Array.from(atob(h.prog), (c) => c.charCodeAt(0)), h.from);
+      return;
+    }
+  } catch (_) { /* (none) */ }
   if (k && k.banks && k.banks.length) {
     const progs = programsFrom(k.banks[0].bytes);
     if (progs.length) { bank = progs; bankName = k.banks[0].name; sel = 0; showBank(); loadProgram(bank[0], `${bankName} #1`); return; }

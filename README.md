@@ -116,6 +116,13 @@ back to the FM-1 (any bank and place) or out as `.syx` (a program or a whole ban
 computer's keys and a MIDI keyboard play it. Your ROM pack, if you have one, gives the page the original waves. **Randomize** makes a new program
 from the one open, as the FM-1's RANDOM screen does (the same C: `src/sq80/sq80_random.h`); from Init at 100 %, one from scratch.
 
+## The librarian
+
+https://leonardolopezchavira.github.io/sq80-fm1/librarian/ (`app/librarian/`): banks side by side (.syx files,
+SQ-80's own eight, banks read from the FM-1), each program heard with a click (the editor's engine, and on the FM-1
+when connected: frame 30), and a bank of one's own put together from them: dragged in, reordered, renamed, out as
+.syx or into any of the FM-1's banks (frames 20-22), or a program into the editor. Kept in the browser.
+
 ## HOME: the scope and RANDOM
 
 HOME goes through three screens: playing, with a waveform of the output under the knobs; the waveform alone, full

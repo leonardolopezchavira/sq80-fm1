@@ -139,7 +139,7 @@ VFD = f"""<style id="sq80-vfd">
 
 # every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
 BASE = "/sq80-fm1/"
-NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("emu/", "Emulator"),
+NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("librarian/", "Librarian"), ("emu/", "Emulator"),
        ("rompack/", "ROM pack"), ("wavepack/", "Wave pack")]
 NAV_CSS = f"""<style id="sq80-nav">
   nav.sq80-nav {{ display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; padding: 10px 16px;
@@ -196,7 +196,7 @@ def theme(html, sub, home=False, extra="", current=""):
 
 SUBS = {"install": "for the FM-1 · install", "load": "for the FM-1 · your waves and programs",
         "manual": "for the FM-1 · manual", "emu": "for the FM-1 · in the browser",
-        "edit": "for the FM-1 · program editor", "rompack": "for the FM-1 · your ROM pack",
+        "edit": "for the FM-1 · program editor", "librarian": "for the FM-1 · librarian", "rompack": "for the FM-1 · your ROM pack",
         "wavepack": "for the FM-1 · your own waves"}
 
 

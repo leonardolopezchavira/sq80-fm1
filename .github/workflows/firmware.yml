@@ -62,6 +62,7 @@ jobs:
           python3 tools/make_home.py app/build/site "$V"
           sh tools/build_editor.sh app/build/site/edit
           mkdir -p app/build/site/rompack && cp app/rompack/index.html app/build/site/rompack/
+          mkdir -p app/build/site/librarian && cp app/librarian/index.html app/build/site/librarian/
           mkdir -p app/build/site/wavepack && cp app/wavepack/index.html app/build/site/wavepack/
           python3 tools/waves_pack.py app/waves/sq80_waves.h app/build/site/wavepack/builtin.rompack
           python3 tools/site_theme.py app/build/site
