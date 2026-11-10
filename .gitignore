@@ -10,6 +10,8 @@ __pycache__/
 *.rompack
 *.syx
 *.SYX
+# (but SQ-80's own banks: Leonardo Lopez Chavira's programs, published with it)
+!app/site/banks/SQ80-Bank[1-8].syx
 *.zip
 .DS_Store
 app/web/*
