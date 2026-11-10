@@ -3,7 +3,8 @@
 // "Your ROM pack…" and "Your banks…" in the page's bar load the player's own files into the emulated FM-1, as the
 // loader page does into a real one (app/app.c "the loader": the same frames, through the emulator's USB MIDI). The
 // emulator keeps its flash in this browser (the part "data"), so they are there next time; nothing is uploaded.
-// Without them it plays the built-in waves (tools/gen_waves.py) and INIT programs.
+// Without them it plays the built-in waves (tools/gen_waves.py) and SQ-80's own eight banks (app/site/banks),
+// loaded the first time it runs in this browser.
 import { toDevice, fromDevice } from "./parts/midi.js";
 
 const HEAD = [0x7D, 0x53, 0x51];
@@ -76,9 +77,27 @@ async function send(cmd, body = [], ms = 3000) {
   throw last;
 }
 
+// SQ-80's own eight banks (app/site/banks), loaded into the emulator the first time it runs in this browser
+const FACTORY_KEY = "sq80-emu-factory-banks-1";
+const mark = () => { try { localStorage.setItem(FACTORY_KEY, "1"); } catch (_) { /* this session only */ } };
+async function factoryOnce(say) {
+  try { if (localStorage.getItem(FACTORY_KEY)) return; } catch (_) { return; }
+  for (let t = 0; t < 40; t++) {            // (until the emulated FM-1 answers)
+    try { await once(0x01, [], 500); break; } catch (_) { await sleep(500); }
+  }
+  try {
+    const files = await Promise.all([1, 2, 3, 4, 5, 6, 7, 8].map(async (i) => {
+      const r = await fetch(`../banks/SQ80-Bank${i}.syx`);
+      if (!r.ok) throw new Error("no banks");
+      return new File([await r.arrayBuffer()], `SQ80-Bank${i}.syx`);
+    }));
+    if (await load(files, say, "SQ-80's eight banks are in: SELECT picks the bank, PRESET the program.")) mark();
+  } catch (_) { /* (none on this site: INIT) */ }
+}
+
 let busy = false;
-async function load(files, say) {
-  if (busy) return;
+async function load(files, say, done) {
+  if (busy) return false;
   busy = true;
   try {
     await send(0x01, [], 2000).catch(() => { throw new Error("switch the emulator on first"); });
@@ -109,12 +128,16 @@ async function load(files, say) {
       await send(0x22, [bank, progs.length]);
       bank++;
     }
-    if (!bank && !list.some((f) => f.name.toLowerCase().endsWith(".rompack")))
+    if (!bank && !list.some((f) => f.name.toLowerCase().endsWith(".rompack"))) {
       say("Those were not a ROM pack (.rompack) or ESQ-1 / SQ-80 banks (.syx).");
-    else
-      say(bank ? `Loaded: banks 1–${bank}. SELECT picks the bank, PRESET the program.` : "Loaded.");
+      return false;
+    }
+    say(done || (bank ? `Loaded: banks 1–${bank}. SELECT picks the bank, PRESET the program.` : "Loaded."));
+    if (bank) mark();                        // (the player's own banks: SQ-80's are not put over them later)
+    return true;
   } catch (e) {
     say("Not loaded: " + (e && e.message || e));
+    return false;
   } finally {
     busy = false;
   }
@@ -143,4 +166,5 @@ export function attach(ctx) {
   btn.title = "Load your own SQ-80 ROM pack (.rompack) and ESQ-1 / SQ-80 banks (.syx): they stay in this browser";
   btn.addEventListener("click", () => input.click());
   bar.append(btn, input, note);
+  factoryOnce(say);
 }

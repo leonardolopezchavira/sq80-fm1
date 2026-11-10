@@ -21,6 +21,8 @@
 - **The program name's letters on the FM-1** (`app/fonts/seg_font.h`, made by `tools/gen_seg_font.py` from
   `app/fonts/DSEG14Classic-Regular.ttf`): a bitmap rendering of DSEG14 Classic, © 2020 keshikan, under the SIL Open
   Font License 1.1 (`app/fonts/OFL-DSEG.txt`); not named DSEG (its Reserved Font Name). The generator is MIT.
+- **SQ-80's eight program banks** (`app/site/banks/SQ80-Bank1..8.syx`, which the installer and the emulator load):
+  Leonardo Lopez Chavira's own programs, part of this project under GPL-3.0-only.
 - **fm1-base** (`fm1/base`, a submodule): MPL-2.0, its own terms (its `LICENSING.md`).
 
 **The FM-1 firmware as a whole** (what `app/` builds: the engine, the app, the effects, the sequencer and fm1-base together) is

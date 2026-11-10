@@ -52,7 +52,7 @@ next install.
 
 ![The boot screen](img/splash.png "Switching on")
 
-There are eight banks of 40 programs. A place where nothing was stored plays **INIT**, a plain sound to start from.
+There are eight banks of 40 programs. The installer fills them with SQ-80's own 320 programs (by Leonardo Lopez Chavira), unless you give it banks of your own; the emulator has them too. A place where nothing was stored plays **INIT**, a plain sound to start from.
 
 ## 3. Playing
 

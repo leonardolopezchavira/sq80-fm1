@@ -152,6 +152,12 @@ Kuroshita, Hügelton Instruments, GPL-3.0-only), ported for one part in `app/seq
 
 Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills, rolls, the free take and count-in.
 
+## The programs
+
+`app/site/banks/SQ80-Bank1..8.syx`: SQ-80's own 320 programs (Leonardo Lopez Chavira's), on the site as `banks/`.
+The installer loads them after the firmware into every bank the player gives no file of their own for; the emulator
+loads them the first time it runs in a browser.
+
 ## The front page
 
 `app/site/home.html` is the site's front page (`tools/make_home.py` fills in the version and the package, in place of
