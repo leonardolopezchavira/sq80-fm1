@@ -21,6 +21,13 @@ package without a Felucca loader (M-VAVE's firmware: M-VAVE's loader).
 
   fm1_install.py PACKAGE.fwsc [--port NAME] [--yes] [--force] [--classic]
   fm1_install.py --info [--port NAME]
+  fm1_install.py PACKAGE.fwsc --uboot-after-check [--port NAME]
+
+--uboot-after-check (SQ-80's copy, for the M-Vave SMK-37's full flash backup, fm1-to-smk37 docs/02 section 3.1): only
+step 1 (the running firmware checks the package and starts its update loader; nothing of the app area is written),
+then the loader gets the UBOOT soft key (F0 22 24 35 7D F7): the keyboard restarts into the chip's mask-ROM
+bootloader, a USB drive "WL82 UBOOT1.00", for jl-uboot-tool to read the whole flash. A power cycle brings it back in
+update mode: finish an install, or put the stock firmware back with M-Vave's updater.
 
 If the FM-1 is still in update mode (an earlier install was cut off), the
 install finishes the write. The FM-1 is found by its port's name (--port: only
@@ -51,6 +58,7 @@ HS_QUERY = bytes([0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7])
 # (PERF-1's scheme: its installers and ours ask the same way)
 HS_FULL = bytes([0xF0, 0x00, 0x32, 0x45, 0x08, 0x00, 0x00, 0x40, 0x00, 0x7E, 0x01, 0xF7])
 UPGRADE = bytes([0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7])
+UBOOT_KEY = bytes([0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7])   # the loader: into the chip's mask-ROM bootloader (UBOOT)
 FINISH_CHECK, FINISH_WRITE = 0xE0000000, 0xF0000000
 MAXDATA = 512
 # the fast install (loader/ldr_core.c): the hello and the loader's answer (cmd 0x31 [version 1, read size 16-bit LE]),
@@ -650,6 +658,28 @@ def run(a, backend, out, ask):
         raise not_found(up)
     print(f"device:  {dev.id.text}  ({dev.name})" + ("  in update mode: the write will be finished" if dev.id.loader else ""),
           file=out)
+    if a.uboot_after_check:
+        if model_of(dev.id.text) != model_of(product):
+            dev.link.close()
+            raise InstallError("model", f"the device is {dev.id.text}, the package is for {product}")
+        if not a.yes and not ask("Check the package, then switch to the chip's bootloader for a flash backup? "
+                                 "Nothing of the firmware is written. [y/N] "):
+            dev.link.close()
+            print("cancelled", file=out)
+            return 1
+        prog = Progress(out)
+        try:
+            ota = dev if dev.id.loader else up.check(dev, image, prog)
+        finally:
+            prog.end()
+        ota.link.send(UBOOT_KEY)
+        time.sleep(0.5)
+        ota.link.close()
+        print("sent the UBOOT key: the keyboard should now be a USB drive named WL82 UBOOT1.00.\n"
+              "Read its flash twice with jl-uboot-tool (read 0 0x100000 ...), check the copies, keep them safe.\n"
+              "Then power-cycle it: it comes back in update mode (install, or M-Vave's updater for the stock "
+              "firmware).", file=out)
+        return 0
     if not a.yes and not ask("Install? Do not unplug the FM-1 while writing. [y/N] "):
         dev.link.close()
         print("cancelled", file=out)
@@ -708,6 +738,8 @@ def main(argv=None, backend=None, out=sys.stdout, ask=ask_tty):
     ap.add_argument("--resources", metavar="FILE", help="the resource region to write after the update (default: "
                     "NAME-res.bin beside the package, if there: tools/fm1_resources.py)")
     ap.add_argument("--no-resources", action="store_true", help="do not write the resource region")
+    ap.add_argument("--uboot-after-check", action="store_true",
+                    help="(SMK-37 flash backup) only the check step, then the loader into the chip's bootloader")
     a = ap.parse_args(argv)
     if bool(a.info) == bool(a.package):
         ap.error("give a PACKAGE.fwsc or --info")
