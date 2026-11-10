@@ -78,7 +78,7 @@ async function send(cmd, body = [], ms = 3000) {
 }
 
 // SQ-80's own eight banks (app/site/banks), loaded into the emulator the first time it runs in this browser
-const FACTORY_KEY = "sq80-emu-factory-banks-1";
+const FACTORY_KEY = "sq80-emu-factory-banks-2";   // (2: banks 1 and 3 in their right places)
 const mark = () => { try { localStorage.setItem(FACTORY_KEY, "1"); } catch (_) { /* this session only */ } };
 async function factoryOnce(say) {
   try { if (localStorage.getItem(FACTORY_KEY)) return; } catch (_) { return; }
