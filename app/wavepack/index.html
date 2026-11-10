@@ -396,7 +396,7 @@ function rebuild() {
     romLen += bytes.length;
     return start;
   };
-  const rawOf = new Map(), baseStart = new Map();
+  const rawOf = new Map();
   const addRaw = (start, size, res, tune) => {
     const key = `${start}:${size}:${res}:${tune.toFixed(4)}`;
     if (rawOf.has(key)) return rawOf.get(key);
@@ -404,6 +404,24 @@ function rebuild() {
     rawOf.set(key, raws.length - 1);
     return raws.length - 1;
   };
+  // the base pack's tables that stay, copied as the stretches of its ROM they cover: its tables overlap (a short one
+  // inside a longer one, drums sharing a run), so each byte is copied once and every table keeps its place in it
+  const baseRaw = (old) => { const r = base.raws.subarray(4 * old, 4 * old + 4);
+    return { r, start: ((r[1] >> 6) << 16) | (r[0] << 8), size: 1 << (8 + ((r[1] >> 3) & 7)) }; };
+  const spans = [];
+  if (base) {
+    const iv = [];
+    for (const s of slots) if (!s.tables)
+      for (let z = 0; z < 16; z++) { const b = baseRaw(base.zones[s.i * 16 + z]); iv.push([b.start, Math.min(b.start + b.size, base.rom.length)]); }
+    iv.sort((a, b) => a[0] - b[0]);
+    for (const [a, b] of iv) {
+      const last = spans[spans.length - 1];
+      if (last && a <= last.end) last.end = Math.max(last.end, b);
+      else spans.push({ from: a, end: b });
+    }
+    for (const sp of spans) sp.to = place(base.rom.subarray(sp.from, sp.end));
+  }
+  const moved = (ostart) => { const sp = spans.find((q) => ostart >= q.from && ostart < q.end); return sp.to + (ostart - sp.from); };
   let sine = -1, tick = -1;
   for (const s of slots) {
     const nm = (s.name || defaultName(s.i)).toUpperCase().slice(0, 6).padStart(6, " ");
@@ -415,13 +433,11 @@ function rebuild() {
         const raw = addRaw(place(t.data), t.data.length, res, tune);
         for (const z of t.zones) zones[s.i * 16 + z] = raw;
       }
-    } else if (base) {   // the base pack's tables for this slot, copied once
+    } else if (base) {   // the base pack's tables for this slot, where their stretch went
       for (let z = 0; z < 16; z++) {
-        const old = base.zones[s.i * 16 + z], r = base.raws.subarray(4 * old, 4 * old + 4);
-        const ostart = ((r[1] >> 6) << 16) | (r[0] << 8), size = 1 << (8 + ((r[1] >> 3) & 7));
-        if (!baseStart.has(ostart + ":" + size)) baseStart.set(ostart + ":" + size, place(base.rom.subarray(ostart, ostart + size)));
+        const { r, start, size } = baseRaw(base.zones[s.i * 16 + z]);
         const semi = r[2] > 127 ? r[2] - 256 : r[2];
-        zones[s.i * 16 + z] = addRaw(baseStart.get(ostart + ":" + size), size, r[1] & 7, semi + r[3] / 256);
+        zones[s.i * 16 + z] = addRaw(moved(start), size, r[1] & 7, semi + r[3] / 256);
       }
     } else {
       if (s.i < ONESHOT) { if (sine < 0) sine = addRaw(place(sineTable()), 256, 1, 0); zones.fill(sine, s.i * 16, s.i * 16 + 16); }
@@ -436,7 +452,7 @@ function rebuild() {
   $("mem").textContent = `${Math.round(romLen / 1024)} KB of 256 · ${raws.length} tables of 255`;
   if (over) {
     packed = packBytes = null;
-    $("outState").textContent = romLen > LIMIT ? "Too much for one pack: shorten some one-shots, or start from nothing." : "Too many tables: fewer looped sounds, or start from nothing.";
+    $("outState").textContent = romLen > LIMIT ? `Too much for one pack, by ${Math.ceil((romLen - LIMIT) / 1024)} KB: shorten your one-shots, or put your sounds in place of more of the base's waves, or start from nothing.` : "Too many tables: fewer looped sounds, or start from nothing.";
     $("outState").className = "small bad";
     $("dl").disabled = $("keep").disabled = true;
     return;
