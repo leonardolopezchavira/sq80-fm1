@@ -76,6 +76,22 @@
   </section>
 
   <section>
+    <h2>4 · Clear programs</h2>
+    <p>Empties a bank on the FM-1: its 40 places go back to INIT, ready for your own. It cannot be undone, so export
+      anything you want to keep first (the <a href="../edit/">editor</a> reads a whole bank and saves it as .syx).</p>
+    <div class="row">
+      <label>Clear <select id="clrslot"><option value="all">all eight banks</option><option value="0">bank 1</option>
+        <option value="1">bank 2</option><option value="2">bank 3</option><option value="3">bank 4</option>
+        <option value="4">bank 5</option><option value="5">bank 6</option><option value="6">bank 7</option>
+        <option value="7">bank 8</option></select></label>
+      <button id="clear" disabled>Clear…</button>
+      <button id="clearyes" hidden>Yes, clear them</button>
+      <button id="clearno" class="plain" hidden>Keep them</button>
+    </div>
+    <div class="status" id="clrstat"></div>
+  </section>
+
+  <section>
     <h2>On the FM-1</h2>
     <ol>
       <li><b>SELECT</b> picks the bank (1–8, the ones you loaded), <b>PRESET</b> the program.</li>
@@ -233,6 +249,7 @@ $("connect").onclick = async () => {
     say("cstat", `Connected (${out.name}). ${found.a[7] ? "It has a ROM pack." : "It has no ROM pack yet."}`, "ok");
     $("romsend").disabled = !$("romfile").files.length;
     $("banksend").disabled = !programs.length;
+    $("clear").disabled = false;
   } catch (err) { say("cstat", err.message, "bad"); out = inp = null; }
 };
 
@@ -325,6 +342,24 @@ $("banksend").onclick = async () => {
     say("bankstat", `Bank ${slot + 1} holds ${programs.length} programs now. SELECT on the FM-1 picks it.`, "ok");
   } catch (err) { say("bankstat", "Stopped: " + err.message + ".", "bad"); }
   $("banksend").disabled = false;
+};
+const clearAsk = (on) => { $("clear").hidden = on; $("clearyes").hidden = $("clearno").hidden = !on; };
+$("clear").onclick = () => {
+  const v = $("clrslot").value;
+  clearAsk(true);
+  say("clrstat", v === "all" ? "All 320 programs on the FM-1 will be gone. Sure?" : `The 40 programs in bank ${+v + 1} will be gone. Sure?`, "bad");
+};
+$("clearno").onclick = () => { clearAsk(false); say("clrstat", "Nothing cleared."); };
+$("clrslot").onchange = () => { clearAsk(false); say("clrstat", ""); };
+$("clearyes").onclick = async () => {
+  const v = $("clrslot").value, banks = v === "all" ? [0, 1, 2, 3, 4, 5, 6, 7] : [+v];
+  clearAsk(false); $("clear").disabled = true;
+  try {
+    for (const b of banks) { say("clrstat", `Clearing bank ${b + 1}…`); await sendChecked(0x20, [b], 4000); }
+    say("clrstat", (banks.length > 1 ? "All eight banks are" : `Bank ${banks[0] + 1} is`) +
+      " empty now: every place plays INIT. (The program on the FM-1's screen stays until you pick another.)", "ok");
+  } catch (err) { say("clrstat", "Stopped: " + err.message + ".", "bad"); }
+  $("clear").disabled = false;
 };
 </script>
 </body>
