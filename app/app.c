@@ -2034,6 +2034,55 @@ static void lfo_draw(int32_t x, int32_t y, int32_t w, int32_t h)
     }
 }
 
+/* FILTER: the low-pass's response, 20 Hz to 20 kHz across, +30 dB at the top to -42 at the bottom (0 dB a line), at
+ * middle C (C4, cyan; its cutoff in Hz at the top right); with KEYBD, at C2 and C6 too (dim): how far it follows */
+static void filter_curve_draw(int32_t x, int32_t y, int32_t w, int32_t h, int32_t key, uint32_t col)
+{
+    signed char db[220];
+    int32_t c, last = -1;
+    sq80_filter_curve(sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_FREQ)),
+                      sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_KEYBD)),
+                      sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_RES)), (int)key, db, (int)w);
+    for (c = 0; c < w; c++) {
+        int32_t yy = (30 - db[c]) * (h - 1) / 72, a, b;
+        yy = yy < 0 ? 0 : yy > h - 1 ? h - 1 : yy;
+        a = b = yy;
+        if (last >= 0) {
+            a = last < yy ? last : yy;
+            b = last > yy ? last : yy;
+        }
+        if (a < h - 1)                       /* (nothing drawn along the floor) */
+            cv_rect(x + c, y + a, 1, (b < h - 1 ? b : h - 2) - a + 1, col);
+        last = yy;
+    }
+}
+
+static void filter_draw(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    char t[16], n[12];
+    int32_t hz = (int32_t)sq80_filter_cutoff(sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_FREQ)),
+                                              sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_KEYBD)), 60);
+    cv_rect(x, y + 30 * (h - 1) / 72, w, 1, C_LINE);   /* 0 dB */
+    if (sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_KEYBD))) {
+        filter_curve_draw(x, y, w, h, 36, C_DIM);
+        filter_curve_draw(x, y, w, h, 84, C_DIM);
+    }
+    filter_curve_draw(x, y, w, h, 60, C_ACCENT);
+    if (hz >= 10000) {                       /* 12.3 KHZ, 1234 HZ */
+        int_text(hz / 1000, t);
+        text_cat(t, ".");
+        int_text(hz / 100 % 10, n);
+        text_cat(t, n);
+        text_cat(t, " KHZ");
+    } else {
+        int_text(hz, t);
+        text_cat(t, " HZ");
+    }
+    cv_text(x + w - text_w(&FONT_XS, t), y - 8, &FONT_XS, t, C_GRAY);
+    if (sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_KEYBD)))   /* (with KEYBD the cutoff depends on the key) */
+        cv_text(x + w - text_w(&FONT_XS, t) - text_w(&FONT_XS, "C4 "), y - 8, &FONT_XS, "C4", C_DIM);
+}
+
 /* SEQ: the 16 steps of the page as tiles (a note cyan, an accent white, a slide with a tail, a tie joined to the
  * step before, past the length dim), the playhead framed; under them the page, the keys' mode, the transport */
 static void seq_draw(void)
@@ -2319,8 +2368,11 @@ static void draw(void)
         cv_blit(0, 100);
         knob_cells(128, 0);
         cv_begin(240, 66, C_BLACK);
-        if (ed.sec == ED_OSC || ed.sec == ED_ENV || ed.sec == ED_LFO) {   /* a picture in place of the help */
-            if (ed.sec == ED_OSC)
+        if (ed.sec == ED_OSC || ed.sec == ED_ENV || ed.sec == ED_LFO ||
+            (ed.sec == ED_PROG && ed.page[ED_PROG] % 7u <= 1u)) {   /* a picture in place of the help */
+            if (ed.sec == ED_PROG)
+                filter_draw(10, 12, 220, 50);
+            else if (ed.sec == ED_OSC)
                 wave_draw(10, 8, 220, 52);
             else if (ed.sec == ED_ENV)
                 env_draw(10, 8, 220, 52);

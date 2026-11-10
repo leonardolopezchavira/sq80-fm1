@@ -13,12 +13,14 @@
 #define sq80_powf fm_powf
 #define sq80_tanf fm_tanf
 #define sq80_fabsf fm_fabsf
+#define sq80_log2f fm_log2f
 #else
 #include <math.h>
 #define sq80_exp2f exp2f
 #define sq80_powf powf
 #define sq80_tanf tanf
 #define sq80_fabsf fabsf
+#define sq80_log2f log2f
 #endif
 
 static inline void sq80_zero(void *p, size_t n) {

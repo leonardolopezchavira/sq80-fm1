@@ -100,7 +100,7 @@ Four buttons open the editor. **ALGORITHM** turns the pages of each; **KNOB 1–
 - **ENV** — the four **envelopes** (press again: ENV 1–4; **ENV 4 is the volume**). Pages: LEVELS, TIMES, KEY. The
   shape is drawn.
 - **LFO** — the three **LFOs**. Pages: WAVE (rate, shape, depths), MORE (delay, mod, humanize, reset).
-- **EDIT** — the rest: FILTER, FILTER MOD, OUTPUT, MODES (sync, AM, mono, glide), RESTART, and the **name**
+- **EDIT** — the rest: FILTER (its response drawn: the curve at C4, its cutoff in Hz, and with KEYBD the curves at C2 and C6 dim), FILTER MOD, OUTPUT, MODES (sync, AM, mono, glide), RESTART, and the **name**
   (NAME 1–4, NAME 5–6: one letter per knob).
 
 Every value works as on the SQ-80. On a computer, the **Editor** page shows them all at once.

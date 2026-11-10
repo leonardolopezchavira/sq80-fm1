@@ -115,6 +115,13 @@ EXPORT int param_kind(int id) { const sq80_param_info *in = sq80_param(id); retu
 EXPORT int param_get(int id) { return sq80_param_get(program, id); }
 EXPORT void param_set(int id, int v) { sq80_param_set(program, id, v); }
 EXPORT void init_program(void) { sq80_init_program(program); }
+/* the filter's picture: the cutoff (Hz) for a key, and the response (dB) at hz (sq80_filter_*) */
+EXPORT float filter_cutoff(int key)
+{
+    return sq80_filter_cutoff(sq80_param_get(program, SQ80_PARAM_PROG(SQ80_P_FREQ)),
+                              sq80_param_get(program, SQ80_PARAM_PROG(SQ80_P_KEYBD)), key);
+}
+EXPORT float filter_db(float hz, float cutoff) { return sq80_filter_db(hz, cutoff, sq80_param_get(program, SQ80_PARAM_PROG(SQ80_P_RES))); }
 /* a new program at random from this one: AMOUNT 5..100, PART 0 all, 1 osc, 2 filter, 3 env, 4 lfo, 5 mod; SEED from
  * the page (a new series each time), named RND + SEQ */
 EXPORT void randomize(int amt, int part, unsigned seed, int seq)

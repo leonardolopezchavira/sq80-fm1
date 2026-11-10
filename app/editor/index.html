@@ -552,6 +552,33 @@ function lfoDraw(l) {
   });
 }
 
+function filterDraw() {   // the low-pass's response, 20 Hz .. 20 kHz, +30 .. -42 dB; at C4, and with KEYBD at C2 and C6
+  const cv = canvas((c) => {
+    const x = ctx2(c), top = 30, span = 72, ky = E.param_get(PRG(PF.KEYBD));
+    const yOf = (db) => Math.max(0, Math.min(c.height - 1, (top - db) * (c.height - 1) / span));
+    const xOf = (hz) => Math.log2(hz / 20) / Math.log2(1000) * c.width;
+    x.fillStyle = "#2f2f2f"; x.fillRect(0, yOf(0), c.width, 1);
+    x.fillStyle = "#1c1c1c";
+    for (const f of [100, 1000, 10000]) x.fillRect(xOf(f), 0, 1, c.height);
+    const curve = (key, color, width) => {
+      const fc = E.filter_cutoff(key), pts = [];
+      for (let i = 0; i <= c.width; i += 2) pts.push([i, yOf(E.filter_db(20 * Math.pow(1000, i / c.width), fc))]);
+      x.strokeStyle = color; x.lineWidth = width; x.beginPath();
+      pts.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b)));
+      x.stroke();
+      return fc;
+    };
+    if (ky) { curve(36, "#3c5a5c", 2); curve(84, "#3c5a5c", 2); }
+    const fc = curve(60, HI, 2.5);
+    x.fillStyle = "#8a857a"; x.font = "20px system-ui"; x.textAlign = "right";
+    x.fillText((ky ? "C4  " : "") + (fc >= 1000 ? (fc / 1000).toFixed(fc >= 10000 ? 1 : 2) + " kHz" : Math.round(fc) + " Hz"), c.width - 6, 24);
+    x.textAlign = "left"; x.fillStyle = "#4a4a4a"; x.font = "16px system-ui";
+    x.fillText("100", xOf(100) + 4, c.height - 6); x.fillText("1k", xOf(1000) + 4, c.height - 6); x.fillText("10k", xOf(10000) + 4, c.height - 6);
+  });
+  cv.height = 200; cv.style.height = "92px";   // (taller than the others: the peak and the slope)
+  return cv;
+}
+
 const PAGES = {
   "Oscillators": () => [0, 1, 2].map((o) => card(`OSC ${o + 1}`, waveDraw(o),
     ctl(OSC(o, OF.WAVE), "WAVE"), ctl(OSC(o, OF.OCT), "OCT"), ctl(OSC(o, OF.SEMI), "SEMI"), ctl(OSC(o, OF.FINE), "FINE"),
@@ -565,7 +592,7 @@ const PAGES = {
     ctl(LFO(l, LF.L2), "L2", HELP.L2L), ctl(LFO(l, LF.DELAY), "DELAY"), ctl(LFO(l, LF.MOD), "MOD"),
     ctl(LFO(l, LF.HUMAN), "HUMAN"), ctl(LFO(l, LF.RESET), "RESET"))),
   "Filter and output": () => [
-    card("Filter", ctl(PRG(PF.FREQ), "FREQ", "cutoff"), ctl(PRG(PF.RES), "RES"), ctl(PRG(PF.KEYBD), "KEYBD"),
+    card("Filter", filterDraw(), ctl(PRG(PF.FREQ), "FREQ", "cutoff"), ctl(PRG(PF.RES), "RES"), ctl(PRG(PF.KEYBD), "KEYBD"),
       modRow(PRG(PF.FMOD1), PRG(PF.FDEPTH1), "MOD 1"), modRow(PRG(PF.FMOD2), PRG(PF.FDEPTH2), "MOD 2")),
     card("Output", ctl(PRG(PF.FINAL), "FINAL", HELP.FINAL), ctl(PRG(PF.PAN), "PAN", "left 0 .. 15 right"),
       modRow(PRG(PF.PANMOD), PRG(PF.PANDEPTH), "PAN MOD")),

@@ -570,3 +570,31 @@ void sq80_render(sq80_synth *s, float *left, float *right, int n) {
     sq80_render_part(s, left, right, n, 0, SQ80_VOICES);
     sq80_render_commit(s, n);
 }
+
+/* ------------------------------------------------------------------------- the filter, drawn */
+
+float sq80_filter_cutoff(int freq, int keybd, int key) {
+    float hz = cutoff_hz((float)clampi(freq, 0, 127) +
+                         (float)clampi(keybd, 0, 63) / 63.0f * SQ80_KEY_TRACK_AT_MAX * (float)(key - SQ80_KEY_TRACK_CENTER));
+    return hz > SQ80_DOC_RATE * 0.45f ? SQ80_DOC_RATE * 0.45f : hz;   /* (filter_set's limit) */
+}
+
+float sq80_filter_db(float hz, float cutoff, int res) {
+    /* H(jw) = (1 + c k) / ((1 + jw/wc)^4 + k): (1 + jx)^4 = (1 - 6x^2 + x^4) + j 4x (1 - x^2) */
+    const float k = SQ80_RESONANCE[res & 31], x = hz / (cutoff > 1.0f ? cutoff : 1.0f), x2 = x * x;
+    const float re = 1.0f - 6.0f * x2 + x2 * x2 + k, im = 4.0f * x * (1.0f - x2), g = 1.0f + SQ80_FILTER_BASS_COMPENSATION * k;
+    float m = g * g / (re * re + im * im + 1e-12f);
+    return 3.0103f * sq80_log2f(m > 1e-12f ? m : 1e-12f);
+}
+
+void sq80_filter_curve(int freq, int keybd, int res, int key, signed char *db, int n) {
+    const float fc = sq80_filter_cutoff(freq, keybd, key);
+    float hz = 20.0f, r;
+    int i;
+    if (n < 2) return;
+    r = sq80_exp2f(9.965784f / (float)(n - 1));   /* (1000 ^ (1 / (n - 1)): 20 Hz to 20 kHz) */
+    for (i = 0; i < n; ++i, hz *= r) {
+        float d = sq80_filter_db(hz, fc, res);
+        db[i] = (signed char)(d > 60.0f ? 60 : d < -120.0f ? -120 : (int)(d + (d < 0.0f ? -0.5f : 0.5f)));
+    }
+}

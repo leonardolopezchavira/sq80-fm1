@@ -177,6 +177,14 @@ void sq80_render_part(sq80_synth *s, float *left, float *right, int n, int first
 void sq80_render_commit(sq80_synth *s, int n);
 int sq80_active_voices(const sq80_synth *s);
 
+/* For a picture of the filter (the FM-1's FILTER page, the editor): the cutoff in Hz that FREQ (0..127) and KEYBD
+ * (0..63) give a key, as a voice sets it (no modulation); and the 4-pole low-pass's response at hz, in dB, for that
+ * cutoff and RES (0..31): the analog ladder the engine models, with its passband compensation */
+float sq80_filter_cutoff(int freq, int keybd, int key);
+float sq80_filter_db(float hz, float cutoff, int res);
+/* the response from 20 Hz to 20 kHz in n columns (log spaced), in whole dB (-120..60), for FREQ, KEYBD, RES and a key */
+void sq80_filter_curve(int freq, int keybd, int res, int key, signed char *db, int n);
+
 #ifdef __cplusplus
 }
 #endif
