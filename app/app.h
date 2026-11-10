@@ -15,7 +15,11 @@ void app_splash(void);
 int app_sysex(const uint8_t *p, uint32_t n);
 
 enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
+#if defined(BOARD_SMK37) && BOARD_SMK37
+#define APP_STORE_MAP {0x9D000u, 0x9F000u, 0xA1000u}   /* the SMK-37: its store window (0xFC000 is its stock firmware's) */
+#else
 #define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xDE000u}
+#endif
 
 void app_init(void);
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12);

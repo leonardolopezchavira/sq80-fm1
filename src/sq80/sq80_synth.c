@@ -460,7 +460,6 @@ void sq80_all_notes_off(sq80_synth *s) {
 }
 
 static float render_doc(sq80_synth *s, sq80_voice *v) {
-    const uint8_t *rom = s->rom->rom;
     const sq80_patch *p = &s->patch;
     float sum = 0.0f, s0 = 0.0f;
     int i;
@@ -477,7 +476,7 @@ static float render_doc(sq80_synth *s, sq80_voice *v) {
         o->wrapped = o->phase < before;
         if (o->wrapped && o->one_shot && !(i == 1 && p->sync)) { o->halted = 1; continue; }
         if (i == 1 && p->sync && v->osc[0].wrapped) o->phase = 0;
-        smp = rom[(o->start + (o->phase >> o->shift)) & s->rom->rom_mask];
+        smp = sq80_rom_at(s->rom, o->start + (o->phase >> o->shift));
         if (smp == 0) { o->halted = 1; continue; }   /* a zero byte stops the DOC oscillator */
         x = (float)((int)smp - 128) * (1.0f / 127.0f);
         if (i == 0) s0 = x;

@@ -397,8 +397,18 @@ void plat_log(const char *line);
 #define PLAT_XDATA0_HI 0x9D000u
 #define PLAT_XDATA1_LO 0xC2000u
 #define PLAT_XDATA1_HI 0xEA000u
+#ifndef SMK_XDATA2
+#define SMK_XDATA2 0
+#endif
+#if SMK_XDATA2                         /* (fm1.toml smk_xdata2 = true) the stretch after USRFLASH that the stock region
+                                        * table does not list, 0xEB000..0xF3FFF: only once a backup of the unit shows
+                                        * its stock firmware leaves it empty (0xEA000 is left alone) */
+#define PLAT_XDATA2_LO 0xEB000u
+#define PLAT_XDATA2_HI 0xF4000u
+#else
 #define PLAT_XDATA2_LO 0xEA000u
 #define PLAT_XDATA2_HI 0xEA000u
+#endif
 #else
 #define PLAT_DATA_LO 0x97000u
 #define PLAT_DATA_HI 0xE0000u
@@ -409,7 +419,7 @@ void plat_log(const char *line);
 #define PLAT_XDATA2_LO 0xFC000u
 #define PLAT_XDATA2_HI 0xFF000u
 #endif
-#if FM1B_XDATA2
+#if FM1B_XDATA2 || (defined(BOARD_SMK37) && BOARD_SMK37 && SMK_XDATA2)
 #define PLAT_DATA_OK(off, n) (plat_in((off), (n), PLAT_DATA_LO, PLAT_DATA_HI) || \
                               plat_in((off), (n), PLAT_XDATA0_LO, PLAT_XDATA0_HI) || \
                               plat_in((off), (n), PLAT_XDATA1_LO, PLAT_XDATA1_HI) || \

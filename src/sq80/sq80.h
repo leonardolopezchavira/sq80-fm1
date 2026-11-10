@@ -7,6 +7,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* a ROM pack kept in pieces (the SMK-37: no one stretch of its flash holds it), else one block */
+#ifndef SQ80_ROM_PAGED
+#if defined(BOARD_SMK37) && BOARD_SMK37
+#define SQ80_ROM_PAGED 1
+#else
+#define SQ80_ROM_PAGED 0
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,13 +40,34 @@ typedef struct {
     const uint8_t *names;  /* 75 x 6 characters */
     const uint8_t *zones;  /* 75 x 16 raw-wave indices */
     const uint8_t *raws;   /* raw count x 4 */
-    const uint8_t *rom;    /* the wave ROM: 256 KiB for the SQ-80; a test pack may be smaller */
+    const uint8_t *rom;    /* the wave ROM: 256 KiB for the SQ-80; a test pack may be smaller (0: paged) */
     uint32_t rom_mask;     /* rom size - 1 (a power of two) */
     int raw_count;
+#if SQ80_ROM_PAGED
+    const uint8_t *const *sec;   /* a pack kept in 4 KiB pieces: sector i of the pack at sec[i] (0: in one piece) */
+    uint32_t rom_off;      /* the wave ROM's offset in the pack */
+#endif
 } sq80_rompack;
+
+/* byte a of the wave ROM (a masked to its size) */
+static inline uint8_t sq80_rom_at(const sq80_rompack *p, uint32_t a) {
+    a &= p->rom_mask;
+#if SQ80_ROM_PAGED
+    if (p->sec) {
+        a += p->rom_off;
+        return p->sec[a >> 12][a & 4095u];
+    }
+#endif
+    return p->rom[a];
+}
 
 /* 1 if `data` is a valid version-1 ROM pack (pointers into `data` are kept), else 0. */
 int sq80_rompack_load(sq80_rompack *pack, const uint8_t *data, size_t size);
+#if SQ80_ROM_PAGED
+/* the same for a pack kept in n 4 KiB pieces (sec[i]: its sector i; the array is kept): its directory must lie in the
+ * first */
+int sq80_rompack_load_paged(sq80_rompack *pack, const uint8_t *const *sec, size_t n);
+#endif
 sq80_raw_wave sq80_rompack_raw(const sq80_rompack *pack, int index);
 /* wave name, 6 characters + NUL */
 void sq80_rompack_name(const sq80_rompack *pack, int wave, char out[7]);

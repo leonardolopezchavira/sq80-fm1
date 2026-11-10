@@ -397,6 +397,9 @@ int plat_sysex_send(const uint8_t *frame, uint32_t n) { return ota_wire_send(fra
 #if BOARD_SMK37
 _Static_assert(FL_DATA_LO == PLAT_DATA_LO && FL_DATA_HI == PLAT_DATA_HI && FL_XDATA1_LO == PLAT_XDATA1_LO &&
                FL_XDATA1_HI == PLAT_XDATA1_HI, "plat.h's windows are felucca-bsp's (the SMK-37's)");
+#if SMK_XDATA2
+_Static_assert(FL_XDATA2_LO == PLAT_XDATA2_LO && FL_XDATA2_HI == PLAT_XDATA2_HI, "plat.h's XDATA2 is the SMK's FL_XDATA2");
+#endif
 #else
 _Static_assert(FL_XDATA0_LO == PLAT_XDATA0_LO && FL_XDATA0_HI == PLAT_XDATA0_HI && FL_XDATA1_HI == PLAT_XDATA1_HI &&
                FL_AUTO_LO == PLAT_XDATA1_LO && FL_AUTO_HI == FL_XDATA1_LO, "plat.h's windows are felucca-bsp's");

@@ -57,3 +57,23 @@ firmware keeps.
    M-Vave's updater (the stock package for your model); the calibration and Bluetooth data are untouched.
 
 If anything fails, stop and send what it printed.
+
+## Then: SQ-80 on the keyboard
+
+Only if the check printed **backup OK** and the line `unlisted 0xEB000-0xF3FFF  empty (all 0xFF)`: SQ-80 keeps the
+last 9 sectors of its ROM pack there (fm1.toml `smk_xdata2`). If that stretch has bytes written, stop and send the
+lines: that build must not go on this keyboard (the ROM pack then does not fit, a build without the stretch is next).
+
+1. After step 6's power cycle the keyboard is in update mode. Install SQ-80 (the Pro package also for the Donner
+   Starrykey 37 Play; this works from a Mac too):
+
+       python3 fm1/base/tools/fm1_install.py sq80-smk37-X.Y.fwsc
+
+   It restarts into SQ-80 and checks its identity (`SMK-37 Pro_8...`).
+2. Open the site's **Load** page in Chrome or Edge. It finds the keyboard by itself. Send the ROM pack, then the
+   banks (`app/site/banks/SQ80-Bank1..8.syx`, or your own).
+3. Play. FADER BANK steps the faders' banks (the screen shows A..D), the pads pick programs (`<` `>`: the next 16),
+   SEQ held: the pads are the steps.
+
+The way back: M-Vave's updater with the stock package, as in step 6. The calibration and Bluetooth data are never
+written by SQ-80.

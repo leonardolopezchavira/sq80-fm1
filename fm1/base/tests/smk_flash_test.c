@@ -4,7 +4,8 @@
  * the app's windows and the update's staging, and refuses the protected ranges, also when a caller (the update loader)
  * supplies a wider FL_RANGE_OK of its own.
  *   cc -I bsp/chip -DBOARD_SMK37=1 tests/smk_flash_test.c && ./a.out
- *   cc -I bsp/chip -DBOARD_SMK37=1 -DLOADER tests/smk_flash_test.c && ./a.out */
+ *   cc -I bsp/chip -DBOARD_SMK37=1 -DLOADER tests/smk_flash_test.c && ./a.out
+ * (and each with -DSMK_XDATA2=1: the stretch 0xEB000..0xF3FFF too) */
 #include <stdint.h>
 #include <stdio.h>
 #ifdef LOADER   /* the loader's own, as bsp/loader/loader.c has it: the protected ranges must still be refused */
@@ -42,6 +43,14 @@ int main(void)
     want(0xC2000u, 0x1000u, 1);                    /* USRFLASH */
     want(0xE9000u, 0x1000u, 1);
     want(0xEA000u, 0x1000u, 0);                    /* not ours */
+#if SMK_XDATA2
+    want(0xEB000u, 0x1000u, 1);                    /* the unlisted stretch, chosen (fm1.toml smk_xdata2) */
+    want(0xF3000u, 0x1000u, 1);
+    want(0xF3FFFu, 2, 0);                          /* across into USR */
+#else
+    want(0xEB000u, 0x1000u, 0);
+    want(0xF3000u, 0x1000u, 0);
+#endif
     want(0x4000u, 0x1000u, 0);                     /* the app area: the loader's only */
     want(0x9C000u, 0x1000u, 0);
 #endif

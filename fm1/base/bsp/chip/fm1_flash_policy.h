@@ -75,8 +75,26 @@ _Static_assert(FL_WIN_SAFE(FL_DATA_LO, FL_DATA_HI), "SMK: FL_DATA overlaps a pro
 _Static_assert(FL_WIN_SAFE(FL_OTA_LO, FL_OTA_HI), "SMK: FL_OTA overlaps a protected range");
 _Static_assert(FL_WIN_SAFE(FL_XDATA1_LO, FL_XDATA1_HI), "SMK: FL_XDATA1 overlaps a protected range");
 _Static_assert(FL_DATA_HI <= FL_OTA_LO && FL_OTA_HI <= FL_CAL_LO, "SMK: windows overlap");
+#ifndef SMK_XDATA2
+#define SMK_XDATA2 0
+#endif
+#if SMK_XDATA2   /* the unlisted stretch after USRFLASH (0xEA000 left alone), only by the app's choice (fm1.toml smk_xdata2) */
+#define FL_XDATA2_LO 0x000EB000u
+#define FL_XDATA2_HI 0x000F4000u
+_Static_assert(FL_WIN_SAFE(FL_XDATA2_LO, FL_XDATA2_HI), "SMK: FL_XDATA2 overlaps a protected range");
+_Static_assert(FL_XDATA2_LO > FL_XDATA1_HI && FL_XDATA2_HI <= FL_USRRES_LO, "SMK: FL_XDATA2 after USRFLASH, before USR");
+#define FL_STORE_OK(off, n) FL_IN(off, n, FL_DATA_LO, FL_DATA_HI)
+#define FL_XDATA_OK(off, n) (FL_IN(off, n, FL_XDATA1_LO, FL_XDATA1_HI) || FL_IN(off, n, FL_XDATA2_LO, FL_XDATA2_HI))
+#ifndef FL_RANGE_OK
+#ifndef FM1_FLASH_WRITE_REGIONS
+#define FM1_FLASH_WRITE_REGIONS(X) X(FL_DATA_LO, FL_DATA_HI) X(FL_XDATA1_LO, FL_XDATA1_HI) X(FL_XDATA2_LO, FL_XDATA2_HI) \
+    X(FL_OTA_LO, FL_OTA_HI)
+#endif
+#endif
+#else
 #define FL_STORE_OK(off, n) FL_IN(off, n, FL_DATA_LO, FL_DATA_HI)
 #define FL_XDATA_OK(off, n) FL_IN(off, n, FL_XDATA1_LO, FL_XDATA1_HI)
+#endif
 #ifndef FL_RANGE_OK
 #ifndef FM1_FLASH_WRITE_REGIONS
 #define FM1_FLASH_WRITE_REGIONS(X) X(FL_DATA_LO, FL_DATA_HI) X(FL_XDATA1_LO, FL_XDATA1_HI) X(FL_OTA_LO, FL_OTA_HI)

@@ -2,7 +2,7 @@
  * SQ-80 for the M-VAVE FM-1 (an fm1-base app; started from fm1-base's template, MPL-2.0).
  *
  * The sq80 engine plays the player's own SQ-80 waves and programs, kept in the FM-1's flash:
- *   - the ROM pack (tools/make_rompack.py, from the player's SQ-80 OS and wave ROM dumps) at ROM_LO;
+ *   - the ROM pack (tools/make_rompack.py, from the player's SQ-80 OS and wave ROM dumps) at ROM_LO (ROM_RUNS);
  *   - eight banks of 40 programs (ESQ-1 / SQ-80 format, 102 bytes each), one flash sector each: banks 1..4 at
  *     BANK_LO, banks 5..8 in the XDATA0 window (bank_base: there bytes 0xF00..0xF07 of each sector stay erased).
  * Both come in over USB SysEx from the loader page (web/load/index.html) in this app's own framing (below); a
@@ -37,13 +37,52 @@
 
 /* ------------------------------------------------------------- flash map --- */
 #define SECTOR 4096u
+#if APP_SMK
+/* the SMK-37 (plat.h): its store window 0x9D000..0xBAFFF holds the store's objects (app.h APP_STORE_MAP, to
+ * 0xA2FFF), the eight banks and the ROM pack's first 16 sectors; the pack goes on in USRFLASH (PLAT_XDATA1, 40
+ * sectors) and, with fm1.toml smk_xdata2 (SMK_XDATA2), the stretch after it (PLAT_XDATA2 0xEB000..0xF3FFF, 9): 65
+ * in all, a pack's size. Without that stretch a pack does not fit (the built-in waves play). No gap in the banks */
+#define BANK_LO 0xA3000u                 /* banks 1..8, a sector each */
+#define BANK_HI_LO (BANK_LO + 4u * SECTOR)
+#define GAPPED(slot) 0                   /* no gap in the banks */
+#define GAP 0x1000u
+#define ROM_RUNS {{0xAB000u, 16u}, {PLAT_XDATA1_LO, (PLAT_XDATA1_HI - PLAT_XDATA1_LO) / SECTOR}, \
+                  {PLAT_XDATA2_LO, (PLAT_XDATA2_HI - PLAT_XDATA2_LO) / SECTOR}}
+_Static_assert(0xA3000u >= 0x9D000u + 6u * SECTOR, "SMK: the banks above the store's three objects");
+_Static_assert(0xAB000u == BANK_LO + 8u * SECTOR && 0xAB000u + 16u * SECTOR == PLAT_DATA_HI,
+               "SMK: the pack's first piece fills the store window after the banks");
+#else
 #define ROM_LO 0x97000u                  /* the ROM pack: 65 sectors, to BANK_LO */
-#define ROM_MAX (BANK_LO - ROM_LO)
 #define BANK_LO 0xD8000u                 /* banks 1..4, a sector each, to the store's objects at 0xDC000 */
 #define BANK_HI_LO PLAT_XDATA0_LO        /* banks 5..8: the XDATA0 window's four sectors */
-#define NBANK 8u
 #define GAP 0xF00u                       /* banks 5..8: bytes GAP..GAP+7 of the sector kept erased (the update loader
                                           * looks for its record there: plat.h, PLAT_XDATA0) */
+#define ROM_RUNS {{ROM_LO, (BANK_LO - ROM_LO) / SECTOR}}
+#define GAPPED(slot) ((slot) >= 4u)      /* banks 5..8 step over the gap */
+#endif
+#define NBANK 8u
+/* the ROM pack's place: runs of sectors (address, count), its bytes in order through them */
+static const uint32_t ROM_RUN[][2] = ROM_RUNS;
+#define ROM_NRUN (sizeof ROM_RUN / sizeof ROM_RUN[0])
+#define ROM_SECS_MAX 72u
+static uint32_t rom_secs(void)               /* the sectors the pack may take */
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < ROM_NRUN; i++)
+        n += ROM_RUN[i][1];
+    return n;
+}
+#define ROM_MAX (rom_secs() * SECTOR)
+static uint32_t rom_addr(uint32_t off)       /* the flash address of the pack's byte off (0: past its room) */
+{
+    uint32_t i, s = off / SECTOR;
+    for (i = 0; i < ROM_NRUN; i++) {
+        if (s < ROM_RUN[i][1])
+            return ROM_RUN[i][0] + s * SECTOR + off % SECTOR;
+        s -= ROM_RUN[i][1];
+    }
+    return 0;
+}
 #define BANK_MAGIC 0x4B425153u           /* "SQBK" */
 #define NPROG 40u
 
@@ -95,7 +134,7 @@ static uint32_t prog_at(uint32_t slot, uint32_t pi)   /* where byte 0 of program
 }
 static uint32_t phys(uint32_t slot, uint32_t o)       /* a byte's place in the sector: over the gap in banks 5..8 */
 {
-    return slot >= 4u && o >= GAP ? o + 8u : o;
+    return GAPPED(slot) && o >= GAP ? o + 8u : o;
 }
 static uint32_t bank_count_slot(uint32_t slot)
 {
@@ -126,7 +165,7 @@ static int bank_read(uint32_t slot, uint32_t pi, uint8_t out[102])
 static int bank_write(uint32_t slot, uint32_t pi, const uint8_t prog[102])   /* in up to two pieces, round the gap */
 {
     uint32_t o = prog_at(slot, pi), base = bank_base(slot);
-    if (slot >= 4u && o < GAP && o + 102u > GAP) {
+    if (GAPPED(slot) && o < GAP && o + 102u > GAP) {
         uint32_t k = GAP - o;
         if (plat_data_write(base + o, prog, k) != 0)
             return -1;
@@ -437,10 +476,23 @@ void app_panic(void)
 }
 
 /* the waves: the player's ROM pack, else the built-in set (waves/sq80_waves.h: tools/gen_waves.py's, our own) */
+static int rom_load(sq80_rompack *pk)        /* the pack in the flash: 1 a valid one */
+{
+#if SQ80_ROM_PAGED
+    static const uint8_t *sec[ROM_SECS_MAX];
+    uint32_t i, n = rom_secs();
+    for (i = 0; i < n && i < ROM_SECS_MAX; i++)
+        sec[i] = plat_data(rom_addr(i * SECTOR));
+    return sq80_rompack_load_paged(pk, sec, n < ROM_SECS_MAX ? n : ROM_SECS_MAX);
+#else
+    const uint8_t *p = plat_data(ROM_LO);
+    return p && sq80_rompack_load(pk, p, ROM_MAX);
+#endif
+}
+
 static int rom_attach(void)
 {
-    const uint8_t *p = plat_data(ROM_LO);
-    if (p && sq80_rompack_load(&rom, p, ROM_MAX)) {
+    if (rom_load(&rom)) {
         rom_real = 1;
         return 1;
     }
@@ -562,11 +614,14 @@ static void reply(uint32_t cmd, uint32_t status)   /* with the failure's details
     plat_sysex_send(f, n);
 }
 
-static uint32_t crc32_flash(const uint8_t *p, uint32_t n, const uint8_t *head)
+static uint32_t crc32_pack(uint32_t n, const uint8_t *head)   /* the pack's first n bytes (its head from head) */
 {
     uint32_t c = 0xFFFFFFFFu, i, k;
+    const uint8_t *p = 0;
     for (i = 0; i < n; i++) {
-        c ^= i < 8u ? head[i] : p[i];
+        if (i % SECTOR == 0u && (p = plat_data(rom_addr(i))) == 0)
+            return 0;
+        c ^= i < 8u ? head[i] : p[i % SECTOR];
         for (k = 0; k < 8u; k++)
             c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
     }
@@ -581,10 +636,12 @@ static uint32_t u7(const uint8_t *p, uint32_t n)   /* n 7-bit groups, low first 
     return v;
 }
 
-static int rom_write(uint32_t off, const uint8_t *src, uint32_t n)   /* erasing ahead as it goes */
+static int rom_write(uint32_t off, const uint8_t *src, uint32_t n)   /* erasing ahead as it goes (erased_to: the
+                                                                      * pack's bytes erased) */
 {
-    while (ld.erased_to < ROM_LO + off + n) {
-        if (plat_data_erase(ld.erased_to) != 0)
+    while (ld.erased_to < off + n) {
+        uint32_t a = rom_addr(ld.erased_to);
+        if (!a || plat_data_erase(a) != 0)
             return -1;
         ld.erased_to += SECTOR;
     }
@@ -596,20 +653,24 @@ static int rom_write(uint32_t off, const uint8_t *src, uint32_t n)   /* erasing 
         src += k;
         n -= k;
     }
-    if (!n)
-        return 0;
-    if (plat_data_write(ROM_LO + off, src, n) != 0) {
-        why_set(off, 0, 0);
-        return -1;
-    }
-    {   /* read back: what the flash holds now */
-        const uint8_t *f = plat_data(ROM_LO + off);
-        uint32_t i;
-        for (i = 0; f && i < n; i++)
+    while (n) {                              /* (in pieces: a sector's at a time) */
+        uint32_t k = SECTOR - off % SECTOR, a = rom_addr(off), i;
+        const uint8_t *f;
+        if (k > n)
+            k = n;
+        if (!a || plat_data_write(a, src, k) != 0) {
+            why_set(off, 0, 0);
+            return -1;
+        }
+        f = plat_data(a);                    /* read back: what the flash holds now */
+        for (i = 0; f && i < k; i++)
             if (f[i] != src[i]) {
                 why_set(off + i, src[i], f[i]);
                 return -2;
             }
+        off += k;
+        src += k;
+        n -= k;
     }
     return 0;
 }
@@ -642,9 +703,9 @@ static int frame_rom(const uint8_t *p, uint32_t n)
         loader_stop_sound();
         ld.got = 0;
         ld.active = 1;
-        if (plat_data_erase(ROM_LO) != 0)    /* the old pack goes now (the rest is erased as the bytes come) */
+        if (plat_data_erase(rom_addr(0)) != 0)   /* the old pack goes now (the rest is erased as the bytes come) */
             return 2;
-        ld.erased_to = ROM_LO + SECTOR;
+        ld.erased_to = SECTOR;
         return 0;
     }
     if (!ld.active)
@@ -674,24 +735,24 @@ static int frame_rom(const uint8_t *p, uint32_t n)
     }
     if (cmd == 0x12u) {
         uint32_t want, got;
-        const uint8_t *f = plat_data(ROM_LO);
+        const uint8_t *f = plat_data(rom_addr(0));
         sq80_rompack test;
         if (n < 9u || !f)
             return 1;
         want = u7(p + 4, 5);
         ld.active = 0;
-        got = crc32_flash(f, ld.size, ld.head);
+        got = crc32_pack(ld.size, ld.head);
         if (got != want) {
             why_set(got & 0x0FFFFFFFu, got >> 28, ld.got);   /* the CRC the FM-1 found, the bytes it took */
             loader_resume();                 /* (no pack now: the test waves) */
             return 3;
         }
-        if (plat_data_write(ROM_LO, ld.head, 8) != 0) {
+        if (plat_data_write(rom_addr(0), ld.head, 8) != 0) {
             loader_resume();
             return 2;
         }
-        if (!sq80_rompack_load(&test, plat_data(ROM_LO), ld.size)) {
-            const uint8_t *h = plat_data(ROM_LO);
+        if (!rom_load(&test)) {
+            const uint8_t *h = f;
             why_set(h[0] | (uint32_t)h[1] << 8 | (uint32_t)h[2] << 16, h[3], ld.size);
             loader_resume();
             return 6;
@@ -839,14 +900,14 @@ int app_sysex(const uint8_t *p, uint32_t n)
     case 0x02u: {                        /* the ROM pack kept: 7F 02 00 0 0 SIZE(4 x 7) CRC(5 x 7), zeros for none */
         uint8_t f[19] = {0xF0, 0x7D, 0x53, 0x51, 0x7F, 0x02, 0, 0, 0};
         uint32_t size = 0, crc = 0, i;
-        const uint8_t *h = plat_data(ROM_LO);
+        const uint8_t *h = plat_data(rom_addr(0));
         if (rom_real && h) {
             uint32_t raws = h[20] | (uint32_t)h[21] << 8, romsz = h[24] | (uint32_t)h[25] << 8 | (uint32_t)h[26] << 16,
                      body = 6u * SQ80_WAVES + 16u * SQ80_WAVES + 4u * raws;
             body += (16u - body % 16u) % 16u;
             size = 32u + body + romsz;
             if (size <= ROM_MAX)
-                crc = crc32_flash(h, size, h);
+                crc = crc32_pack(size, h);
             else
                 size = 0;
         }
@@ -860,12 +921,19 @@ int app_sysex(const uint8_t *p, uint32_t n)
     }
     case 0x13u: {                        /* read the flash back (the pack's first 8 bytes: 0xFF until it is kept):
                                           * 13 O0..O3 N -> 7E O0..O3 DATA (7-bit packed), N <= 112 */
-        uint8_t f[12 + 128];
-        const uint8_t *src;
+        uint8_t f[12 + 128], src[112];
         uint32_t off = n >= 9u ? u7(p + 4, 4) : 0u, cnt = n >= 9u ? p[8] : 0u, k = 0, i;
-        if (cnt == 0 || cnt > 112u || (src = plat_data(ROM_LO + off)) == 0 || off + cnt > ROM_MAX) {
+        if (cnt == 0 || cnt > 112u || off + cnt > ROM_MAX) {
             reply(0x13, 1);
             return 1;
+        }
+        for (i = 0; i < cnt; i++) {          /* (it may cross a piece's end) */
+            const uint8_t *b = plat_data(rom_addr(off + i));
+            if (!b) {
+                reply(0x13, 1);
+                return 1;
+            }
+            src[i] = *b;
         }
         f[0] = 0xF0; f[1] = 0x7D; f[2] = 0x53; f[3] = 0x51; f[4] = 0x7E;
         for (i = 0; i < 4u; i++)
@@ -1388,7 +1456,7 @@ static int program_store(uint32_t bank, uint32_t pi)   /* prog_raw into bank (1.
     sector_buf[5] = sector_buf[6] = sector_buf[7] = 0;
     if (plat_data_erase(base) != 0)
         return -2;
-    if (slot >= 4u) {                        /* round the gap: it stays erased */
+    if (GAPPED(slot)) {                      /* round the gap: it stays erased */
         if (plat_data_write(base, sector_buf, GAP) != 0 ||
             plat_data_write(base + GAP + 8u, sector_buf + GAP + 8u, SECTOR - GAP - 8u) != 0)
             return -3;
@@ -2179,13 +2247,11 @@ static void wave_draw(int32_t x, int32_t y, int32_t w, int32_t h)
     int32_t key = 60 + 12 * sq80_param_get(prog_raw, SQ80_PARAM_OSC(o, SQ80_P_OSC_OCT)) +
                   sq80_param_get(prog_raw, SQ80_PARAM_OSC(o, SQ80_P_OSC_SEMI));
     sq80_raw_wave rw;
-    const uint8_t *src;
     int32_t prev = h / 2, mid = h / 2;
     key = key < 0 ? 0 : key > 127 ? 127 : key;
     rw = sq80_rompack_raw(&rom, rom.zones[wave * SQ80_ZONES + (key >> 3)]);
     n = 1u << rw.size_log2;
-    src = rom.rom;
-    for (len = 0; len < n && src[(rw.start + len) & rom.rom_mask]; len++)
+    for (len = 0; len < n && sq80_rom_at(&rom, rw.start + len); len++)
         ;                                    /* (to its end, or the zero that stops it) */
     cv_rect(x, y + mid, w, 1, C_LINE);
     if (!len)
@@ -2196,7 +2262,7 @@ static void wave_draw(int32_t x, int32_t y, int32_t w, int32_t h)
         if (b <= a)
             b = a + 1u;
         for (i = a; i < b && i < len; i++) {
-            int32_t v = (int32_t)src[(rw.start + i) & rom.rom_mask];
+            int32_t v = (int32_t)sq80_rom_at(&rom, rw.start + i);
             int32_t py = (h - 1) - (v * (h - 1)) / 255;
             if (py < lo)
                 lo = py;

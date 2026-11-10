@@ -295,7 +295,8 @@ def board_flags():
     """the board's compiler flags: none for the FM-1 (its build stays as it was)"""
     if BOARD != "smk37":
         return []
-    return ["-DBOARD_SMK37=1"] + ([f'-DSMK_MODEL="{SMK_MODELS[MODEL]}"'] if MODEL != "pro" else [])
+    return (["-DBOARD_SMK37=1"] + ([f'-DSMK_MODEL="{SMK_MODELS[MODEL]}"'] if MODEL != "pro" else []) +
+            (["-DSMK_XDATA2=1"] if CONF.get("smk_xdata2") else []))   # fm1.toml: the unlisted 0xEB000..0xF3FFF too
 
 
 def board_script(ld):

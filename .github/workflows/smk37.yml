@@ -23,7 +23,7 @@ jobs:
         done
       packages: app/build/*-smk37*.fwsc
       test: |
-        for d in "" "-DLOADER"; do cc -I fm1/base/bsp/chip -DBOARD_SMK37=1 $d fm1/base/tests/smk_flash_test.c -o /tmp/sft && /tmp/sft; done
+        for d in "" "-DLOADER"; do for x in 0 1; do cc -I fm1/base/bsp/chip -DBOARD_SMK37=1 -DSMK_XDATA2=$x $d fm1/base/tests/smk_flash_test.c -o /tmp/sft && /tmp/sft; done; done
         python3 fm1/base/tools/build.py app --host
         app/build/host/sq80_host app/tests/basic.txt app/build/host
         BOARD=smk37 python3 fm1/base/tools/build.py app --host

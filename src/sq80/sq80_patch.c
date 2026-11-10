@@ -38,6 +38,27 @@ int sq80_rompack_load(sq80_rompack *pack, const uint8_t *data, size_t size) {
     return 1;
 }
 
+#if SQ80_ROM_PAGED
+int sq80_rompack_load_paged(sq80_rompack *pack, const uint8_t *const *sec, size_t n) {
+    uint32_t head, i;
+    if (n < 1 || !sec[0] || !sq80_rompack_load(pack, sec[0], 4096u * n)) return 0;
+    head = (uint32_t)(pack->rom - sec[0]);   /* (the directory read in place; the waves are in the pieces) */
+    if (head > 4096u || head + pack->rom_mask + 1u > 4096u * n) {
+        sq80_zero(pack, sizeof *pack);
+        return 0;
+    }
+    for (i = 1; i < n; ++i)
+        if (!sec[i]) {
+            sq80_zero(pack, sizeof *pack);
+            return 0;
+        }
+    pack->rom = 0;
+    pack->sec = sec;
+    pack->rom_off = head;
+    return 1;
+}
+#endif
+
 sq80_raw_wave sq80_rompack_raw(const sq80_rompack *pack, int index) {
     const uint8_t *r = pack->raws + 4 * index;
     sq80_raw_wave w;

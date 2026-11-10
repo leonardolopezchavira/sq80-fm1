@@ -1068,6 +1068,9 @@ void plat_log(const char *line) { ble_say(line); }
 #include "plat_xdata2.h"
 #define DATA_TOP PLAT_XDATA2_HI
 #define DATA_STORE_HIT(off, n) plat_xdata2_store_hit((off), (n))
+#elif defined(BOARD_SMK37) && BOARD_SMK37
+#define DATA_TOP PLAT_XDATA2_HI                 /* (the SMK-37: its XDATA2 after XDATA1, empty without SMK_XDATA2) */
+#define DATA_STORE_HIT(off, n) 0
 #else
 #define DATA_TOP PLAT_XDATA1_HI
 #define DATA_STORE_HIT(off, n) 0
@@ -1091,7 +1094,7 @@ static uint32_t data_window_hi(uint32_t off)   /* the end of the window that hol
 {
     static const uint32_t W[][2] = {{PLAT_DATA_LO, PLAT_DATA_HI}, {PLAT_XDATA0_LO, PLAT_XDATA0_HI},
                                     {PLAT_XDATA1_LO, PLAT_XDATA1_HI},
-#if FM1B_XDATA2
+#if FM1B_XDATA2 || (defined(BOARD_SMK37) && BOARD_SMK37)
                                     {PLAT_XDATA2_LO, PLAT_XDATA2_HI},
 #endif
     };
