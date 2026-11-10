@@ -202,7 +202,7 @@ int plat_wheels(int32_t *bend, int32_t *mod)
 }
 /* the unit's factory velocity curves of its keys and pads: USRTRIM (flash 0xC1000, "trimdat" at +0x224), read only
  * (the flash driver refuses a write there); smk_trim_load ignores a record that does not check out */
-static uint8_t smk_trim_buf[0x22Cu] __attribute__((aligned(4)));
+static uint8_t smk_trim_buf[0x22Cu] __attribute__((aligned(4), section(".pool")));
 static void smk_trim_init(void)
 {
     if (flash_ok && fl_read(SMK_TRIM_FLASH, smk_trim_buf, sizeof smk_trim_buf) == 0)

@@ -201,7 +201,8 @@ static void lcd_init(void)
  * ~0.8 ms; padled_flush sends only when a colour changed (main_fm1.c, after each of the app's frames). */
 #define PADLED_N 16u
 #define PADLED_LATCH 250u
-static uint8_t padled_buf[PADLED_LATCH + PADLED_N * 24u];
+static uint8_t padled_buf[PADLED_LATCH + PADLED_N * 24u] __attribute__((section(".pool")));   /* (the pool: not
+                                                 * cleared at boot, the latch's zeros are written at each flush) */
 static uint32_t padled_rgb[PADLED_N];
 static uint8_t padled_dirty = 1;
 /* hardware pad (0..7 the top row, 8..15 the bottom row, left to right) -> its place in the chain (the stock table) */
@@ -222,6 +223,8 @@ static void padled_flush(void)
     if (!padled_dirty)
         return;
     padled_dirty = 0;
+    for (i = 0; i < PADLED_LATCH; i++)
+        padled_buf[i] = 0;
     for (p = 0; p < PADLED_N; p++) {
         uint8_t *o = padled_buf + PADLED_LATCH + PADLED_SLOT[p] * 24u;
         for (i = 0; i < 24u; i++)
