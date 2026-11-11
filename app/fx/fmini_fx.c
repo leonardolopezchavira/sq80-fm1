@@ -181,6 +181,11 @@ static int32_t dside[CTL];               /* the delay's / chorus's left minus ri
  * make-up gain (straight into tanh over the full band, it would sound like a
  * broken digital fuzz). State per part (track_t dist_*). */
 static int32_t tube_cap[NTRK];                          /* TUBE's coupling capacitor, per part (track_t has no room: a multiple of 16 bytes) */
+static __attribute__((noinline)) int32_t mul_out(int32_t mk, int32_t lvl)   /* (a 64-bit product out of line:
+                                                                           * felucca-bsp docs/CPU.md) */
+{
+    return (int32_t)(((int64_t)mk * lvl * 512) >> 15);
+}
 static void track_dist(track_t *t, int32_t *b, uint32_t n)
 {
     int32_t d = t->p[P_DIST], i, g, k, mk, bias = 2400, b0;
@@ -190,7 +195,7 @@ static void track_dist(track_t *t, int32_t *b, uint32_t n)
     k = 32000 - d * 95 + ((int32_t)song.g[G_DRLVL] - 64) * 150;   /* tone: transparent at low drive .. ~3 kHz, Q15; G_DRLVL (TONE) moves it */
     k = clamp(k, 2500, 32500);
     mk = 30000 - d * 120;                                /* make-up */
-    mk = (int32_t)(((int64_t)mk * song.g[G_MIDI] * 512) >> 15);   /* OUTPUT: 64 = as before (x1), 127 = x1.98, 0 = silent */
+    mk = mul_out(mk, song.g[G_MIDI]);   /* OUTPUT: 64 = as before (x1), 127 = x1.98, 0 = silent */
     if (song.g[G_INFO] == 1) {
         /* TUBE: two triode stages with a coupling capacitor between them: the first biased (a grid bias: even harmonics, a soft, lopsided clip),
          * the second biased too (more even harmonics: a warm 2nd): rounder, thicker than SOFT, and

@@ -2277,6 +2277,16 @@ static void knob_cells(int32_t y, const char *const *names)   /* K1..K4: name, v
 /* SEL: the oscillator's wave as the SQ-80 plays it at middle C (its octave and semitone moving the key: the ROM's
  * zones change the sample across the keyboard), drawn from the ROM pack: each column the lowest and highest byte of
  * its share of the table, up to the end or the first zero (where the DOC stops); w x h at x, y of the canvas */
+/* 64-bit products out of line (felucca-bsp docs/CPU.md: one inlined beside 16-bit loads may leave a register a bit off) */
+static __attribute__((noinline)) uint32_t muldiv_u(uint32_t a, uint32_t b, uint32_t c)
+{
+    return (uint32_t)((uint64_t)a * b / c);
+}
+static __attribute__((noinline)) int32_t muldiv_s(int32_t a, int32_t b, int32_t c)
+{
+    return (int32_t)((int64_t)a * b / c);
+}
+
 static void wave_draw(int32_t x, int32_t y, int32_t w, int32_t h)
 {
     uint32_t o = ed.inst % 3u, n, i, len, c;
@@ -2294,7 +2304,7 @@ static void wave_draw(int32_t x, int32_t y, int32_t w, int32_t h)
     if (!len)
         return;
     for (c = 0; c < (uint32_t)w; c++) {
-        uint32_t a = (uint32_t)((uint64_t)c * len / (uint32_t)w), b = (uint32_t)((uint64_t)(c + 1u) * len / (uint32_t)w);
+        uint32_t a = muldiv_u(c, len, (uint32_t)w), b = muldiv_u(c + 1u, len, (uint32_t)w);
         int32_t lo = prev, hi = prev;
         if (b <= a)
             b = a + 1u;
@@ -2342,7 +2352,7 @@ static void env_draw(int32_t x, int32_t y, int32_t w, int32_t h)
     zero = neg ? h / 2 : h - 1;
     avail = w - hold - 12;
     for (k = 0; k < 4; k++)
-        cw[k] = 3 + (int32_t)((int64_t)tk[k] * avail / (tot ? tot : 1));
+        cw[k] = 3 + muldiv_s(tk[k], avail, tot ? tot : 1);
     if (w > 220)
         w = 220;
     for (k = 0; k < 4 && c < w; k++) {       /* the segments, the hold after the third */
