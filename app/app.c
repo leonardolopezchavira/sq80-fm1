@@ -1629,7 +1629,9 @@ static struct {
     int8_t pedal;                            /* the pedal's last state (-1 none) */
     uint8_t outer[SMK_NKEYBED];              /* an outer key's note + 1 while it sounds (0: none) */
     int32_t pad_said;                        /* (the pad colours last sent, a cheap hash) */
-} smk = {0, {-1, -1, -1, -1}, {0}, {0}, 0, 0, -1, {0}, -1};
+    int32_t bend, mod;                       /* the wheels' last values (GLO shows them) */
+    uint32_t sys_t;                          /* GLO: when its wheel readings were last drawn */
+} smk = {0, {-1, -1, -1, -1}, {0}, {0}, 0, 0, -1, {0}, -1, 0, 0, 0};
 
 static int smk_fader_id(uint32_t i, int *fx)   /* the parameter fader i holds now (fx: an effect's id) */
 {
@@ -1838,8 +1840,13 @@ static void smk_input(uint32_t now)
         smk_page(1);
     smk_pad_input(now);
     smk_faders();
+    if (ed.sec == ED_SYS && now - smk.sys_t >= 150u) {   /* GLO: the wheels' readings, live */
+        smk.sys_t = now;
+        ui.redraw = 1;
+    }
     if (plat_wheels(&bend, &mod)) {
         uint32_t b14 = (uint32_t)(bend + 8192);
+        smk.bend = bend, smk.mod = mod;
         post(Q_BEND, 0, b14);
         post(Q_CC, 1, (uint32_t)mod);
         plat_midi_send(0x0Eu | 0xE0u << 8 | (b14 & 127u) << 16 | (b14 >> 7) << 24, TO_USB | TO_BLE);
@@ -2706,7 +2713,30 @@ static void draw(void)
         cv_text(10, 104, &FONT_XS, "MIN VEL", C_GRAY);
         int_text(set.minvel, t);
         cv_text(70, 104, &FONT_XS, set.minvel ? t : "OFF", C_ACCENT);
-        cv_text(10, 122, &FONT_XS, APP_SMK ? "K5 CLICK  K6 MIN VEL  PLAY: 8 VOICES" : "K1 CLICK  K2 MIN VEL  PLAY: 8 VOICES", C_DIM);
+#if APP_SMK
+        {                                    /* the wheels: their readings and what they send (a check) */
+            int32_t rp, rm;
+            plat_wheels_raw(&rp, &rm);
+            t[0] = 0;
+            text_cat(t, "PITCH ");
+            int_text(rp, n);
+            text_cat(t, n);
+            text_cat(t, " ");
+            if (smk.bend > 0)
+                text_cat(t, "+");
+            int_text(smk.bend, n);
+            text_cat(t, n);
+            text_cat(t, "   MOD ");
+            int_text(rm, n);
+            text_cat(t, n);
+            text_cat(t, " ");
+            int_text(smk.mod, n);
+            text_cat(t, n);
+            cv_text(10, 122, &FONT_XS, t, C_DIM);
+        }
+#else
+        cv_text(10, 122, &FONT_XS, "K1 CLICK  K2 MIN VEL  PLAY: 8 VOICES", C_DIM);
+#endif
         cv_blit(0, 100);
         return;
     }

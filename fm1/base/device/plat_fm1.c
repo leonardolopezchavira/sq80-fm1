@@ -151,6 +151,7 @@ void plat_pad_rgb(int p, uint8_t r, uint8_t g, uint8_t b)
         padled_set((uint32_t)p, r, g, b);
 }
 int plat_fader(int i) { return fm1_in.frames < 200u || (uint32_t)i > 3u ? -1 : (int)fm1_in.fader[i]; }
+void plat_wheels_raw(int32_t *pitch, int32_t *mod) { *pitch = fm1_in.wheel[0], *mod = fm1_in.wheel[1]; }
 int plat_pedal(void) { return fm1_in.frames < 200u || fm1_in.pedal > 1000u ? -1 : fm1_in.pedal < 300u; }
 /* the wheels (mux C address 4 = pitch, 5 = mod), self-calibrating as in the reference port: the pitch wheel's rest is
  * its centre (taken once the readings settle, followed slowly while it rests), each wheel's range grows to what it has
