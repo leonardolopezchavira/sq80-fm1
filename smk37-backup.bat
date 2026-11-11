@@ -36,20 +36,26 @@ if errorlevel 1 (
 
 rem ---- jl-uboot-tool, anywhere in this folder or in Downloads
 set "JLU="
-for /r "%~dp0" %%f in (jluboottool.py) do if exist "%%f" set "JLU=%%f"
-if not defined JLU for /r "%USERPROFILE%\Downloads" %%f in (jluboottool.py) do if exist "%%f" set "JLU=%%f"
+for /f "delims=" %%f in ('where /r "%CD%" jluboottool.py 2^>nul') do if not defined JLU set "JLU=%%f"
+if not defined JLU for /f "delims=" %%f in ('where /r "%USERPROFILE%\Downloads" jluboottool.py 2^>nul') do if not defined JLU set "JLU=%%f"
 if not defined JLU (
   echo jl-uboot-tool was not found. Unzip it into this folder ^(or Downloads^), then double-click this again.
   goto end
 )
 
-rem ---- the SMK package, here or in Downloads (unzipped from the "packages" artifact)
+rem ---- the SMK package (the plain one: not -elite, not -mke), here or in Downloads; a packages zip is unzipped
 set "PKG="
-for /r "%~dp0" %%f in (sq80-smk37-*.fwsc) do if exist "%%f" if "!PKG!"=="" set "PKG=%%f"
-if not defined PKG for /r "%USERPROFILE%\Downloads" %%f in (sq80-smk37-*.fwsc) do if exist "%%f" if "!PKG!"=="" set "PKG=%%f"
+call :findpkg
 if not defined PKG (
-  echo The package sq80-smk37-....fwsc was not found. Unzip the "packages" download into this folder or Downloads,
-  echo then double-click this again. Use the plain one: not -elite, not -mke.
+  for /f "delims=" %%z in ('where /r "%USERPROFILE%\Downloads" packages*.zip 2^>nul') do (
+    echo Unzipping %%z ...
+    powershell -NoProfile -Command "Expand-Archive -Force -LiteralPath '%%z' -DestinationPath '%CD%\packages'"
+  )
+  call :findpkg
+)
+if not defined PKG (
+  echo The package sq80-smk37-0.13.2.fwsc was not found. Download "packages" from the smk37 run on GitHub
+  echo ^(Actions tab^) into Downloads, then double-click this again.
   goto end
 )
 echo Package: %PKG%
@@ -103,3 +109,9 @@ echo Reading did not work. Check the drive letter, then send Claude what is prin
 :end
 echo.
 pause
+exit /b
+
+:findpkg
+for /f "delims=" %%f in ('where /r "%CD%" sq80-smk37-*.fwsc 2^>nul ^| findstr /v /i "elite mke"') do if not defined PKG set "PKG=%%f"
+if not defined PKG for /f "delims=" %%f in ('where /r "%USERPROFILE%\Downloads" sq80-smk37-*.fwsc 2^>nul ^| findstr /v /i "elite mke"') do if not defined PKG set "PKG=%%f"
+exit /b
