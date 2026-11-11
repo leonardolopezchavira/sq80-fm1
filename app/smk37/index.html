@@ -48,59 +48,40 @@ MKE-P37. Tested on a Donner Starrykey 37 Play; the Elite and MKE-P37 builds have
   </ul>
 </section>
 
-<section class="warn">
-  <h2>First: a backup of the keyboard</h2>
-  <p>The keyboard's flash holds things that belong to that one unit: its key and pad calibration and its Bluetooth
-    identity. SQ-80 never writes them, but keep a copy before anything is installed: a full flash backup, read with
-    the chip's own bootloader. It takes about ten minutes, once.</p>
-  <p>You need a <b>Windows</b> computer (Linux works too, by hand: <a href="https://github.com/leonardolopezchavira/sq80-fm1/blob/main/docs/SMK37-BACKUP.md">docs/SMK37-BACKUP.md</a>)
-    and a USB data cable.</p>
-</section>
-
 <section>
-  <h2>1 · Downloads</h2>
-  <p>The package for your keyboard (one of these):</p>
+  <h2>Install</h2>
+  <p>Connect the keyboard by USB (switched on, as it is), open the installer for your model in <b>Chrome</b> or
+    <b>Edge</b> and press Install. Nothing to download or set up.</p>
   <div class="dl">
-    <a href="sq80-smk37-{{VERSION}}.fwsc">SMK-37 Pro / Starrykey 37 Play</a>
-    <a class="alt" href="sq80-smk37-elite-{{VERSION}}.fwsc">SMK-37 Elite</a>
-    <a class="alt" href="sq80-smk37-mke-{{VERSION}}.fwsc">MKE-P37</a>
+    <a href="install/">SMK-37 Pro / Starrykey 37 Play</a>
+    <a class="alt" href="install-elite/">SMK-37 Elite</a>
+    <a class="alt" href="install-mke/">MKE-P37</a>
   </div>
-  <p>And two folders:</p>
-  <div class="dl">
-    <a class="alt" href="https://github.com/leonardolopezchavira/sq80-fm1/archive/refs/heads/main.zip">The SQ-80 folder (ZIP)</a>
-    <a class="alt" href="https://github.com/kagaimiq/jl-uboot-tool/archive/refs/heads/main.zip">jl-uboot-tool (ZIP)</a>
-  </div>
-  <p class="small">Unzip both into <b>Downloads</b>; leave the package there as it is. Version {{VERSION}}.</p>
+  <p>It asks for your ROM pack and up to two banks of your own (they go to U1 and U2), or installs the firmware
+    alone. You can load them later with the <a href="../load/">Load page</a>; the <a href="../rompack/">ROM pack
+    maker</a> makes the pack from your SQ-80's ROM dumps.</p>
+  <p class="small">Updates: the same installer, the same way. Version {{VERSION}}; the packages:
+    <a href="sq80-smk37-{{VERSION}}.fwsc">Pro</a> · <a href="sq80-smk37-elite-{{VERSION}}.fwsc">Elite</a> ·
+    <a href="sq80-smk37-mke-{{VERSION}}.fwsc">MKE-P37</a>.</p>
 </section>
 
-<section>
-  <h2>2 · Python 3.12</h2>
-  <p>From <a href="https://www.python.org/downloads/windows/">python.org</a>: <b>Python 3.12</b>, "Windows installer
-    (64-bit)". On its first screen tick <b>Add python.exe to PATH</b>. (Not 3.13 or newer: the MIDI part has no
-    Windows build for those yet.)</p>
-</section>
-
-<section>
-  <h2>3 · The backup</h2>
+<section id="backup">
+  <h2>Optional: a full backup first</h2>
+  <p>SQ-80 never writes the keyboard's own calibration or Bluetooth data, and leaves the stock firmware's data alone
+    except its presets, which the ROM pack replaces. If you want a copy of everything before the first install, read
+    the whole flash on a <b>Windows</b> computer (about ten minutes, once):</p>
   <ol>
-    <li>Connect the keyboard (switched on, M-Vave's firmware running). Close every program that uses MIDI.</li>
-    <li>In the unzipped SQ-80 folder, double-click <code>smk37-backup.bat</code> and allow it to run as administrator.</li>
-    <li>Follow it. The keyboard checks the package and restarts in its bootloader; the flash is read twice and the
-      two copies compared. At the end it says <b>backup OK</b>.</li>
-    <li>Copy the <code>backup</code> folder it made to a USB stick too. Never share those files: they are your unit's.</li>
+    <li>Install <b>Python 3.12</b> from <a href="https://www.python.org/downloads/windows/">python.org</a> ("Windows
+      installer (64-bit)"; tick <b>Add python.exe to PATH</b>; not 3.13 or newer).</li>
+    <li>Download and unzip into <b>Downloads</b>: <a href="https://github.com/leonardolopezchavira/sq80-fm1/archive/refs/heads/main.zip">the
+      SQ-80 folder</a> and <a href="https://github.com/kagaimiq/jl-uboot-tool/archive/refs/heads/main.zip">jl-uboot-tool</a>;
+      and the package for your model (above) into Downloads.</li>
+    <li>Connect the keyboard, close every program that uses MIDI, and double-click <code>smk37-backup.bat</code> in the
+      SQ-80 folder (allow it as administrator). It ends with <b>backup OK</b>.</li>
+    <li>Copy the <code>backup</code> folder it made to a USB stick. Never share those files: they are your unit's.
+      Switch the keyboard off and on, then install as above.</li>
   </ol>
-</section>
-
-<section>
-  <h2>4 · The install</h2>
-  <ol>
-    <li>Switch the keyboard off and on: it comes back in update mode.</li>
-    <li>Double-click <code>smk37-install.bat</code>. It installs the package and checks it. The keyboard restarts into
-      SQ-80.</li>
-    <li>Open the <a href="../load/">Load page</a> in Chrome or Edge: send your ROM pack (the
-      <a href="../rompack/">ROM pack maker</a> makes it from your dumps). Banks of your own go to <b>U1</b> or <b>U2</b>.</li>
-  </ol>
-  <p class="small">Later updates: <code>smk37-install.bat</code> again with the new package (no new backup needed).</p>
+  <p class="small">Linux, by hand: <a href="https://github.com/leonardolopezchavira/sq80-fm1/blob/main/docs/SMK37-BACKUP.md">docs/SMK37-BACKUP.md</a>.</p>
 </section>
 
 <section>
@@ -126,11 +107,11 @@ MKE-P37. Tested on a Donner Starrykey 37 Play; the Elite and MKE-P37 builds have
 <section>
   <h2>Back to M-Vave's firmware</h2>
   <p>Install it with M-Vave's updater, as for any update. The calibration and Bluetooth data were never touched. The
-    stock presets SQ-80's ROM pack replaced are in your backup.</p>
+    stock presets SQ-80's ROM pack replaced are in your backup, if you made one.</p>
 </section>
 
 <p class="small">The SMK-37 support builds on genkigenki's <a href="https://github.com/genkigenki/fm1-to-smk37">fm1-to-smk37</a>
-  kit and SMK-37 layer (GPL-3.0); the backup reads the flash with kagaimiq's
+  kit and SMK-37 layer (GPL-3.0); the optional backup reads the flash with kagaimiq's
   <a href="https://github.com/kagaimiq/jl-uboot-tool">jl-uboot-tool</a>.</p>
 </main>
 </body>

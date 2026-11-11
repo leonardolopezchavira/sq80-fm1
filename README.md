@@ -86,8 +86,9 @@ SQ-80 also builds for the M-Vave SMK-37 (Pro, also the Donner Starrykey 37 Play;
 `BOARD=smk37 MODEL=pro|elite|mke python3 fm1/base/tools/build.py app --release X.Y`, on SQ-80's own copy of fm1-base
 (`fm1/base`, after genkigenki's fm1-to-smk37 kit and SMK-37 layer, GPL-3.0). Pads, faders in four banks (soft
 takeover), wheels, pedal and all 37 keys; banks 1-8 built into the firmware (`tools/gen_factory_banks.py`), U1 and
-U2 in flash; the ROM pack read in pieces over the store window and USRFLASH. A full flash backup comes first
-(`smk37-backup.bat`, `docs/SMK37-BACKUP.md`); `smk37-install.bat` installs. Tested on a Donner Starrykey 37 Play.
+U2 in flash; the ROM pack read in pieces over the store window and USRFLASH. The site's web installer installs it
+(`tools/make_smk_install.py`: fm1-base's installer page per model); a full flash backup is optional
+(`smk37-backup.bat`, `docs/SMK37-BACKUP.md`). Tested on a Donner Starrykey 37 Play.
 The site's SMK-37 page has the packages and the steps.
 
 ## Effects

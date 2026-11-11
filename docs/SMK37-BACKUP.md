@@ -1,6 +1,6 @@
 # SMK-37: the full flash backup (and what it tells us)
 
-Before SQ-80 goes on an M-Vave SMK-37 (or a Donner Starrykey 37 Play), read the keyboard's whole 1 MiB flash and
+Optional, for a copy of everything. Before SQ-80 goes on an M-Vave SMK-37 (or a Donner Starrykey 37 Play), read the keyboard's whole 1 MiB flash and
 keep it: it holds things unique to the unit (its key and pad calibration, its Bluetooth identity) that cannot be
 downloaded again. The same backup tells us whether the stock firmware writes the stretch 0xEB000-0xF3FFF, which SQ-80
 would like to use. This follows the port kit's method A
@@ -65,8 +65,8 @@ pack in the store window and USRFLASH (the stock presets there are overwritten; 
 writes 0xEB000-0xF3FFF, where the stock firmware keeps a few bytes. Banks 1-8 are built into the firmware (the
 project's factory banks, read only); U1 and U2 are yours to load and save into.
 
-1. After the backup's power cycle the keyboard is in update mode. Install SQ-80 (the Pro package also for the Donner
-   Starrykey 37 Play; this works from a Mac too):
+1. After the backup's power cycle the keyboard is in update mode. Install SQ-80 with the site's web installer (the
+   SMK-37 page: Chrome or Edge, any computer), or from here (the Pro package also for the Donner Starrykey 37 Play):
 
        python3 fm1/base/tools/fm1_install.py sq80-smk37-X.Y.fwsc
 

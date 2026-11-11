@@ -6,6 +6,11 @@
  * The protocol is app/app.c's ("the loader"), as app/loader/index.html and tools/fm1_loader.py speak it. */
 (() => {
   const HEAD = [0x7D, 0x53, 0x51];
+  /* the SMK-37's installer (tools/make_smk_install.py sets it): banks 1-8 are built into its firmware, the player's
+   * own go to U1 and U2 (the loader's banks 8, 9) */
+  const SMK = false;
+  const NB = SMK ? 2 : 8, BASE = SMK ? 8 : 0, DEV = SMK ? "SMK-37" : "FM-1";
+  const bankLabel = (i) => SMK ? "U" + (i + 1) : String(i + 1);
   const KEEP_DB = "sq80-setup", KEEP_STORE = "files", KEEP_KEY = "last";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -64,7 +69,7 @@
     for (const f of files) {
       const b = new Uint8Array(await f.arrayBuffer());
       if (isPack(b)) pack = {name: f.name, bytes: b};
-      else if (programsFrom(b).length && banks.length < 8) banks.push({name: f.name, bytes: b});
+      else if (programsFrom(b).length && banks.length < NB) banks.push({name: f.name, bytes: b});
     }
     return {pack, banks};
   }
@@ -81,17 +86,24 @@
     } catch (_) { return null; }
   }
   async function withFactory(s) {   // the player's banks first, SQ-80's in the rest
+    const banks = (s && s.banks ? s.banks : []).filter((b) => !b.factory).slice(0, NB);
+    if (SMK) return {pack: s ? s.pack : null, banks};   /* (SQ-80's are built in) */
     const f = await factory();
-    const banks = (s && s.banks ? s.banks : []).filter((b) => !b.factory);
     if (f) for (let i = banks.length; i < 8; i++) banks.push(f[i]);
     return {pack: s ? s.pack : null, banks};
   }
   const describe = (s) => [
-    s.pack ? `ROM pack: <b>${esc(s.pack.name)}</b>` : "no ROM pack (the FM-1 keeps the one it has)",
-    ...s.banks.map((b, i) => `bank ${i + 1}: <b>${esc(b.name)}</b> (${programsFrom(b.bytes).length} programs${b.factory ? ", SQ-80's" : ""})`),
+    s.pack ? `ROM pack: <b>${esc(s.pack.name)}</b>` : `no ROM pack (the ${DEV} keeps the one it has)`,
+    ...s.banks.map((b, i) => `bank ${bankLabel(i)}: <b>${esc(b.name)}</b> (${programsFrom(b.bytes).length} programs${b.factory ? ", SQ-80's" : ""})`),
   ].join("<br>");
 
-  const PICK = `<p>SQ-80 comes with its own waves and eight banks of programs, loaded after the firmware. Optionally,
+  const PICK = SMK ? `<p>SQ-80 comes with its own waves and its eight banks of programs built in. Optionally, choose
+    your ROM pack (<code>.rompack</code>, for the original waves: <a href="../../rompack/" target="_blank">make it from
+    your ROM dumps</a>) and up to two ESQ-1 / SQ-80 SysEx banks (<code>.syx</code>) of your own together: hold ⌘ (Mac)
+    or Ctrl to pick several. Yours go into U1 and U2 in name order.</p>
+    <p><input type="file" id="sq80files" multiple accept=".rompack,.syx,.SYX"></p>
+    <p class="small">They stay on this computer, in this browser, so the next install can load them again with one
+    click. Nothing is uploaded anywhere but to your keyboard.</p>` : `<p>SQ-80 comes with its own waves and eight banks of programs, loaded after the firmware. Optionally,
     choose your ROM pack (<code>.rompack</code>, for the original waves: <a href="../rompack/" target="_blank">make it
     from your ROM dumps</a>) and up to eight ESQ-1 / SQ-80 SysEx banks (<code>.syx</code>) of your own together: hold
     ⌘ (Mac) or Ctrl to pick several. Yours go into banks 1–8 in name order; SQ-80's fill the rest.</p>
@@ -104,7 +116,7 @@
     for (;;) {
       if (saved && (saved.pack || saved.banks.length)) {
         const c = await ui.ask("Your SQ-80 waves and programs",
-          `<p>Load these into the FM-1 after the firmware, as last time?</p><p>${describe(saved)}</p>`,
+          `<p>Load these into the ${DEV} after the firmware, as last time?</p><p>${describe(saved)}</p>`,
           [["saved", "Load them too"], ["change", "Other files"], ["skip", "Firmware only"]]);
         if (c === "saved") return withFactory(saved);
         if (c === "skip") return null;
@@ -112,6 +124,7 @@
         continue;
       }
       const c = await ui.ask("Your SQ-80 waves and programs", PICK,
+        SMK ? [["files", "Use these files"], ["skip", "Firmware only"]] :
         [["factory", "SQ-80's banks"], ["files", "Use these files"], ["skip", "Firmware only"]]);
       if (c === "factory") return withFactory(null);
       if (c !== "files") return null;
@@ -214,7 +227,7 @@
     if (!state || (!state.pack && !state.banks.length)) return;
     ui.say("Waiting for SQ-80 to start…");
     const link = await findSq80(midi, 60000);
-    if (!link) throw new Error("SQ-80 did not answer after the install: load your files with the loader page (../load/)");
+    if (!link) throw new Error(`SQ-80 did not answer after the install: load your files with the loader page (${SMK ? "../../load/" : "../load/"})`);
     try {
       if (state.pack) {
         const pack = state.pack.bytes, crc = crc32(pack);
@@ -233,9 +246,9 @@
           ui.progress(100);
         }
       }
-      for (let b = 0; b < state.banks.length; b++) {
-        const progs = programsFrom(state.banks[b].bytes);
-        ui.say(`Loading bank ${b + 1}: ${state.banks[b].name}…`);
+      for (let k = 0; k < state.banks.length; k++) {
+        const progs = programsFrom(state.banks[k].bytes), b = BASE + k;
+        ui.say(`Loading bank ${bankLabel(k)}: ${state.banks[k].name}…`);
         await link.send(0x20, [b]);
         for (let i = 0; i < progs.length; i++) {
           const nib = [];
@@ -245,7 +258,8 @@
         }
         await link.send(0x22, [b, progs.length]);
       }
-      ui.say("SQ-80 is installed with your waves and programs. SELECT picks the bank, PRESET the program.");
+      ui.say(SMK ? "SQ-80 is installed with your waves and programs. K2 picks the bank (1–8, U1, U2), K4 the program." :
+        "SQ-80 is installed with your waves and programs. SELECT picks the bank, PRESET the program.");
     } finally { link.close(); }
   }
 
