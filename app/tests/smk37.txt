@@ -4,6 +4,35 @@
 wait 600
 shot smk_boot.png
 expect fbank 0
+# banks 1..8 are built in (SINPAD first), 9 and 10 (U1, U2) the player's
+expect bank 1
+expect name0 83
+expect banksize 40
+turn SELECT -1
+wait 30
+expect bank 10
+expect banksize 0
+expect name0 73
+turn SELECT 1
+wait 30
+expect bank 1
+# SAVE from a built-in bank: to U1
+tap SAVE
+wait 30
+expect sec 6
+tap SAVE
+wait 30
+expect bank 9
+expect banksize 1
+expect name0 83
+expect sec 0
+reboot
+wait 600
+expect bank 9
+expect banksize 1
+turn SELECT 2
+wait 30
+expect bank 1
 # bank A: REVERB DELAY CHORUS DRIVE (the faders start at 64 in the simulator)
 fader 0 0
 wait 30
@@ -18,7 +47,7 @@ expect fbank 1
 shot smk_faders_b.png
 fader 2 100
 wait 30
-expect attack 0
+expect attack 25
 fader 2 0
 wait 30
 fader 2 63

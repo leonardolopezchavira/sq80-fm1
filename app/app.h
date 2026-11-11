@@ -16,7 +16,16 @@ int app_sysex(const uint8_t *p, uint32_t n);
 
 enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
 #if defined(BOARD_SMK37) && BOARD_SMK37
-#define APP_STORE_MAP {0x9D000u, 0x9F000u, 0xA1000u}   /* the SMK-37: its store window (0xFC000 is its stock firmware's) */
+/* the SMK-37: the three objects share a pool of three sectors at the start of its store window (0xFC000 is its stock
+ * firmware's): the settings and Bluetooth's always find a free one; the panel's table is not saved there (its
+ * buttons are fixed: device/panel.c) */
+#define APP_STORE_MAP {0x9D000u, 0x9D000u, 0x9D000u}   /* (pooled: not used) */
+#define APP_STORE_POOL 1
+#define APP_STORE_POOL_BASE 0x9D000u
+#define APP_STORE_POOL_N 3u
+#define APP_STORE_POOL_OLD 3u
+#define APP_STORE_POOL_OBJ0 0u
+#define APP_STORE_POOL_OBJN 3u
 #else
 #define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xDE000u}
 #endif

@@ -123,7 +123,10 @@ static void panel_setup(void)
         fm1_enc_take(e);
     }
     panel.magic = PANEL_MAGIC;
+#if !(BOARD_SMK37 && defined APP_STORE_POOL_N && APP_STORE_POOL_N <= 3u)
     plat_store_save(OBJ_PANEL, &panel, sizeof panel);
+#endif                                           /* (an SMK-37 app with a three-sector pool: until power-off, so the
+                                                  * settings and Bluetooth always have a sector free) */
     lcd_fill(0, 0, 240, 240, C_BLACK);
     return;
 timeout:

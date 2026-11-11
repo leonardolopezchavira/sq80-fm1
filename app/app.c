@@ -38,19 +38,23 @@
 /* ------------------------------------------------------------- flash map --- */
 #define SECTOR 4096u
 #if APP_SMK
-/* the SMK-37 (plat.h): its store window 0x9D000..0xBAFFF holds the store's objects (app.h APP_STORE_MAP, to
- * 0xA2FFF), the eight banks and the ROM pack's first 16 sectors; the pack goes on in USRFLASH (PLAT_XDATA1, 40
- * sectors) and, with fm1.toml smk_xdata2 (SMK_XDATA2), the stretch after it (PLAT_XDATA2 0xEB000..0xF3FFF, 9): 65
- * in all, a pack's size. Without that stretch a pack does not fit (the built-in waves play). No gap in the banks */
-#define BANK_LO 0xA3000u                 /* banks 1..8, a sector each */
-#define BANK_HI_LO (BANK_LO + 4u * SECTOR)
+/* the SMK-37 (plat.h): its store window 0x9D000..0xBAFFF holds the store's three objects (a pool of 3 sectors: app.h),
+ * the two banks the player writes (U1, U2) and the ROM pack's first 25 sectors; the pack goes on in USRFLASH
+ * (PLAT_XDATA1, 40 sectors): 65 in all, a pack's size. With fm1.toml smk_xdata2 (SMK_XDATA2) the pack may run on into
+ * 0xEB000..0xF3FFF (not used: the stock firmware keeps bytes there). Banks 1..8 are built in, read only
+ * (waves/sq80_factory_banks.h: tools/gen_factory_banks.py). No gap in the banks */
+#define NBANK_ROM 8u                     /* banks 1..8: built in */
+#define NBANK_USER 2u                    /* banks 9, 10 (U1, U2): in flash, a sector each */
+#define BANK_LO 0xA0000u
+#define BANK_HI_LO BANK_LO
 #define GAPPED(slot) 0                   /* no gap in the banks */
 #define GAP 0x1000u
-#define ROM_RUNS {{0xAB000u, 16u}, {PLAT_XDATA1_LO, (PLAT_XDATA1_HI - PLAT_XDATA1_LO) / SECTOR}, \
+#define ROM_RUNS {{0xA2000u, 25u}, {PLAT_XDATA1_LO, (PLAT_XDATA1_HI - PLAT_XDATA1_LO) / SECTOR}, \
                   {PLAT_XDATA2_LO, (PLAT_XDATA2_HI - PLAT_XDATA2_LO) / SECTOR}}
-_Static_assert(0xA3000u >= 0x9D000u + 6u * SECTOR, "SMK: the banks above the store's three objects");
-_Static_assert(0xAB000u == BANK_LO + 8u * SECTOR && 0xAB000u + 16u * SECTOR == PLAT_DATA_HI,
+_Static_assert(BANK_LO == 0x9D000u + 3u * SECTOR, "SMK: the banks right above the store's pool (app.h)");
+_Static_assert(0xA2000u == BANK_LO + NBANK_USER * SECTOR && 0xA2000u + 25u * SECTOR == PLAT_DATA_HI,
                "SMK: the pack's first piece fills the store window after the banks");
+#include "sq80_factory_banks.h"
 #else
 #define ROM_LO 0x97000u                  /* the ROM pack: 65 sectors, to BANK_LO */
 #define BANK_LO 0xD8000u                 /* banks 1..4, a sector each, to the store's objects at 0xDC000 */
@@ -59,8 +63,10 @@ _Static_assert(0xAB000u == BANK_LO + 8u * SECTOR && 0xAB000u + 16u * SECTOR == P
                                           * looks for its record there: plat.h, PLAT_XDATA0) */
 #define ROM_RUNS {{ROM_LO, (BANK_LO - ROM_LO) / SECTOR}}
 #define GAPPED(slot) ((slot) >= 4u)      /* banks 5..8 step over the gap */
+#define NBANK_ROM 0u
+#define NBANK_USER 8u
 #endif
-#define NBANK 8u
+#define NBANK (NBANK_ROM + NBANK_USER)
 /* the ROM pack's place: runs of sectors (address, count), its bytes in order through them */
 static const uint32_t ROM_RUN[][2] = ROM_RUNS;
 #define ROM_NRUN (sizeof ROM_RUN / sizeof ROM_RUN[0])
@@ -123,9 +129,21 @@ static char prog_name[8];
 static uint8_t edited;                   /* changed since it was loaded (not saved) */
 
 /* a flash bank: "SQBK", the count, then 40 programs of 102 bytes; in banks 5..8 the programs step over GAP */
-static uint32_t bank_base(uint32_t slot)     /* slot 0..7 */
+static int bank_writable(uint32_t slot) { return slot - NBANK_ROM < NBANK_USER; }   /* (the built-in: not) */
+static uint32_t bank_base(uint32_t slot)     /* a flash bank's sector (slot NBANK_ROM.. NBANK - 1); 0 none */
 {
+    if (!bank_writable(slot))
+        return 0;
+    slot -= NBANK_ROM;
     return slot < 4u ? BANK_LO + slot * SECTOR : BANK_HI_LO + (slot - 4u) * SECTOR;
+}
+static const uint8_t *bank_ptr(uint32_t slot)   /* the bank's image: built in, or its sector in flash */
+{
+#if APP_SMK
+    if (slot < NBANK_ROM)
+        return SQ80_FACTORY_BANKS[slot];
+#endif
+    return bank_writable(slot) ? plat_data(bank_base(slot)) : 0;
 }
 static uint32_t prog_at(uint32_t slot, uint32_t pi)   /* where byte 0 of program pi is (before the gap's step) */
 {
@@ -138,7 +156,7 @@ static uint32_t phys(uint32_t slot, uint32_t o)       /* a byte's place in the s
 }
 static uint32_t bank_count_slot(uint32_t slot)
 {
-    const uint8_t *b = plat_data(bank_base(slot));
+    const uint8_t *b = bank_ptr(slot);
     uint32_t magic;
     if (!b)
         return 0;
@@ -154,7 +172,7 @@ static uint32_t bank_stored(uint32_t bank)   /* programs stored in bank 1..8 (0 
 static uint32_t bank_count(uint32_t bank) { return bank >= 1u && bank <= NBANK ? NPROG : 0u; }
 static int bank_read(uint32_t slot, uint32_t pi, uint8_t out[102])
 {
-    const uint8_t *b = plat_data(bank_base(slot));
+    const uint8_t *b = bank_ptr(slot);
     uint32_t i, o = prog_at(slot, pi);
     if (!b)
         return -1;
@@ -165,6 +183,8 @@ static int bank_read(uint32_t slot, uint32_t pi, uint8_t out[102])
 static int bank_write(uint32_t slot, uint32_t pi, const uint8_t prog[102])   /* in up to two pieces, round the gap */
 {
     uint32_t o = prog_at(slot, pi), base = bank_base(slot);
+    if (!base)
+        return -1;
     if (GAPPED(slot) && o < GAP && o + 102u > GAP) {
         uint32_t k = GAP - o;
         if (plat_data_write(base + o, prog, k) != 0)
@@ -768,6 +788,8 @@ static int frame_bank(const uint8_t *p, uint32_t n)
     uint32_t cmd = p[3], b = n > 4u ? p[4] : 0xFFu;
     if (b >= NBANK)
         return 1;
+    if ((cmd == 0x20u || cmd == 0x21u || cmd == 0x22u) && !bank_writable(b))
+        return 2;                            /* (a built-in bank) */
     if (cmd == 0x20u) {                      /* (a program playing from it stays: it is in RAM) */
         return plat_data_erase(bank_base(b)) != 0 ? 2 : 0;
     }
@@ -1051,11 +1073,18 @@ void app_say(const char *a, const char *b)
     }
 }
 
-static void bank_text(char *t)               /* "1".."8", "-" for none */
+static void bank_name(uint32_t bank, char *t)   /* "1".."8"; the SMK-37's own: "U1", "U2" */
 {
-    t[0] = (char)('0' + set.bank);
+    if (bank > NBANK_ROM && NBANK_ROM) {
+        t[0] = 'U';
+        t[1] = (char)('0' + bank - NBANK_ROM);
+        t[2] = 0;
+        return;
+    }
+    t[0] = (char)('0' + bank);
     t[1] = 0;
 }
+static void bank_text(char *t) { bank_name(set.bank, t); }
 
 static void prog_text(char *t)               /* "T-01 SAWPAD" */
 {
@@ -1435,10 +1464,10 @@ static uint8_t sector_buf[SECTOR] PLAT_POOL;  /* a bank's sector, rewritten whol
 static int program_store(uint32_t bank, uint32_t pi)   /* prog_raw into bank (1..8), program pi; 0 done */
 {
     uint32_t slot = bank - 1u, n = bank_stored(bank), i, base = bank_base(slot);
-    const uint8_t *f = plat_data(base);
+    const uint8_t *f = base ? plat_data(base) : 0;
     uint8_t init[102];
     if (!f || slot >= NBANK || pi >= NPROG)
-        return -1;
+        return -1;                           /* (a built-in bank: not) */
     for (i = 0; i < SECTOR; i++)             /* the sector as it is (a bank never loaded: erased) */
         sector_buf[i] = n ? f[i] : 0xFFu;
     sq80_init_program(init);
@@ -1469,7 +1498,7 @@ static int program_store(uint32_t bank, uint32_t pi)   /* prog_raw into bank (1.
 static void save_begin(void)
 {
     ed.back = ed.sec == ED_SAVE ? ED_PLAY : ed.sec;
-    ed.to_bank = (uint8_t)(set.bank ? set.bank : 1u);
+    ed.to_bank = (uint8_t)(set.bank && bank_writable(set.bank - 1u) ? set.bank : NBANK_ROM + 1u);
     ed.to_prog = set.prog;
     ed.sec = ED_SAVE;
     ui.msg_until = 0;
@@ -2030,7 +2059,8 @@ static void input(void)
         if (ep)
             ed.to_prog = (uint8_t)((ed.to_prog + (uint32_t)(ep > 0 ? 1 : (int32_t)NPROG - 1)) % NPROG);
         if (eb)
-            ed.to_bank = (uint8_t)((ed.to_bank - 1u + (uint32_t)(eb > 0 ? 1 : (int32_t)NBANK - 1)) % NBANK + 1u);
+            ed.to_bank = (uint8_t)((ed.to_bank - 1u - NBANK_ROM + (uint32_t)(eb > 0 ? 1 : (int32_t)NBANK_USER - 1)) %
+                                   NBANK_USER + NBANK_ROM + 1u);   /* (the banks it may write) */
         (void)plat_enc(EN_ALGO);
         for (k = 2; k < 4u; k++)
             (void)plat_enc((int)(EN_K1 + k));
@@ -2626,7 +2656,7 @@ static void draw(void)
         cv_text(10, 4, &FONT_XS, "SAVE TO", C_GRAY);
         t[0] = 0;
         text_cat(t, "BANK ");
-        int_text(ed.to_bank, n);
+        bank_name(ed.to_bank, n);
         text_cat(t, n);
         text_cat(t, "  PROGRAM ");
         int_text(ed.to_prog + 1, n);
