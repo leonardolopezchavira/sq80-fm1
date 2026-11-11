@@ -30,7 +30,7 @@ if errorlevel 1 (
 echo Getting the Python packages ready...
 %PY% -m pip install -q mido python-rtmidi crcmod pyyaml pycryptodomex tqdm
 if errorlevel 1 (
-  echo The packages did not install. Send Claude what is printed above.
+  echo The packages did not install. Keep what is printed above: it says what went wrong.
   goto end
 )
 
@@ -43,19 +43,12 @@ if not defined JLU (
   goto end
 )
 
-rem ---- the SMK package (the plain one: not -elite, not -mke), here or in Downloads; a packages zip is unzipped
+rem ---- the SMK package: the newest sq80-smk37*.fwsc here or in Downloads (the site's SMK-37 page, one per model)
 set "PKG="
-call :findpkg
+for /f "delims=" %%f in ('powershell -NoProfile -Command "Get-ChildItem -Path '%CD%','%USERPROFILE%\Downloads' -Recurse -Filter 'sq80-smk37*.fwsc' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName"') do set "PKG=%%f"
 if not defined PKG (
-  for /f "delims=" %%z in ('where /r "%USERPROFILE%\Downloads" packages*.zip 2^>nul') do (
-    echo Unzipping %%z ...
-    powershell -NoProfile -Command "Expand-Archive -Force -LiteralPath '%%z' -DestinationPath '%CD%\packages'"
-  )
-  call :findpkg
-)
-if not defined PKG (
-  echo The package sq80-smk37-0.13.2.fwsc was not found. Download "packages" from the smk37 run on GitHub
-  echo ^(Actions tab^) into Downloads, then double-click this again.
+  echo The package sq80-smk37....fwsc was not found. Download the one for your keyboard from the site's SMK-37 page
+  echo into Downloads, then double-click this again.
   goto end
 )
 echo Package: %PKG%
@@ -72,7 +65,7 @@ if /i "%GO%"=="R" (
 )
 %PY% fm1\base\tools\fm1_install.py --info
 if errorlevel 1 (
-  echo The keyboard was not found. Send Claude what is printed above.
+  echo The keyboard was not found. Keep what is printed above: it says what went wrong.
   goto end
 )
 echo.
@@ -82,7 +75,7 @@ echo Step 2 of 4: the keyboard checks the package and restarts as a USB drive "W
 echo Answer y when asked. If Windows offers to format the drive: click NO.
 %PY% fm1\base\tools\fm1_install.py "%PKG%" --uboot-after-check
 if errorlevel 1 (
-  echo That did not work. Send Claude what is printed above.
+  echo That did not work. Keep what is printed above: it says what went wrong.
   goto end
 )
 echo.
@@ -98,7 +91,7 @@ echo.
 rem ---- 3. two reads
 if not exist backup mkdir backup
 echo Step 3 of 4: reading the flash, twice (a minute or two each). Note the flash ID it prints.
-echo (If it keeps saying "No devices found yet", the keyboard is not in its USB drive mode: send Claude this window.)
+echo (If it keeps saying "No devices found yet", the keyboard is not in its USB drive mode: switch it off and on and start again.)
 %PY% "%JLU%" %DEV% --chip wl82 "read 0 0x100000 backup\smk37-dump-1.bin"
 if errorlevel 1 goto readfail
 %PY% "%JLU%" %DEV% --chip wl82 "read 0 0x100000 backup\smk37-dump-2.bin"
@@ -110,19 +103,14 @@ echo Step 4 of 4: checking the two copies.
 echo.
 %PY% tools\smk_dump_check.py backup\smk37-dump-1.bin backup\smk37-dump-2.bin
 echo.
-echo Send Claude the lines above and the flash ID. Never send the files in the "backup" folder:
+echo Keep the lines above. Never share the files in the "backup" folder (they are your unit's):
 echo copy that folder to a USB stick as well. Then switch the keyboard off and on.
 goto end
 
 :readfail
-echo Reading did not work. Check the drive letter, then send Claude what is printed above.
+echo Reading did not work. Check the drive letter, then try again.
 
 :end
 echo.
 pause
-exit /b
-
-:findpkg
-for /f "delims=" %%f in ('where /r "%CD%" sq80-smk37-*.fwsc 2^>nul ^| findstr /v /i "elite mke"') do if not defined PKG set "PKG=%%f"
-if not defined PKG for /f "delims=" %%f in ('where /r "%USERPROFILE%\Downloads" sq80-smk37-*.fwsc 2^>nul ^| findstr /v /i "elite mke"') do if not defined PKG set "PKG=%%f"
 exit /b

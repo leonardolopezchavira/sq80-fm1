@@ -15,10 +15,10 @@ if not exist "backup\smk37-dump-1.bin" (
   goto end
 )
 set "PKG="
-for /f "delims=" %%f in ('powershell -NoProfile -Command "Get-ChildItem -Path '%CD%','%USERPROFILE%\Downloads' -Recurse -Filter 'sq80-smk37-*.fwsc' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'elite|mke' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName"') do set "PKG=%%f"
+for /f "delims=" %%f in ('powershell -NoProfile -Command "Get-ChildItem -Path '%CD%','%USERPROFILE%\Downloads' -Recurse -Filter 'sq80-smk37*.fwsc' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName"') do set "PKG=%%f"
 if not defined PKG (
-  echo The package sq80-smk37-....fwsc was not found. Download "packages" from the newest smk37 run on GitHub
-  echo ^(Actions tab^), unzip it into Downloads, then double-click this again.
+  echo The package sq80-smk37....fwsc was not found. Download the one for your keyboard from the site's SMK-37 page
+  echo into Downloads, then double-click this again.
   goto end
 )
 echo Package: %PKG%

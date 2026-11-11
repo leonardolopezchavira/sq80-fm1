@@ -17,6 +17,7 @@ LFOs per voice, eight voices, effects, an arpeggiator and a step sequencer. This
 10. GLO: settings and the load
 11. MIDI and Bluetooth
 12. The web pages
+13. On the SMK-37
 
 ---
 
@@ -211,3 +212,12 @@ pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock lea
 | **Wave pack** | makes a wave set from your own sounds |
 
 Chrome or Edge, with the FM-1 connected by USB. Nothing is uploaded: your files stay on your computer.
+
+## 13. On the SMK-37
+
+SQ-80 also runs on the M-Vave SMK-37 and the Donner Starrykey 37 Play: the same screens and buttons (by their FM-1
+names: SCALE is SEL, CHORD is ENV, NOTE REPEAT is LFO, PARA is EDIT, GLOBE is GLO, PATCH is HOME, BT is SAVE), K5-K8
+where this manual says K1-K4, and its own: 37 keys with velocity, the pads (programs; with SEQ held, the steps),
+four faders in four banks, the wheels and the pedal. Banks 1-8 are built in; U1 and U2 take your own. The backup,
+the install and the controls: the [SMK-37 page](../smk37/).
+

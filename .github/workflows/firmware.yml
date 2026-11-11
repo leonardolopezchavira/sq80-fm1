@@ -1,5 +1,6 @@
 # The FM-1 firmware (app/, on fm1-base), built with JieLi's toolchain by the shared fm1-build workflow:
-# every push that touches it builds release app/VERSION (the run's "packages" artifact) and publishes the site on
+# every push that touches it builds release app/VERSION and the SMK-37's three (the run's "packages" artifact) and
+# publishes the site on
 # GitHub Pages: the web installer, the emulator, the package. A v* tag also makes a GitHub release.
 name: firmware
 
@@ -21,6 +22,9 @@ jobs:
       build: |
         git submodule update --init --recursive
         python3 fm1/base/tools/build.py app --release "$(cat app/VERSION)"
+        for m in pro elite mke; do
+          BOARD=smk37 MODEL=$m python3 fm1/base/tools/build.py app --release "$(cat app/VERSION)"
+        done
       packages: app/build/*.fwsc
       test: |
         python3 fm1/base/tools/build.py app --host
@@ -57,7 +61,9 @@ jobs:
         run: |
           V="$(cat app/VERSION)"
           python3 fm1/base/tools/build.py app --web --release "$V"
-          python3 fm1/base/tools/make_site.py app "$(find pkg -name "*.fwsc" | head -1)" "$V" app/build/site
+          python3 fm1/base/tools/make_site.py app "$(find pkg -name "*.fwsc" | grep -v smk37 | head -1)" "$V" app/build/site
+          mkdir -p app/build/site/smk37 && find pkg -name "sq80-smk37*.fwsc" -exec cp {} app/build/site/smk37/ \;
+          sed "s/{{VERSION}}/$V/g" app/smk37/index.html > app/build/site/smk37/index.html
           mkdir -p app/build/site/load && cp app/loader/index.html app/build/site/load/
           python3 tools/make_home.py app/build/site "$V"
           sh tools/build_editor.sh app/build/site/edit

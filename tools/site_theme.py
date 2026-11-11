@@ -140,7 +140,7 @@ VFD = f"""<style id="sq80-vfd">
 # every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
 BASE = "/sq80-fm1/"
 NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("librarian/", "Librarian"), ("emu/", "Emulator"),
-       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack")]
+       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack"), ("smk37/", "SMK-37")]
 NAV_CSS = f"""<style id="sq80-nav">
   nav.sq80-nav {{ display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; padding: 10px 16px;
     border-bottom: 1px solid #2a2a2a; background: {BLACK}; font: 600 13px/1.2 system-ui, -apple-system, sans-serif;

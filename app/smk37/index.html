@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the M-Vave SMK-37 (and the Donner Starrykey 37 Play): what it is, the backup, the install, the
+     controls. The firmware workflow puts the three packages and the Windows helpers next to it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMK-37 · SQ-80</title>
+<style>
+  :root { --bg: #000; --panel: #0b0b0b; --line: #2a2a2a; --fg: #f2ead6; --dim: #8a857a; --hi: #40dce6; --bad: #ff6b5e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .02em; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 18px 20px; margin-bottom: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 10px; }
+  p, ol, ul { margin: 0 0 10px; }
+  li { margin-bottom: 6px; }
+  a { color: var(--hi); }
+  code { background: #161616; padding: 0 4px; border-radius: 3px; }
+  .small { font-size: 13px; color: var(--dim); }
+  .warn { border-color: #5a2a26; }
+  .warn h2 { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+  td:first-child { width: 11em; color: var(--dim); }
+  .dl { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+  .dl a { background: var(--hi); color: #001215; text-decoration: none; font-weight: 600; padding: 8px 14px; border-radius: 2px; }
+  .dl a.alt { background: #171717; color: var(--fg); }
+</style>
+</head>
+<body>
+<main>
+<h1>SQ-80 on the SMK-37</h1>
+<p class="small">For the M-Vave SMK-37 Pro, the Donner Starrykey 37 Play (the same keyboard), the SMK-37 Elite and the
+MKE-P37. Tested on a Donner Starrykey 37 Play; the Elite and MKE-P37 builds have not been tried on a keyboard yet.</p>
+
+<section>
+  <h2>What you get</h2>
+  <p>The same SQ-80 as on the FM-1, on a keyboard with more to hold on to: 37 keys with velocity, 16 pads, four
+    faders, pitch and mod wheels and a sustain pedal jack.</p>
+  <ul>
+    <li><b>Banks 1–8</b> are built into the firmware: SQ-80's own eight banks, always there.
+      <b>U1</b> and <b>U2</b> are yours: load banks into them, save your programs there.</li>
+    <li><b>Your ROM pack</b> (the SQ-80's original waves, from your own ROM dumps) goes in over the keyboard's stock
+      presets; without one, SQ-80 plays its own 75 waves.</li>
+  </ul>
+</section>
+
+<section class="warn">
+  <h2>First: a backup of the keyboard</h2>
+  <p>The keyboard's flash holds things that belong to that one unit: its key and pad calibration and its Bluetooth
+    identity. SQ-80 never writes them, but keep a copy before anything is installed: a full flash backup, read with
+    the chip's own bootloader. It takes about ten minutes, once.</p>
+  <p>You need a <b>Windows</b> computer (Linux works too, by hand: <a href="https://github.com/leonardolopezchavira/sq80-fm1/blob/main/docs/SMK37-BACKUP.md">docs/SMK37-BACKUP.md</a>)
+    and a USB data cable.</p>
+</section>
+
+<section>
+  <h2>1 · Downloads</h2>
+  <p>The package for your keyboard (one of these):</p>
+  <div class="dl">
+    <a href="sq80-smk37-{{VERSION}}.fwsc">SMK-37 Pro / Starrykey 37 Play</a>
+    <a class="alt" href="sq80-smk37-elite-{{VERSION}}.fwsc">SMK-37 Elite</a>
+    <a class="alt" href="sq80-smk37-mke-{{VERSION}}.fwsc">MKE-P37</a>
+  </div>
+  <p>And two folders:</p>
+  <div class="dl">
+    <a class="alt" href="https://github.com/leonardolopezchavira/sq80-fm1/archive/refs/heads/main.zip">The SQ-80 folder (ZIP)</a>
+    <a class="alt" href="https://github.com/kagaimiq/jl-uboot-tool/archive/refs/heads/main.zip">jl-uboot-tool (ZIP)</a>
+  </div>
+  <p class="small">Unzip both into <b>Downloads</b>; leave the package there as it is. Version {{VERSION}}.</p>
+</section>
+
+<section>
+  <h2>2 · Python 3.12</h2>
+  <p>From <a href="https://www.python.org/downloads/windows/">python.org</a>: <b>Python 3.12</b>, "Windows installer
+    (64-bit)". On its first screen tick <b>Add python.exe to PATH</b>. (Not 3.13 or newer: the MIDI part has no
+    Windows build for those yet.)</p>
+</section>
+
+<section>
+  <h2>3 · The backup</h2>
+  <ol>
+    <li>Connect the keyboard (switched on, M-Vave's firmware running). Close every program that uses MIDI.</li>
+    <li>In the unzipped SQ-80 folder, double-click <code>smk37-backup.bat</code> and allow it to run as administrator.</li>
+    <li>Follow it. The keyboard checks the package and restarts in its bootloader; the flash is read twice and the
+      two copies compared. At the end it says <b>backup OK</b>.</li>
+    <li>Copy the <code>backup</code> folder it made to a USB stick too. Never share those files: they are your unit's.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>4 · The install</h2>
+  <ol>
+    <li>Switch the keyboard off and on: it comes back in update mode.</li>
+    <li>Double-click <code>smk37-install.bat</code>. It installs the package and checks it. The keyboard restarts into
+      SQ-80.</li>
+    <li>Open the <a href="../load/">Load page</a> in Chrome or Edge: send your ROM pack (the
+      <a href="../rompack/">ROM pack maker</a> makes it from your dumps). Banks of your own go to <b>U1</b> or <b>U2</b>.</li>
+  </ol>
+  <p class="small">Later updates: <code>smk37-install.bat</code> again with the new package (no new backup needed).</p>
+</section>
+
+<section>
+  <h2>The controls</h2>
+  <table>
+    <tr><td>K1</td><td>Volume</td></tr>
+    <tr><td>K2 · K3 · K4</td><td>Bank (1–8, U1, U2) · the section's page · program</td></tr>
+    <tr><td>K5–K8</td><td>The four values of the page (on the play screen: cutoff, resonance, attack, release). Where
+      the screen says K1–K4, it means these.</td></tr>
+    <tr><td>Keys</td><td>All 37 play, with their velocity. OCTAVE − / + move them.</td></tr>
+    <tr><td>Pads</td><td>The bank's programs, 16 at a time (<b>&lt;</b> <b>&gt;</b>: the next 16). With SEQ held: the 16 steps.</td></tr>
+    <tr><td>&lt; &gt;</td><td>Elsewhere: the section's pages back and forward.</td></tr>
+    <tr><td>Faders</td><td>FADER BANK steps A–D (shown on the screen). A: reverb, delay, chorus, drive. B: cutoff,
+      resonance, attack, release. C: the three oscillators' levels and the volume. D: LFO 1 and 2, rate and depth.
+      A fader takes over a value once it reaches it: until then the screen says UP TO or DOWN TO.</td></tr>
+    <tr><td>Wheels · pedal</td><td>Pitch bend · the SQ-80's WHEEL source · sustain.</td></tr>
+    <tr><td>Buttons</td><td>As on the FM-1: SCALE = SEL, CHORD = ENV, NOTE REPEAT = LFO, PARA = EDIT, FX, GLOBE = GLO,
+      PATCH = HOME, BT = SAVE, ARP, SEQ, SEQ PLAY = PLAY, SEQ REC = REC.</td></tr>
+  </table>
+  <p class="small" style="margin-top:10px">The rest works as the <a href="../manual/">manual</a> says for the FM-1.</p>
+</section>
+
+<section>
+  <h2>Back to M-Vave's firmware</h2>
+  <p>Install it with M-Vave's updater, as for any update. The calibration and Bluetooth data were never touched. The
+    stock presets SQ-80's ROM pack replaced are in your backup.</p>
+</section>
+
+<p class="small">The SMK-37 support builds on genkigenki's <a href="https://github.com/genkigenki/fm1-to-smk37">fm1-to-smk37</a>
+  kit and SMK-37 layer (GPL-3.0); the backup reads the flash with kagaimiq's
+  <a href="https://github.com/kagaimiq/jl-uboot-tool">jl-uboot-tool</a>.</p>
+</main>
+</body>
+</html>
