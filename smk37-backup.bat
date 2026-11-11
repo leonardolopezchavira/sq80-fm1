@@ -63,7 +63,13 @@ echo.
 
 rem ---- 1. the keyboard
 echo Step 1 of 4: connect the keyboard by USB and close every program that uses MIDI.
-pause
+echo (Is the keyboard already in its USB drive mode from an earlier try? Then type R and press Enter.)
+set "GO="
+set /p GO=Otherwise just press Enter: 
+if /i "%GO%"=="R" (
+  set "DEV="
+  goto reads
+)
 %PY% fm1\base\tools\fm1_install.py --info
 if errorlevel 1 (
   echo The keyboard was not found. Send Claude what is printed above.
@@ -80,17 +86,22 @@ if errorlevel 1 (
   goto end
 )
 echo.
-echo Wait until the drive WL82 UBOOT1.00 appears in Explorer.
-set /p DRV=Then type its drive letter (just the letter, for example E) and press Enter:
+echo Wait 10 seconds. If a drive WL82 UBOOT1.00 shows in Explorer, type its letter (for example E).
+set "DRV="
+set /p DRV=Otherwise just press Enter and it will be found by itself: 
 set "DRV=%DRV::=%"
+set "DEV="
+if defined DRV set "DEV=--device \\.\%DRV%:"
 echo.
 
+:reads
 rem ---- 3. two reads
 if not exist backup mkdir backup
 echo Step 3 of 4: reading the flash, twice (a minute or two each). Note the flash ID it prints.
-%PY% "%JLU%" --device \\.\%DRV%: --chip wl82 "read 0 0x100000 backup\smk37-dump-1.bin"
+echo (If it keeps saying "No devices found yet", the keyboard is not in its USB drive mode: send Claude this window.)
+%PY% "%JLU%" %DEV% --chip wl82 "read 0 0x100000 backup\smk37-dump-1.bin"
 if errorlevel 1 goto readfail
-%PY% "%JLU%" --device \\.\%DRV%: --chip wl82 "read 0 0x100000 backup\smk37-dump-2.bin"
+%PY% "%JLU%" %DEV% --chip wl82 "read 0 0x100000 backup\smk37-dump-2.bin"
 if errorlevel 1 goto readfail
 echo.
 
