@@ -60,20 +60,21 @@ If anything fails, stop and send what it printed.
 
 ## Then: SQ-80 on the keyboard
 
-Only if the check printed **backup OK** and the line `unlisted 0xEB000-0xF3FFF  empty (all 0xFF)`: SQ-80 keeps the
-last 9 sectors of its ROM pack there (fm1.toml `smk_xdata2`). If that stretch has bytes written, stop and send the
-lines: that build must not go on this keyboard (the ROM pack then does not fit, a build without the stretch is next).
+Once the check printed **backup OK** (and the two files are kept in two places). SQ-80 on the SMK-37 keeps its ROM
+pack in the store window and USRFLASH (the stock presets there are overwritten; the backup has them) and never
+writes 0xEB000-0xF3FFF, where the stock firmware keeps a few bytes. Banks 1-8 are built into the firmware (the
+project's factory banks, read only); U1 and U2 are yours to load and save into.
 
-1. After step 6's power cycle the keyboard is in update mode. Install SQ-80 (the Pro package also for the Donner
+1. After the backup's power cycle the keyboard is in update mode. Install SQ-80 (the Pro package also for the Donner
    Starrykey 37 Play; this works from a Mac too):
 
        python3 fm1/base/tools/fm1_install.py sq80-smk37-X.Y.fwsc
 
    It restarts into SQ-80 and checks its identity (`SMK-37 Pro_8...`).
-2. Open the site's **Load** page in Chrome or Edge. It finds the keyboard by itself. Send the ROM pack, then the
-   banks (`app/site/banks/SQ80-Bank1..8.syx`, or your own).
-3. Play. FADER BANK steps the faders' banks (the screen shows A..D), the pads pick programs (`<` `>`: the next 16),
-   SEQ held: the pads are the steps.
+2. Open the site's **Load** page in Chrome or Edge. It finds the keyboard by itself. Send the ROM pack; banks of your
+   own go to **U1** or **U2**.
+3. Play. SELECT (K2) steps through banks 1-8, U1, U2; FADER BANK steps the faders' banks (the screen shows A..D), the
+   pads pick programs (`<` `>`: the next 16), SEQ held: the pads are the steps. SAVE stores into U1 or U2.
 
 The way back: M-Vave's updater with the stock package, as in step 6. The calibration and Bluetooth data are never
 written by SQ-80.
