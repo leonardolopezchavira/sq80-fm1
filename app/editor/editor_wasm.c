@@ -74,13 +74,27 @@ EXPORT int use_pack(int n)
 }
 EXPORT int has_user_pack(void) { return user_pack; }
 
+/* the SPLIT/LAYER partners (layer, split, split layer) as the page has them from the open bank: their programs in
+ * link_buf(), which of them are there in link_mask_set's bits; used by the next apply */
+static uint8_t links_raw[3][102];
+static sq80_patch links[3];
+static int link_mask;
+EXPORT uint8_t *link_buf(void) { return &links_raw[0][0]; }
+EXPORT void link_mask_set(int m) { link_mask = m; }
+
 /* the program in prog() into the engine: fresh 1 cuts the notes (a new program), 0 lets them go on (an edit) */
 EXPORT void apply(int fresh)
 {
+    int j;
     sq80_decode_patch(program, &patch);
     if (fresh)
         sq80_all_notes_off(&syn);
     sq80_set_patch(&syn, &patch);
+    for (j = 0; j < 3; j++)
+        if (link_mask >> j & 1)
+            sq80_decode_patch(links_raw[j], &links[j]);
+    sq80_set_links(&syn, link_mask & 1 ? &links[0] : 0, link_mask & 2 ? &links[1] : 0, link_mask & 4 ? &links[2] : 0,
+                   patch.split_key);
 }
 
 EXPORT void note_on(int key, int vel) { sq80_note_on(&syn, key, vel); }

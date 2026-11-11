@@ -12,7 +12,9 @@ extern "C" {
 #endif
 
 /* what a value is, for showing it */
-enum { SQ80_K_NUM, SQ80_K_SIGNED, SQ80_K_ONOFF, SQ80_K_SOURCE, SQ80_K_WAVE, SQ80_K_LFOWAVE, SQ80_K_CHAR };
+enum { SQ80_K_NUM, SQ80_K_SIGNED, SQ80_K_ONOFF, SQ80_K_SOURCE, SQ80_K_WAVE, SQ80_K_LFOWAVE, SQ80_K_CHAR,
+       SQ80_K_PROG,     /* 0 OFF, 1..40 a program of the bank (its place) */
+       SQ80_K_KEY };    /* a key, 0..127 (60 = C4) */
 
 typedef struct {
     const char *name;   /* up to 7 characters, the SQ-80's own words where it has them */
@@ -37,7 +39,10 @@ enum {
 enum {
     SQ80_P_FREQ, SQ80_P_RES, SQ80_P_KEYBD, SQ80_P_FMOD1, SQ80_P_FDEPTH1, SQ80_P_FMOD2, SQ80_P_FDEPTH2,
     SQ80_P_FINAL, SQ80_P_PAN, SQ80_P_PANMOD, SQ80_P_PANDEPTH, SQ80_P_SYNC, SQ80_P_AM, SQ80_P_MONO, SQ80_P_GLIDE,
-    SQ80_P_VC, SQ80_P_ENVRS, SQ80_P_OSCRS, SQ80_P_CYC, SQ80_P_NAME0, SQ80_P_PROG_N = SQ80_P_NAME0 + 6
+    SQ80_P_VC, SQ80_P_ENVRS, SQ80_P_OSCRS, SQ80_P_CYC, SQ80_P_NAME0,
+    SQ80_P_LAYER = SQ80_P_NAME0 + 6, SQ80_P_SPLIT, SQ80_P_SPLAYR, SQ80_P_SPKEY,   /* SPLIT/LAYER (after the name: the
+                                                                               * ids before keep their numbers) */
+    SQ80_P_PROG_N
 };
 #define SQ80_PARAM_ENV(n, p) ((n) * SQ80_P_ENV_N + (p))
 #define SQ80_PARAM_LFO(n, p) (4 * SQ80_P_ENV_N + (n) * SQ80_P_LFO_N + (p))

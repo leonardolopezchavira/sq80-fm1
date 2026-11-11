@@ -210,6 +210,12 @@ void sq80_decode_patch(const uint8_t p[102], sq80_patch *out) {
     out->pan_mod.source = src(p[0x64]);
     out->pan_mod.depth = depth(s7(p[0x65]));
     out->cycle = (p[0x65] & 0x80) != 0;
+    /* SPLIT/LAYER: 0x60 the split key (its bit 7 is not one of these), 0x61 the layer, 0x62 the split, 0x63 the
+     * split's layer; bit 7 on, bits 0-6 the program's place (decoded from the patch corpus: docs) */
+    out->split_key = p[0x60] & 0x7f;
+    out->layer = (int8_t)(p[0x61] & 0x80 ? p[0x61] & 0x7f : -1);
+    out->split = (int8_t)(p[0x62] & 0x80 ? p[0x62] & 0x7f : -1);
+    out->split_layer = (int8_t)(p[0x63] & 0x80 ? p[0x63] & 0x7f : -1);
 }
 
 void sq80_default_patch(sq80_patch *out) {
@@ -229,6 +235,8 @@ void sq80_default_patch(sq80_patch *out) {
     out->filter_mod[0].source = out->filter_mod[1].source = SQ80_OFF;
     out->pan = 8;
     out->pan_mod.source = SQ80_OFF;
+    out->split_key = 60;
+    out->layer = out->split = out->split_layer = -1;
 }
 
 /* ------------------------------------------------------------------------- SysEx */

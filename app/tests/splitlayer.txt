@@ -1,0 +1,79 @@
+# SPLIT/LAYER (the program's bytes 0x60..0x63): EDIT's last page, K1 LAYER, K2 SPLIT, K3 SPL LYR (the split
+# program's layer), K4 SPL KEY; the partners are programs of the same bank by place (here: INITs), all on the 8 voices
+#   python3 fm1/base/tools/build.py app --host && app/build/host/sq80_host app/tests/splitlayer.txt app/build/host
+wait 600
+tap EDIT
+wait 30
+turn ALGO 7
+wait 30
+expect page 7
+shot splitlayer_off.png
+# a layer: every key plays two voices
+turn K1 2
+wait 30
+expect raw97 129
+key 0 down
+wait 200
+expect voices 2
+key 0 up
+wait 1500
+expect voices 0
+# a split at C4 (the split key itself plays the split program): below, the program and its layer; from C4 up, the
+# split program alone
+turn K2 3
+wait 30
+expect raw98 130
+expect raw96 60
+key 0 down
+wait 200
+expect voices 2
+key 0 up
+wait 1500
+key 7 down
+wait 200
+expect voices 1
+key 7 up
+wait 1500
+# the split program's layer
+turn K3 4
+wait 30
+expect raw99 131
+key 7 down
+wait 200
+expect voices 2
+key 7 up
+wait 1500
+# the split key down to D3 (50): F3 is above it now
+turn K4 -10
+wait 30
+expect raw96 50
+key 0 down
+wait 200
+expect voices 2
+key 0 up
+wait 1500
+shot splitlayer_on.png
+# eight voices in all: four layered keys fill them
+key 0 down
+key 2 down
+key 4 down
+key 5 down
+wait 200
+expect voices 8
+key 0 up
+key 2 up
+key 4 up
+key 5 up
+wait 1500
+expect voices 0
+# off again: one voice a key
+turn K1 -2
+turn K2 -3
+turn K3 -4
+wait 30
+expect raw97 0
+key 0 down
+wait 200
+expect voices 1
+key 0 up
+wait 1500

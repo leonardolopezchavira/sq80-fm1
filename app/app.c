@@ -124,6 +124,10 @@ static uint8_t two_cores;
 
 static uint8_t prog_raw[102];            /* the program playing, as its 102 bytes: what the editor changes */
 static sq80_patch play_patch[2];         /* decoded: two, the main loop writes the one not playing */
+static sq80_patch link_patch[2][3] PLAT_POOL;   /* the SPLIT/LAYER partners (layer, split, split layer): two sets,
+                                         * rewritten only when they change (the engine keeps pointers to the set in use) */
+static uint8_t link_ix;                  /* the set in use */
+static uint32_t link_key = 0xFFFFFFFFu, bank_gen;   /* what that set holds; bumped by every bank write */
 static uint8_t play_ix;
 static char prog_name[8];
 static uint8_t edited;                   /* changed since it was loaded (not saved) */
@@ -183,6 +187,7 @@ static int bank_read(uint32_t slot, uint32_t pi, uint8_t out[102])
 static int bank_write(uint32_t slot, uint32_t pi, const uint8_t prog[102])   /* in up to two pieces, round the gap */
 {
     uint32_t o = prog_at(slot, pi), base = bank_base(slot);
+    bank_gen++;                              /* (a SPLIT/LAYER partner may have changed) */
     if (!base)
         return -1;
     if (GAPPED(slot) && o < GAP && o + 102u > GAP) {
@@ -225,16 +230,37 @@ static void post(uint32_t kind, uint32_t a, uint32_t b)
 
 static void program_play(int fresh)          /* prog_raw to the engine; fresh: a new program (notes off) */
 {
-    uint32_t i;
+    uint32_t i, links = 0, key;
     sq80_patch *p = &play_patch[play_ix ^ 1u];
     sq80_decode_patch(prog_raw, p);
+    for (i = 0; i < 3u; i++) {               /* SPLIT/LAYER: its partners, programs of this bank by place */
+        int at = i == 0 ? p->layer : i == 1 ? p->split : p->split_layer;
+        if (at >= 0 && (uint32_t)at < NPROG && (i < 2u || (links & 2u)))
+            links |= 1u << i;
+    }
+    key = links ? (uint32_t)(p->layer & 63) | (uint32_t)(p->split & 63) << 6 | (uint32_t)(p->split_layer & 63) << 12 |
+                  links << 18 | (uint32_t)set.bank << 21 | (bank_gen & 0x3Fu) << 25 : 0u;
+    if (links && key != link_key) {          /* new partners: decoded into the set not in use */
+        sq80_patch *l = link_patch[link_ix ^ 1u];
+        for (i = 0; i < 3u; i++) {
+            uint8_t raw[102];
+            int at = i == 0 ? p->layer : i == 1 ? p->split : p->split_layer;
+            if ((links >> i & 1u) && prog_read(set.bank, (uint32_t)at, raw) == 0)
+                sq80_decode_patch(raw, &l[i]);
+            else
+                links &= ~(1u << i);
+        }
+        link_ix ^= 1u;
+        link_key = key;
+    }
     for (i = 0; i < 6; i++) {
         char c = (char)prog_raw[i];
         prog_name[i] = c >= 32 && c < 127 ? c : ' ';
     }
     prog_name[6] = 0;
     play_ix ^= 1u;
-    post(fresh ? Q_PATCH : Q_EDIT, play_ix, 0);
+    post(fresh ? Q_PATCH : Q_EDIT, play_ix, links | (uint32_t)p->split_key << 3 | (uint32_t)link_ix << 10);
+                                             /* (b: the links, the split key, their set) */
 }
 
 static void program_load(int fresh)          /* set.bank / set.prog into the engine (fresh: the edits dropped) */
@@ -382,6 +408,12 @@ static void midi_in(void)                    /* audio interrupt */
     }
 }
 
+static void set_links(uint32_t b)            /* audio interrupt: Q_PATCH / Q_EDIT's partners */
+{
+    const sq80_patch *l = link_patch[(b >> 10) & 1u];
+    sq80_set_links(&syn, b & 1u ? &l[0] : 0, b & 2u ? &l[1] : 0, b & 4u ? &l[2] : 0, (int)(b >> 3) & 127);
+}
+
 static void events(void)                     /* audio interrupt */
 {
     while (ev_r != ev_w) {
@@ -408,9 +440,11 @@ static void events(void)                     /* audio interrupt */
             sq80_all_notes_off(&syn);
             notes_forget();
             sq80_set_patch(&syn, &play_patch[a & 1u]);
+            set_links(b);
             break;
         case Q_EDIT:                         /* the knobs: the notes go on */
             sq80_set_patch(&syn, &play_patch[a & 1u]);
+            set_links(b);
             break;
         case Q_ALLOFF:
             sq80_all_notes_off(&syn);
@@ -790,6 +824,7 @@ static int frame_bank(const uint8_t *p, uint32_t n)
         return 1;
     if ((cmd == 0x20u || cmd == 0x21u || cmd == 0x22u) && !bank_writable(b))
         return 2;                            /* (a built-in bank) */
+    bank_gen++;
     if (cmd == 0x20u) {                      /* (a program playing from it stays: it is in RAM) */
         return plat_data_erase(bank_base(b)) != 0 ? 2 : 0;
     }
@@ -1219,7 +1254,8 @@ static const ed_page PROG_PAGES[] = {
     {"MODES", {SQ80_P_SYNC, SQ80_P_AM, SQ80_P_MONO, SQ80_P_GLIDE}},
     {"RESTART", {SQ80_P_VC, SQ80_P_ENVRS, SQ80_P_OSCRS, SQ80_P_CYC}},
     {"NAME 1-4", {SQ80_P_NAME0, SQ80_P_NAME0 + 1, SQ80_P_NAME0 + 2, SQ80_P_NAME0 + 3}},
-    {"NAME 5-6", {SQ80_P_NAME0 + 4, SQ80_P_NAME0 + 5, NONE, NONE}}};
+    {"NAME 5-6", {SQ80_P_NAME0 + 4, SQ80_P_NAME0 + 5, NONE, NONE}},
+    {"SPLIT/LAYER", {SQ80_P_LAYER, SQ80_P_SPLIT, SQ80_P_SPLAYR, SQ80_P_SPKEY}}};
 /* FX: FMini-1's EFFECTS page and its four pop-ups, as pages (the ids: fmini_fx.h FXP_*) */
 static const ed_page FX_PAGES[] = {
     {"LEVELS", {FXP_REV, FXP_DLY, FXP_CHO, FXP_DRIVE}},
@@ -1281,6 +1317,7 @@ static int ed_param(uint32_t k)              /* the parameter id K1..K4 change n
     }
 }
 
+static void note_name(int32_t note, char *b);
 static void value_text(int id, char *t)      /* a value as the screen shows it */
 {
     const sq80_param_info *in = sq80_param(id);
@@ -1303,6 +1340,15 @@ static void value_text(int id, char *t)      /* a value as the screen shows it *
         t[0] = (char)(v == ' ' ? '_' : v);
         t[1] = 0;
         break;
+    case SQ80_K_PROG:                        /* OFF, or the program's place (its name: prog_link_text) */
+        if (!v)
+            text_cat(t, "OFF");
+        else
+            int_text(v, t);
+        break;
+    case SQ80_K_KEY:
+        note_name(v, t);
+        break;
     case SQ80_K_SIGNED:
         if (v > 0)
             text_cat(t, "+");
@@ -1310,6 +1356,29 @@ static void value_text(int id, char *t)      /* a value as the screen shows it *
         break;
     default: int_text(v, t); break;
     }
+}
+
+static void prog_link_text(int v, char *t)  /* a SPLIT/LAYER partner: "OFF", or "12 SINPAD" (t: 16 bytes) */
+{
+    uint8_t raw[102];
+    uint32_t i, n;
+    t[0] = 0;
+    if (!v) {
+        text_cat(t, "OFF");
+        return;
+    }
+    int_text(v, t);
+    if (prog_read(set.bank, (uint32_t)v - 1u, raw) != 0)
+        return;
+    n = 0;
+    while (t[n])
+        n++;
+    t[n++] = ' ';
+    for (i = 0; i < 6u; i++)
+        t[n++] = raw[i] >= 32 && raw[i] < 127 ? (char)raw[i] : ' ';
+    while (n > 0 && t[n - 1] == ' ')
+        n--;
+    t[n] = 0;
 }
 
 static void fx_turn(int id, int32_t e)       /* an effect's setting: the instrument's (kept by itself) */
@@ -1378,6 +1447,10 @@ static void knob_turn(uint32_t k, int32_t e)
     if (ed.sec == ED_PLAY) {                 /* (the editor's pages show it already) */
         value_text(id, t);
         app_say(in->name, t);
+    } else if (in->kind == SQ80_K_PROG) {    /* a SPLIT/LAYER partner: its name too */
+        char lt[16];
+        prog_link_text(sq80_param_get(prog_raw, id), lt);
+        app_say(in->name, lt);
     }
     ui.redraw = 1;
 }
@@ -1468,6 +1541,7 @@ static int program_store(uint32_t bank, uint32_t pi)   /* prog_raw into bank (1.
     uint8_t init[102];
     if (!f || slot >= NBANK || pi >= NPROG)
         return -1;                           /* (a built-in bank: not) */
+    bank_gen++;
     for (i = 0; i < SECTOR; i++)             /* the sector as it is (a bank never loaded: erased) */
         sector_buf[i] = n ? f[i] : 0xFFu;
     sq80_init_program(init);

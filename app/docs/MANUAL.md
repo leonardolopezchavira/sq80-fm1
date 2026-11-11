@@ -102,7 +102,14 @@ Four buttons open the editor. **ALGORITHM** turns the pages of each; **KNOB 1–
   shape is drawn.
 - **LFO** — the three **LFOs**. Pages: WAVE (rate, shape, depths), MORE (delay, mod, humanize, reset).
 - **EDIT** — the rest: FILTER (its response drawn: the curve at C4, its cutoff in Hz, and with KEYBD the curves at C2 and C6 dim), FILTER MOD, OUTPUT, MODES (sync, AM, mono, glide), RESTART, and the **name**
-  (NAME 1–4, NAME 5–6: one letter per knob).
+  (NAME 1–4, NAME 5–6: one letter per knob), and SPLIT/LAYER (below).
+
+**SPLIT/LAYER**, EDIT's last page, as on the SQ-80: **LAYER** a second program sounding with this one; **SPLIT** a
+program played from the split key up; **SPL LYR** a second program sounding with the split program; **SPL KEY**
+the split key. The partners are programs **of the same bank, by place** (1–40; turning the knob shows the name);
+OFF switches each off. All share the eight voices: a layered key takes two. Only the program you play uses its
+links (its partners' own split and layer are not followed). Moving a program to another place, or another bank,
+moves its links' targets with it: check them after rearranging a bank.
 
 Every value works as on the SQ-80. On a computer, the **Editor** page shows them all at once.
 

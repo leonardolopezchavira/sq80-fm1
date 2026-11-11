@@ -12,7 +12,8 @@ enum {
     F_OCT,     /* the low 7 bits are 12 x (octave + 3) + semitone */
     F_SEMI,
     F_LFOMOD,  /* bits 7-6 of this byte, then of the next: the LFO's modulation source */
-    F_CHAR
+    F_CHAR,
+    F_LINK     /* bit 7 on, bits 0-6 a program's place: 0 OFF, else place + 1 (the place kept while off) */
 };
 
 typedef struct {
@@ -57,13 +58,15 @@ static const sq80_param_info PROG_I[SQ80_P_PROG_N] = {
     {"VC", 0, 1, SQ80_K_ONOFF},       {"ENV", 0, 1, SQ80_K_ONOFF},       {"OSC", 0, 1, SQ80_K_ONOFF},
     {"CYC", 0, 1, SQ80_K_ONOFF},      {"CHAR 1", 32, 126, SQ80_K_CHAR},  {"CHAR 2", 32, 126, SQ80_K_CHAR},
     {"CHAR 3", 32, 126, SQ80_K_CHAR}, {"CHAR 4", 32, 126, SQ80_K_CHAR},  {"CHAR 5", 32, 126, SQ80_K_CHAR},
-    {"CHAR 6", 32, 126, SQ80_K_CHAR}};
+    {"CHAR 6", 32, 126, SQ80_K_CHAR},  {"LAYER", 0, 40, SQ80_K_PROG},     {"SPLIT", 0, 40, SQ80_K_PROG},
+    {"SPL LYR", 0, 40, SQ80_K_PROG},  {"SPL KEY", 0, 127, SQ80_K_KEY}};
 static const place PROG_P[SQ80_P_PROG_N] = {
     {0x59, F_BITS, 0, 7}, {0x5a, F_BITS, 0, 5}, {0x5e, F_BITS, 1, 6}, {0x5b, F_BITS, 0, 4}, {0x5c, F_S7, 0, 0},
     {0x5b, F_BITS, 4, 4}, {0x5d, F_S7, 0, 0},   {0x58, F_BITS, 1, 6}, {0x64, F_BITS, 4, 4}, {0x64, F_BITS, 0, 4},
     {0x65, F_S7, 0, 0},   {0x59, F_BITS, 7, 1}, {0x58, F_BITS, 7, 1}, {0x5d, F_BITS, 7, 1}, {0x5f, F_BITS, 0, 7},
     {0x5c, F_BITS, 7, 1}, {0x5e, F_BITS, 7, 1}, {0x5f, F_BITS, 7, 1}, {0x65, F_BITS, 7, 1}, {0, F_CHAR, 0, 0},
-    {1, F_CHAR, 0, 0},    {2, F_CHAR, 0, 0},    {3, F_CHAR, 0, 0},    {4, F_CHAR, 0, 0},    {5, F_CHAR, 0, 0}};
+    {1, F_CHAR, 0, 0},    {2, F_CHAR, 0, 0},    {3, F_CHAR, 0, 0},    {4, F_CHAR, 0, 0},    {5, F_CHAR, 0, 0},
+    {0x61, F_LINK, 0, 0}, {0x62, F_LINK, 0, 0}, {0x63, F_LINK, 0, 0}, {0x60, F_BITS, 0, 7}};
 
 static int where(int id, place *pl, const sq80_param_info **info)
 {
@@ -116,6 +119,7 @@ int sq80_param_get(const uint8_t p[102], int id)
     case F_OCT: v = (b & 0x7f) / 12 - 3; break;
     case F_SEMI: v = (b & 0x7f) % 12; break;
     case F_LFOMOD: v = ((b >> 6) << 2) | (p[pl.off + 1] >> 6); break;
+    case F_LINK: v = b & 0x80 ? (b & 0x7f) + 1 : 0; break;   /* (a cartridge's, past 40: shown as 40) */
     default: v = b; break;
     }
     return v < info->min ? info->min : v > info->max ? info->max : v;
@@ -149,6 +153,7 @@ void sq80_param_set(uint8_t p[102], int id, int value)
         *b = (uint8_t)((*b & 0x3f) | ((v >> 2) << 6));
         b[1] = (uint8_t)((b[1] & 0x3f) | ((v & 3) << 6));
         break;
+    case F_LINK: *b = (uint8_t)(v ? 0x80 | (v - 1) : *b & 0x7f); break;
     default: *b = (uint8_t)v; break;
     }
 }
@@ -178,6 +183,7 @@ void sq80_init_program(uint8_t p[102])
     sq80_param_set(p, SQ80_PARAM_PROG(SQ80_P_FINAL), 63);
     sq80_param_set(p, SQ80_PARAM_PROG(SQ80_P_PAN), 8);
     sq80_param_set(p, SQ80_PARAM_PROG(SQ80_P_PANMOD), 15);
+    sq80_param_set(p, SQ80_PARAM_PROG(SQ80_P_SPKEY), 60);   /* (the split key at C4; no split, no layer) */
 }
 
 const char *sq80_source_name(int s)

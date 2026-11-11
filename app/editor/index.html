@@ -233,8 +233,22 @@ const LF = { FREQ: 0, WAVE: 1, L1: 2, L2: 3, DELAY: 4, MOD: 5, HUMAN: 6, RESET: 
 const OF = { OCT: 0, SEMI: 1, FINE: 2, WAVE: 3, MOD1: 4, DEPTH1: 5, MOD2: 6, DEPTH2: 7, LEVEL: 8, OUTPUT: 9,
              DMOD1: 10, DDEPTH1: 11, DMOD2: 12, DDEPTH2: 13 };
 const PF = { FREQ: 0, RES: 1, KEYBD: 2, FMOD1: 3, FDEPTH1: 4, FMOD2: 5, FDEPTH2: 6, FINAL: 7, PAN: 8, PANMOD: 9,
-             PANDEPTH: 10, SYNC: 11, AM: 12, MONO: 13, GLIDE: 14, VC: 15, ENVRS: 16, OSCRS: 17, CYC: 18, NAME0: 19 };
-const K = { NUM: 0, SIGNED: 1, ONOFF: 2, SOURCE: 3, WAVE: 4, LFOWAVE: 5, CHAR: 6 };
+             PANDEPTH: 10, SYNC: 11, AM: 12, MONO: 13, GLIDE: 14, VC: 15, ENVRS: 16, OSCRS: 17, CYC: 18, NAME0: 19,
+             LAYER: 25, SPLIT: 26, SPLAYR: 27, SPKEY: 28 };
+const K = { NUM: 0, SIGNED: 1, ONOFF: 2, SOURCE: 3, WAVE: 4, LFOWAVE: 5, CHAR: 6, PROG: 7, KEY: 8 };
+const NOTE = (k) => ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][k % 12] + (Math.floor(k / 12) - 1);
+/* the SPLIT/LAYER partners: programs of the open bank by place, heard here too (without a bank open: not) */
+function syncLinks() {
+  if (!E.link_buf) return;
+  const buf = new Uint8Array(E.memory.buffer, E.link_buf(), 306);
+  let m = 0;
+  [PF.LAYER, PF.SPLIT, PF.SPLAYR].forEach((f, j) => {
+    const v = E.param_get(PRG(f));
+    if (v && bank && bank[v - 1] && (j < 2 || (m & 2))) { buf.set(bank[v - 1], j * 102); m |= 1 << j; }
+  });
+  E.link_mask_set(m);
+}
+function applyP(fresh) { syncLinks(); E.apply(fresh); }
 const HELP = {
   L1: "level at the end of the attack (T1)", L2: "level after T2", L3: "sustain level, held while the key is down",
   LV: "how much velocity scales the levels", T1: "attack time", T2: "time to L2", T3: "time to L3 (the sustain)",
@@ -264,7 +278,7 @@ function soundOn() {
   ac = new AudioContext();
   E.init(ac.sampleRate);
   if (userPack) usePack(userPack.bytes, userPack.name, true);
-  E.apply(1);
+  applyP(1);
   node = ac.createScriptProcessor(1024, 0, 2);
   node.onaudioprocess = (ev) => {
     const n = ev.outputBuffer.length;
@@ -336,6 +350,7 @@ function showBank() {
   s.disabled = false;
   $("expBank").disabled = false;
   s.value = sel >= 0 ? sel : 0;
+  try { if (page === "Filter and output") buildPage(); } catch (_) { /* (the page is not built yet) */ }   // (the SPLIT/LAYER lists name the bank's programs)
 }
 $("progs").onchange = () => { sel = +$("progs").value; loadProgram(bank[sel], `${bankName} #${sel + 1}`); };
 $("openBtn").onclick = () => $("openFile").click();
@@ -374,7 +389,7 @@ function loadProgram(prog, from) {
   undo = [];
   edited = false;
   source = from;
-  E.apply(1);
+  applyP(1);
   refresh();
   sendLive();
   say("progStatus", "Editing " + from, "ok");
@@ -382,20 +397,20 @@ function loadProgram(prog, from) {
 function changed() {
   if (sel >= 0 && bank) bank[sel] = new Uint8Array(progBytes());
   edited = true;
-  E.apply(0);
+  applyP(0);
   sendLive();
   $("dirty").textContent = "changed: Save to the FM-1, or export";
 }
-$("initBtn").onclick = () => { snapshot(); E.init_program(); E.apply(1); refresh(); changed(); };
+$("initBtn").onclick = () => { snapshot(); E.init_program(); applyP(1); refresh(); changed(); };
 for (let a = 5; a <= 100; a += 5) $("rndAmt").add(new Option(a + "%", a, false, a === 30));
 let rndSeq = 0;
 $("rndBtn").onclick = () => {
   snapshot();
   rndSeq = rndSeq % 999 + 1;
   E.randomize(+$("rndAmt").value, +$("rndPart").value, (Math.random() * 4294967295) >>> 0, rndSeq);
-  E.apply(0); refresh(); changed();
+  applyP(0); refresh(); changed();
 };
-$("undoBtn").onclick = () => { if (!undo.length) return; progBytes().set(undo.pop()); E.apply(0); refresh(); changed(); };
+$("undoBtn").onclick = () => { if (!undo.length) return; progBytes().set(undo.pop()); applyP(0); refresh(); changed(); };
 $("name").oninput = () => {
   snapshot();
   const s = $("name").value.toUpperCase().padEnd(6, " ").slice(0, 6);
@@ -426,6 +441,12 @@ function ctl(id, label, help) {
     input.onchange = () => { snapshot(); E.param_set(id, input.checked ? 1 : 0); changed(); redraw(); };
     row.append(input, document.createElement("span"));
     controls.push({ id, set: (v) => { input.checked = !!v; } });
+  } else if (kind === K.PROG) {               /* OFF, or a program of the open bank */
+    input = document.createElement("select");
+    optionList(input, 41, (i) => i ? `${i}${bank && bank[i - 1] ? "  " + nameOf(bank[i - 1]) : ""}` : "OFF");
+    input.onchange = () => { snapshot(); E.param_set(id, +input.value); changed(); };
+    row.append(input, document.createElement("span"));
+    controls.push({ id, set: (v) => { input.value = v; } });
   } else if (kind === K.SOURCE || kind === K.WAVE || kind === K.LFOWAVE) {
     input = document.createElement("select");
     if (kind === K.SOURCE) optionList(input, 16, (i) => str(E.source_name(i)));
@@ -450,7 +471,7 @@ function fill(r) {   // the slider's bar: from its low end, or from 0 for a sign
   const z = lo < 0 ? at(0) : 0, v = at(+r.value);
   r.style.setProperty("--a", Math.min(z, v) + "%"); r.style.setProperty("--p", Math.max(z, v) + "%");
 }
-const fmt = (v, kind) => (kind === K.SIGNED && v > 0 ? "+" + v : String(v));
+const fmt = (v, kind) => (kind === K.SIGNED && v > 0 ? "+" + v : kind === K.KEY ? NOTE(v) : String(v));
 function modRow(srcId, depthId, label) {   // a source and its depth on one line
   const row = document.createElement("div");
   row.className = "ctl mod";
@@ -598,8 +619,21 @@ const PAGES = {
       modRow(PRG(PF.PANMOD), PRG(PF.PANDEPTH), "PAN MOD")),
     card("Modes", ctl(PRG(PF.SYNC), "SYNC"), ctl(PRG(PF.AM), "AM"), ctl(PRG(PF.MONO), "MONO"), ctl(PRG(PF.GLIDE), "GLIDE"),
       ctl(PRG(PF.VC), "VC"), ctl(PRG(PF.ENVRS), "ENV RS", HELP.ENVRS), ctl(PRG(PF.OSCRS), "OSC RS", HELP.OSCRS),
-      ctl(PRG(PF.CYC), "CYC"))],
+      ctl(PRG(PF.CYC), "CYC")),
+    card("Split / layer", ctl(PRG(PF.LAYER), "LAYER", "a program of the bank sounding with this one"),
+      ctl(PRG(PF.SPLIT), "SPLIT", "a program of the bank played from the split key up"),
+      ctl(PRG(PF.SPLAYR), "SPL LYR", "a program sounding with the split program"),
+      ctl(PRG(PF.SPKEY), "SPL KEY", "the split key: it and the keys above play the split program"),
+      splitNote())],
 };
+function splitNote() {   // (the partners are programs of the bank by place)
+  const p = document.createElement("p");
+  p.className = "lbl";
+  p.style.margin = "8px 0 0";
+  p.textContent = bank ? "Partners are programs of the open bank by place, as on the SQ-80; they play here and on the FM-1 from the same bank."
+                       : "Partners are programs of the bank by place, as on the SQ-80. Open or get the bank to hear them here.";
+  return p;
+}
 let page = "Oscillators";
 function buildTabs() {
   const t = $("tabs");

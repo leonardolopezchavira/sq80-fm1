@@ -29,6 +29,7 @@ jobs:
       test: |
         python3 fm1/base/tools/build.py app --host
         app/build/host/sq80_host app/tests/basic.txt app/build/host
+        app/build/host/sq80_host app/tests/splitlayer.txt app/build/host
         python3 tools/fm1_loader.py sim-script app/build/host/loader.txt
         app/build/host/sq80_host app/build/host/loader.txt app/build/host
       tests-block: false

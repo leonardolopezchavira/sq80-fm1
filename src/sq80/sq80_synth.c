@@ -234,6 +234,18 @@ void sq80_init(sq80_synth *s, const sq80_rompack *rom, float sample_rate) {
 
 void sq80_set_patch(sq80_synth *s, const sq80_patch *p) { s->patch = *p; }
 
+void sq80_set_links(sq80_synth *s, const sq80_patch *layer, const sq80_patch *split, const sq80_patch *split_layer,
+                    int split_key) {
+    s->link[0] = layer;
+    s->link[1] = split;
+    s->link[2] = split ? split_layer : 0;
+    s->split_key = clampi(split_key, 0, 127);
+}
+
+static const sq80_patch *vpatch(const sq80_synth *s, const sq80_voice *v) {   /* the voice's program */
+    return v->part && s->link[v->part - 1] ? s->link[v->part - 1] : &s->patch;
+}
+
 int sq80_active_voices(const sq80_synth *s) {
     int n = 0, i;
     for (i = 0; i < SQ80_VOICES; ++i) n += s->voices[i].active ? 1 : 0;
@@ -261,7 +273,7 @@ static float mod_sum(const sq80_synth *s, const sq80_voice *v, const sq80_mod *a
 }
 
 static void setup_osc(sq80_synth *s, sq80_voice *v, int i, float pitch) {
-    const sq80_osc_params *op = &s->patch.osc[i];
+    const sq80_osc_params *op = &vpatch(s, v)->osc[i];
     sq80_osc *o = &v->osc[i];
     const int zone_key = clampi(v->key + op->octave * 12 + op->semi, 0, 127);
     const int raw = s->rom->zones[op->wave * SQ80_ZONES + (zone_key >> 3)];
@@ -282,7 +294,7 @@ static void setup_osc(sq80_synth *s, sq80_voice *v, int i, float pitch) {
 }
 
 static void control_tick(sq80_synth *s, sq80_voice *v) {
-    const sq80_patch *p = &s->patch;
+    const sq80_patch *p = vpatch(s, v);
     float env4, gain, pan_steps, pan, cutoff_steps;
     int i;
     for (i = 0; i < 4; ++i) env_tick(&v->env[i]);
@@ -323,7 +335,7 @@ static void control_tick(sq80_synth *s, sq80_voice *v) {
 }
 
 static void start_voice(sq80_synth *s, sq80_voice *v, int key, int velocity, int legato) {
-    const sq80_patch *p = &s->patch;
+    const sq80_patch *p = vpatch(s, v);
     const int reuse = v->active;
     const float glide_ticks = p->glide > 0 ? (float)SQ80_ENV_TICKS[p->glide > 63 ? 63 : p->glide] : 0.0f;
     int i;
@@ -365,24 +377,51 @@ static void start_voice(sq80_synth *s, sq80_voice *v, int key, int velocity, int
     filter_set(&v->filter, v->cutoff, v->resonance, s->sample_rate);
 }
 
-void sq80_note_on(sq80_synth *s, int key, int velocity) {
+static const sq80_patch *part_patch(const sq80_synth *s, int part) {
+    return part && s->link[part - 1] ? s->link[part - 1] : &s->patch;
+}
+
+static int zone_parts(const sq80_synth *s, int key, int parts[2]) {   /* the parts key plays: 1 or 2 */
+    int n = 0;
+    if (s->link[1] && key >= s->split_key) {
+        parts[n++] = 2;
+        if (s->link[2]) parts[n++] = 3;
+    } else {
+        parts[n++] = 0;
+        if (s->link[0]) parts[n++] = 1;
+    }
+    return n;
+}
+
+static int held_in_part(const sq80_synth *s, int part, int except) {   /* the newest held key part plays, -1 none */
+    int i, k, parts[2], n;
+    for (i = s->held_count - 1; i >= 0; --i) {
+        if (s->held_keys[i] == except) continue;
+        n = zone_parts(s, s->held_keys[i], parts);
+        for (k = 0; k < n; ++k)
+            if (parts[k] == part) return s->held_keys[i];
+    }
+    return -1;
+}
+
+static void part_note_on(sq80_synth *s, int part, int key, int velocity) {
+    const sq80_patch *p = part_patch(s, part);
     sq80_voice *target = 0;
     int i;
-    if (velocity <= 0) { sq80_note_off(s, key); return; }
-    key = clampi(key, 0, 127);
-    velocity = clampi(velocity, 1, 127);
-    if (s->held_count < 16) s->held_keys[s->held_count++] = key;
-
-    if (s->patch.mono) {
-        sq80_voice *v = &s->voices[0];
-        for (i = 1; i < SQ80_VOICES; ++i) s->voices[i].active = 0;
-        start_voice(s, v, key, velocity, v->active && !v->released && s->held_count > 1);
-        s->last_key = key;
-        return;
+    if (p->mono) {   /* one voice for the part: the one it has, the others of the part cut */
+        for (i = 0; i < SQ80_VOICES; ++i)
+            if (s->voices[i].active && s->voices[i].part == part) {
+                if (!target) target = &s->voices[i];
+                else s->voices[i].active = 0;
+            }
+        if (target) {
+            start_voice(s, target, key, velocity, !target->released && held_in_part(s, part, key) >= 0);
+            return;
+        }
     }
-    if (s->patch.restart_voice)
+    if (!target && p->restart_voice)
         for (i = 0; i < SQ80_VOICES && !target; ++i)
-            if (s->voices[i].active && s->voices[i].key == key) target = &s->voices[i];
+            if (s->voices[i].active && s->voices[i].key == key && s->voices[i].part == part) target = &s->voices[i];
     for (i = 0; i < SQ80_VOICES && !target; ++i)
         if (!s->voices[i].active) target = &s->voices[i];
     if (!target) {   /* steal: the oldest released voice, else the oldest */
@@ -393,7 +432,18 @@ void sq80_note_on(sq80_synth *s, int key, int velocity) {
                 if (!target || s->voices[i].age < target->age) target = &s->voices[i];
         target->active = 0;   /* a stolen voice starts fresh */
     }
+    target->part = (uint8_t)part;
     start_voice(s, target, key, velocity, 0);
+}
+
+void sq80_note_on(sq80_synth *s, int key, int velocity) {
+    int parts[2], n, k;
+    if (velocity <= 0) { sq80_note_off(s, key); return; }
+    key = clampi(key, 0, 127);
+    velocity = clampi(velocity, 1, 127);
+    n = zone_parts(s, key, parts);
+    for (k = 0; k < n; ++k) part_note_on(s, parts[k], key, velocity);   /* (before the key counts as held) */
+    if (s->held_count < 16) s->held_keys[s->held_count++] = key;
     s->last_key = key;
 }
 
@@ -411,16 +461,16 @@ void sq80_note_off(sq80_synth *s, int key) {
             --s->held_count;
             break;
         }
-    if (s->patch.mono) {
-        sq80_voice *v = &s->voices[0];
-        if (v->active && v->key == key && s->held_count > 0) {   /* back to the newest held key */
-            start_voice(s, v, s->held_keys[s->held_count - 1], v->velocity, 1);
-            return;
-        }
-    }
     for (i = 0; i < SQ80_VOICES; ++i) {
         sq80_voice *v = &s->voices[i];
         if (!v->active || v->key != key || v->released) continue;
+        if (part_patch(s, v->part)->mono) {   /* back to the newest key still held in the part */
+            const int back = held_in_part(s, v->part, -1);
+            if (back >= 0) {
+                start_voice(s, v, back, v->velocity, 1);
+                continue;
+            }
+        }
         if (s->sustain >= 64) v->released = 1;   /* the envelopes release when the pedal goes up */
         else release_voice(v);
     }
@@ -460,7 +510,7 @@ void sq80_all_notes_off(sq80_synth *s) {
 }
 
 static float render_doc(sq80_synth *s, sq80_voice *v) {
-    const sq80_patch *p = &s->patch;
+    const sq80_patch *p = vpatch(s, v);
     float sum = 0.0f, s0 = 0.0f;
     int i;
     for (i = 0; i < 3; ++i) {

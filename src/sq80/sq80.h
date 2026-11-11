@@ -125,6 +125,10 @@ typedef struct {
     uint8_t glide;                  /* 0..127 */
     uint8_t pan;                    /* 0..15 */
     sq80_mod pan_mod;
+    /* SPLIT/LAYER (bytes 0x60..0x63): programs of the same bank by place, -1 off. The split program (and its own
+     * layer) plays from split_key up, this one (and its layer) below; the linked programs' own links are not used */
+    uint8_t split_key;              /* 0..127 */
+    int8_t layer, split, split_layer;
 } sq80_patch;
 
 /* Decodes a 102-byte ESQ-1/SQ-80 program (docs/patch-format.md). */
@@ -165,6 +169,7 @@ typedef struct { float k, G, G2, G3, G4, inv, den, s[4]; } sq80_filter;   /* coe
 
 typedef struct {
     uint8_t active, released;
+    uint8_t part;                   /* 0 the program, 1 its layer, 2 the split program, 3 the split program's layer */
     int key, velocity;
     uint32_t age;
     float pitch_key, glide_rate;
@@ -180,6 +185,8 @@ typedef struct {
 typedef struct {
     const sq80_rompack *rom;
     sq80_patch patch;
+    const sq80_patch *link[3];      /* the layer, split and split-layer programs (sq80_set_links), 0 off */
+    int split_key;
     sq80_voice voices[SQ80_VOICES];
     float sample_rate, doc_step, samples_per_tick, control_countdown, amp_pole;
     uint32_t age_counter;
@@ -193,6 +200,10 @@ typedef struct {
 /* `rom` must stay valid (on the FM-1 it lives in flash). sample_rate >= 32000. */
 void sq80_init(sq80_synth *s, const sq80_rompack *rom, float sample_rate);
 void sq80_set_patch(sq80_synth *s, const sq80_patch *p);
+/* the program's SPLIT/LAYER partners (0: off; a split layer only with a split), kept by pointer: they stay valid and
+ * unchanged while set (a voice of a part that goes off plays on with the program's own patch) */
+void sq80_set_links(sq80_synth *s, const sq80_patch *layer, const sq80_patch *split, const sq80_patch *split_layer,
+                    int split_key);
 void sq80_note_on(sq80_synth *s, int key, int velocity);
 void sq80_note_off(sq80_synth *s, int key);
 void sq80_control_change(sq80_synth *s, int cc, int value);
