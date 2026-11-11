@@ -352,6 +352,7 @@ int plat_wheels(int32_t *bend, int32_t *mod)
 }
 int plat_pedal(void) { return smk_pedal; }
 void plat_wheels_raw(int32_t *pitch, int32_t *mod) { *pitch = 540 + smk_bend / 64, *mod = 620 - smk_mod; }   /* (a likeness) */
+void plat_muxc_raw(int32_t v[4]) { plat_wheels_raw(&v[0], &v[1]); v[2] = 1023, v[3] = 600; }
 static void smk_pad(int p, int down, int vel)
 {
     if (down) {

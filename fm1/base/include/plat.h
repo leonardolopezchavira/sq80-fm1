@@ -121,6 +121,7 @@ int plat_fader(int i);                 /* fader 0..3 (left to right): 0..127, -1
 int plat_wheels(int32_t *bend, int32_t *mod);   /* 1 = new values: bend -8192..8191 (a MIDI bend), mod 0..127 */
 int plat_pedal(void);                  /* the pedal jack: 1 pressed, 0 not, -1 none plugged / not read yet */
 void plat_wheels_raw(int32_t *pitch, int32_t *mod);   /* their readings as they are, 0..1023 (a check screen) */
+void plat_muxc_raw(int32_t v[4]);      /* mux C's addresses 4..7 as read: pitch, mod, pedal, battery (a check screen) */
 #endif
 
 /* MIDI: 4-byte USB-MIDI event packets (byte 0 = cable / CIN, then status, data 1, data 2). In from USB, the TRS jack

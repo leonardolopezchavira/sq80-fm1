@@ -2714,25 +2714,30 @@ static void draw(void)
         int_text(set.minvel, t);
         cv_text(70, 104, &FONT_XS, set.minvel ? t : "OFF", C_ACCENT);
 #if APP_SMK
-        {                                    /* the wheels: their readings and what they send (a check) */
-            int32_t rp, rm;
-            plat_wheels_raw(&rp, &rm);
+        {                                    /* the wheels: mux C's readings (4 pitch, 5 mod, 6 pedal, 7 battery) and
+                                              * what the wheels send (a check) */
+            int32_t r[4], k;
+            plat_muxc_raw(r);
             t[0] = 0;
-            text_cat(t, "PITCH ");
-            int_text(rp, n);
-            text_cat(t, n);
-            text_cat(t, " ");
+            for (k = 0; k < 4; k++) {
+                text_cat(t, k ? "  C" : "C");
+                int_text(k + 4, n);
+                text_cat(t, n);
+                text_cat(t, " ");
+                int_text(r[k], n);
+                text_cat(t, n);
+            }
+            cv_text(10, 122, &FONT_XS, t, C_DIM);
+            t[0] = 0;
+            text_cat(t, "BEND ");
             if (smk.bend > 0)
                 text_cat(t, "+");
             int_text(smk.bend, n);
             text_cat(t, n);
-            text_cat(t, "   MOD ");
-            int_text(rm, n);
-            text_cat(t, n);
-            text_cat(t, " ");
+            text_cat(t, " MOD ");
             int_text(smk.mod, n);
             text_cat(t, n);
-            cv_text(10, 122, &FONT_XS, t, C_DIM);
+            cv_text(130, 104, &FONT_XS, t, C_DIM);
         }
 #else
         cv_text(10, 122, &FONT_XS, "K1 CLICK  K2 MIN VEL  PLAY: 8 VOICES", C_DIM);
