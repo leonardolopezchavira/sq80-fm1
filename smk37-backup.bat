@@ -20,11 +20,11 @@ if not exist "fm1\base\tools\fm1_install.py" (
   goto end
 )
 
-rem ---- Python 3.13
-set "PY=py -3.13"
+rem ---- Python 3.12
+set "PY=py -3.12"
 %PY% --version >nul 2>&1
 if errorlevel 1 (
-  echo Python 3.13 was not found. Install it from python.org ^(Windows installer 64-bit^), then double-click this again.
+  echo Python 3.12 was not found. Install it from python.org ^(Windows installer 64-bit^), then double-click this again.
   goto end
 )
 echo Getting the Python packages ready...
