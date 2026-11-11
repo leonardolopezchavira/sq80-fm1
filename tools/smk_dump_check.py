@@ -32,6 +32,9 @@ def main(a, b):
     for lo, hi, what in STRETCHES:
         used = sum(1 for x in d1[lo:hi] if x != 0xFF)
         print(f"  {what:28s} {'empty (all 0xFF)' if not used else f'{used} bytes written'}")
+    print("  sectors 0xEA000-0xF3FFF (bytes written in each; 0 = empty):")
+    print("   " + " ".join(f"{a >> 12:02X}:{sum(1 for x in d1[a:a + 0x1000] if x != 0xFF)}"
+                           for a in range(0xEA000, 0xF4000, 0x1000)))
     return 0
 
 
