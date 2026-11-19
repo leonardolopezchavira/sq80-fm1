@@ -129,6 +129,19 @@ static uint8_t link_ix;                  /* the set in use */
 static uint32_t link_key = 0xFFFFFFFFu, bank_gen;   /* what that set holds; bumped by every bank write */
 static uint8_t play_ix;
 static char prog_name[8];
+
+/* MULTI (multitimbral): MIDI channels 2..8 play programs of their own on the same eight voices, as the SQ-80's
+ * sequencer tracks do; channel 1 stays the program on the panel (the keys, the arpeggiator, the sequencer). Turned
+ * on by the tablet's page (frame 34), off at power-up. A channel's program comes from frame 33 or a program change
+ * on that channel (a program of the bank on the panel); decoded here in the main loop, two buffers per channel, the
+ * audio interrupt told which (Q_CHAN) and only then the other one rewritten. */
+static volatile uint8_t multi, key_ch;    /* MULTI on; the channel the FM-1's own keys play (0..7) */
+static uint8_t chan_raw[SQ80_CHANNELS - 1][102] PLAT_POOL;      /* channels 2..8: the program asked for */
+static sq80_patch chan_patch[SQ80_CHANNELS - 1][2] PLAT_POOL;   /* .. decoded, two buffers */
+static uint8_t chan_dirty, chan_has;     /* (bit c - 1) a new program waiting; a program set */
+static uint8_t chan_posted[SQ80_CHANNELS];
+static volatile uint8_t chan_applied[SQ80_CHANNELS], chan_live[SQ80_CHANNELS];   /* written by the interrupt */
+static volatile uint8_t chan_pc[SQ80_CHANNELS] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};   /* a program change */
 static uint8_t edited;                   /* changed since it was loaded (not saved) */
 
 /* a flash bank: "SQBK", the count, then 40 programs of 102 bytes; in banks 5..8 the programs step over GAP */
@@ -210,7 +223,8 @@ static int prog_read(uint32_t bank, uint32_t pi, uint8_t out[102])   /* program 
 }
 
 /* the main loop's events for the audio interrupt: one writer (the main loop), one reader (app_render) */
-enum { Q_ON, Q_OFF, Q_PATCH, Q_EDIT, Q_ALLOFF, Q_SEQ, Q_CC, Q_BEND };   /* (CC: a = number, b = value; BEND: b 0..16383) */
+enum { Q_ON, Q_OFF, Q_PATCH, Q_EDIT, Q_ALLOFF, Q_SEQ, Q_CC, Q_BEND, Q_CHAN };   /* (CC: a = number, b = value; BEND: b 0..16383;
+                                                                             * CHAN: a = channel, b = buffer, 2 none, 3 notes off) */
 #define NEV 64u
 static volatile uint32_t ev_q[NEV];
 static volatile uint32_t ev_w, ev_r;
@@ -278,6 +292,61 @@ static void program_from_sysex(const uint8_t *prog102)   /* an ESQ-1/SQ-80 singl
         prog_raw[i] = prog102[i];
     edited = 1;
     program_play(1);
+}
+
+/* MULTI: the main loop's side */
+static void chan_program(uint32_t c, const uint8_t *prog102)   /* channel c (1..7) to play these 102 bytes */
+{
+    uint32_t i;
+    for (i = 0; i < 102u; i++)
+        chan_raw[c - 1u][i] = prog102[i];
+    chan_dirty |= (uint8_t)(1u << (c - 1u));
+}
+static void chan_service(void)               /* decode what is waiting, once the interrupt took the last one */
+{
+    uint32_t c;
+    for (c = 1; c < SQ80_CHANNELS; c++) {
+        if (chan_pc[c] != 0xFFu) {           /* a program change on the channel: a program of the panel's bank */
+            uint8_t raw[102];
+            uint32_t pc = chan_pc[c];
+            chan_pc[c] = 0xFFu;
+            if (pc < bank_count(set.bank) && prog_read(set.bank, pc, raw) == 0)
+                chan_program(c, raw);
+        }
+        if (!(chan_dirty >> (c - 1u) & 1u) || chan_posted[c] != chan_applied[c])
+            continue;
+        {
+            uint32_t ix = (chan_has >> (c - 1u) & 1u) ? chan_live[c] ^ 1u : 0u;
+            sq80_decode_patch(chan_raw[c - 1u], &chan_patch[c - 1u][ix]);
+            chan_dirty &= (uint8_t)~(1u << (c - 1u));
+            chan_has |= (uint8_t)(1u << (c - 1u));
+            chan_posted[c]++;
+            post(Q_CHAN, c, ix);
+        }
+    }
+}
+static void multi_set(uint32_t on, uint32_t keys)   /* off: the parts' programs dropped (their voices go) */
+{
+    uint32_t c;
+    if (keys >= SQ80_CHANNELS || !on)
+        keys = 0;
+    if (keys != key_ch) {                    /* the keys to another part: the old one's notes let go */
+        post(Q_CHAN, key_ch, 3);
+        key_ch = (uint8_t)keys;
+    }
+    if (on) {
+        multi = 1;
+        return;
+    }
+    multi = 0;
+    for (c = 1; c < SQ80_CHANNELS; c++) {
+        chan_pc[c] = 0xFFu;
+        if (chan_has >> (c - 1u) & 1u) {
+            chan_posted[c]++;
+            post(Q_CHAN, c, 2);
+        }
+    }
+    chan_has = chan_dirty = 0;
 }
 
 static volatile int32_t last_note = -1;
@@ -378,6 +447,21 @@ static void midi_in(void)                    /* audio interrupt */
             sl_realtime(st, plat_ms());
             continue;
         }
+        if (multi && st < 0xF0u && (st & 15u)) {   /* MULTI: channels 2..8 straight to their parts, 9..16 not heard */
+            int c = (int)(st & 15u);
+            if (c >= SQ80_CHANNELS)
+                continue;
+            switch (st & 0xF0u) {
+            case 0x90u: sq80_note_on_ch(&syn, c, (int)d1, (int)d2); break;
+            case 0x80u: sq80_note_off_ch(&syn, c, (int)d1); break;
+            case 0xB0u: sq80_control_change_ch(&syn, c, (int)d1, (int)d2); break;
+            case 0xC0u: chan_pc[c] = (uint8_t)d1; break;
+            case 0xD0u: sq80_channel_pressure_ch(&syn, c, (int)d1); break;
+            case 0xE0u: sq80_pitch_bend_ch(&syn, c, (int)(d1 | d2 << 7)); break;
+            default: break;
+            }
+            continue;
+        }
         switch (st & 0xF0u) {
         case 0x90u:
             sl_key(d1, d2);
@@ -415,7 +499,9 @@ static void events(void)                     /* audio interrupt */
         uint32_t e = ev_q[ev_r % NEV], a = (e >> 8) & 0xFFu, b = e >> 16;
         switch (e & 0xFFu) {
         case Q_ON:                           /* (velocity + 128: past the arpeggiator, the load test's) */
-            if (b < 128u) {
+            if (b < 128u && multi && key_ch) {   /* MULTI: the keys play another part (past the arpeggiator) */
+                sq80_note_on_ch(&syn, key_ch, (int)a, (int)b);
+            } else if (b < 128u) {
                 sl_key(a, b);
             } else {
                 sq80_note_on(&syn, (int)a, (int)(b & 127u));
@@ -423,7 +509,9 @@ static void events(void)                     /* audio interrupt */
             }
             break;
         case Q_OFF:
-            if (b < 128u)
+            if (b < 128u && multi && key_ch)
+                sq80_note_off_ch(&syn, key_ch, (int)a);
+            else if (b < 128u)
                 sl_key(a, 0);
             else
                 sq80_note_off(&syn, (int)a);
@@ -431,8 +519,8 @@ static void events(void)                     /* audio interrupt */
         case Q_SEQ:                          /* the sequencer's commands: a = SC_*, b = step | change << 8 */
             sl_cmd(a, b & 0xFFu, (int32_t)(int8_t)(b >> 8));
             break;
-        case Q_PATCH:
-            sq80_all_notes_off(&syn);
+        case Q_PATCH:                        /* (channel 1's notes: the other parts play on) */
+            sq80_notes_off_ch(&syn, 0);
             notes_forget();
             sq80_set_patch(&syn, &play_patch[a & 1u]);
             set_links(b);
@@ -450,6 +538,16 @@ static void events(void)                     /* audio interrupt */
             break;
         case Q_BEND:
             sq80_pitch_bend(&syn, (int)b);
+            break;
+        case Q_CHAN:
+            if (b == 3u) {                   /* (a channel's notes off: the keys moved to another part) */
+                sq80_notes_off_ch(&syn, (int)a);
+            } else if (a > 0u && a < SQ80_CHANNELS) {
+                sq80_set_channel_patch(&syn, (int)a, b < 2u ? &chan_patch[a - 1u][b] : 0);
+                if (b < 2u)
+                    chan_live[a] = (uint8_t)b;
+                chan_applied[a]++;
+            }
             break;
         }
         ev_r = ev_r + 1u;
@@ -622,7 +720,10 @@ void app_init(void)
  *   31 B P                     program P of bank B (B 7F: the one playing, as edited): answered
  *                              7E 31 B P E NIBBLES (E 1: edited, not saved)
  *   32 B P DATA..              a program stored into bank B place P (the sector rewritten), then played from there
- * Frames 10..12, 20..22 and 30..32 end with a check: the sum of the bytes from CMD on, mod 16384, as 2 x 7 bits (low first);
+ *   33 C DATA..                MULTI: a program for channel C (0..7, MIDI channel C + 1; 0: as 30), played, unsaved
+ *   34 M [K]                   MULTI on (1) / off (0): channels 2..8 then play their own programs on the shared voices;
+ *                              K (0..7, default 0): the part the FM-1's own keys play (the tablet's selected track)
+ * Frames 10..12, 20..22 and 30..34 end with a check: the sum of the bytes from CMD on, mod 16384, as 2 x 7 bits (low first);
  * one that fails it is answered 7 and taken no further (the loader sends it again; every frame may come twice).
  * And an ESQ-1/SQ-80 single-program dump, F0 0F 02 ch 01 (204 nibbles) F7: played, unsaved. */
 static struct {
@@ -877,7 +978,7 @@ int app_sysex(const uint8_t *p, uint32_t n)
     loads++;
     echo[0] = echo[1] = 0;
     if ((p[3] >= 0x10u && p[3] <= 0x12u) || (p[3] >= 0x20u && p[3] <= 0x22u) ||
-        (p[3] >= 0x30u && p[3] <= 0x32u)) {   /* their last 2 bytes: a check */
+        (p[3] >= 0x30u && p[3] <= 0x34u)) {   /* their last 2 bytes: a check */
         uint32_t sum = 0, i;
         if (n < 6u) {
             reply(p[3], 1);
@@ -918,6 +1019,38 @@ int app_sysex(const uint8_t *p, uint32_t n)
         program_play(0);
         redraw_req = 1;
         reply(p[3], 0);
+        return 1;
+    }
+    case 0x33u: {                        /* MULTI: a program for channel C (0..7: MIDI channel C + 1; 0 the panel's,
+                                          * as 30): 33 C NIBBLES */
+        uint8_t prog[102];
+        uint32_t i, c = n > 4u ? p[4] : 0xFFu;
+        if (n < 5u + 204u || c >= SQ80_CHANNELS) {
+            reply(0x33, 1);
+            return 1;
+        }
+        for (i = 0; i < 102u; i++)
+            prog[i] = (uint8_t)((p[5 + 2 * i] & 15u) | (p[6 + 2 * i] & 15u) << 4);
+        if (c == 0u) {
+            for (i = 0; i < 102u; i++)
+                prog_raw[i] = prog[i];
+            edited = 1;
+            program_play(0);
+            redraw_req = 1;
+        } else {
+            chan_program(c, prog);
+        }
+        reply(0x33, 0);
+        return 1;
+    }
+    case 0x34u: {                        /* MULTI on (1) or off (0), and the part the keys play: 34 M [K] */
+        if (n < 5u || p[4] > 1u || (n > 5u && p[5] >= SQ80_CHANNELS)) {
+            reply(0x34, 1);
+            return 1;
+        }
+        multi_set(p[4], n > 5u ? p[5] : 0u);
+        redraw_req = 1;
+        reply(0x34, 0);
         return 1;
     }
     case 0x31u: {                        /* a program: bank B (0..7) place P, or B = 7F the one playing (as edited):
@@ -2179,6 +2312,7 @@ static void input(void)
                 }
             }
     }
+    chan_service();
     if (pc_req != 0xFFFFFFFFu) {             /* MIDI program change: 0..39 in this bank */
         uint32_t pc = pc_req;
         pc_req = 0xFFFFFFFFu;
@@ -2909,6 +3043,8 @@ static void draw(void)
     t[1] = (char)('0' + (set.octave < 0 ? -set.octave : set.octave));
     t[2] = 0;
     cv_text(44, 4, &FONT_XS, t, C_ACCENT);
+    if (multi)
+        cv_text(70, 4, &FONT_XS, "MULTI", C_ACCENT);
     if (midi_count) {
         static const char *const PORT[NPORTS] = {"USB", "BLE", "TRS"};
         cv_text(120, 4, &FONT_XS, "MIDI", C_GRAY);
@@ -3088,6 +3224,10 @@ int app_expect(const char *what, int *got)
         *got = rom_real;
     else if (!strcmp(what, "voices"))
         *got = (int)voices_now;
+    else if (!strcmp(what, "multi"))
+        *got = multi;
+    else if (!strncmp(what, "chvoices", 8))  /* chvoicesC: the voices of channel C (0..7) */
+        *got = sq80_active_voices_ch(&syn, what[8] - '0');
     else if (!strcmp(what, "note"))
         *got = last_note;
     else if (!strcmp(what, "dirty"))
@@ -3136,11 +3276,11 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "padgroup"))
         *got = smk.group;
     else if (!strcmp(what, "wheel"))         /* the engine's mod wheel, sustain, bend (cents) */
-        *got = syn.wheel;
+        *got = syn.ch[0].wheel;
     else if (!strcmp(what, "sustain"))
-        *got = syn.sustain;
+        *got = syn.ch[0].sustain;
     else if (!strcmp(what, "bend"))
-        *got = (int)(syn.bend_semis * 100.0f + (syn.bend_semis < 0 ? -0.5f : 0.5f));
+        *got = (int)(syn.ch[0].bend_semis * 100.0f + (syn.ch[0].bend_semis < 0 ? -0.5f : 0.5f));
     else if (!strcmp(what, "freq"))          /* program values the faders hold */
         *got = sq80_param_get(prog_raw, SQ80_PARAM_PROG(SQ80_P_FREQ));
     else if (!strcmp(what, "attack"))

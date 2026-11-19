@@ -18,6 +18,7 @@ LFOs per voice, eight voices, effects, an arpeggiator and a step sequencer. This
 11. MIDI and Bluetooth
 12. The web pages
 13. On the SMK-37
+14. MULTI and the tablet
 
 ---
 
@@ -199,7 +200,8 @@ voices and cores. **GLO** again sets the peak to 0. **PLAY** here plays all eigh
 
 ## 11. MIDI and Bluetooth
 
-SQ-80 plays from MIDI over **USB**, the **MIDI in jack** and **Bluetooth**, on any channel: notes with velocity,
+SQ-80 plays from MIDI over **USB**, the **MIDI in jack** and **Bluetooth**, on any channel (with MULTI on: channels
+1–8, each its own program, see section 14): notes with velocity,
 pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock leads the sequencer and the arpeggiator
 (MIDI CLK on). The keys send their notes out over USB and Bluetooth.
 
@@ -217,6 +219,7 @@ pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock lea
 | **Emulator** | SQ-80 in the browser: the same firmware |
 | **ROM pack** | makes your ROM pack from your SQ-80's ROM dumps |
 | **Wave pack** | makes a wave set from your own sounds |
+| **Tablet** | the SQ-80's front panel and sequencer on a tablet (section 14) |
 
 Chrome or Edge, with the FM-1 connected by USB. Nothing is uploaded: your files stay on your computer.
 
@@ -227,4 +230,35 @@ names: SCALE is SEL, CHORD is ENV, NOTE REPEAT is LFO, PARA is EDIT, GLOBE is GL
 where this manual says K1-K4, and its own: 37 keys with velocity, the pads (programs; with SEQ held, the steps),
 four faders in four banks, the wheels and the pedal. It has two banks of 40 programs, for your own. The backup,
 the install and the controls: the [SMK-37 page](../smk37/).
+
+## 14. MULTI and the tablet
+
+**MULTI** makes SQ-80 multitimbral, as the SQ-80's sequencer is: MIDI channels 1–8 each play a program of their own,
+and all of them share the eight voices (a ninth note takes the oldest one, from whichever channel). Channel 1 is the
+program on the panel, with its SPLIT/LAYER partners, the arpeggiator and the sequencer; channels 2–8 play their own
+programs, without partners. Channels 9–16 are not heard. The effects are shared. The status bar shows **MULTI** while
+it is on. It is turned on by the tablet (below) and is off again at power-up.
+
+**The tablet** (the Tablet page, and the **SQ-80 Tablet** app for a Fire tablet or any Android tablet) is the SQ-80's
+control panel and sequencer, running on the tablet so the FM-1 only plays:
+
+- **Panel**: the eight tracks' programs, page by page as on the SQ-80 (OSC, DCA, FILTER, DCA 4, MODES, LFO, ENV,
+  SPLIT), as knobs. Turn a knob by dragging up or down; tap one to choose its value. Every change plays at once on
+  the FM-1. **Get** puts a program of the FM-1's banks on the track; **Save** stores the track's sound in a bank.
+- **Seq**: 60 sequences of 8 tracks. Each track keeps a program, a MIDI channel (channels 1–8 are the FM-1's parts),
+  a MIX level and a status: **MIDI** (the FM-1, or the MIDI out chosen in Setup), **TABLET** (the tablet's own copy
+  of the engine) or **BOTH**. Select a track and the FM-1's keys play its sound. Record from the FM-1's keys: ● then
+  ▶ (a count-off first), with auto-correct, replace or add, and punch in; ● during play punches in on the selected
+  track. Step entry, transpose, auto-correct, velocity, remove controllers, copy, merge and erase work on a track;
+  add and delete bars, append, copy and erase on the sequence. MIDI files import and export.
+- **Song**: 20 songs of up to 99 steps; each step plays a sequence, repeated 1–99 times, transposed.
+- **Roll**: the selected track's notes. Tap to add a note, drag it to move it, drag its end to lengthen it, tap twice
+  to delete it; drag the empty grid to scroll.
+- **Library**: the FM-1's banks (read from it) and .syx files; put any program on a track.
+- **Setup**: the connection, MULTI, MIDI out and in, MIDI clock out, the tablet's sound, and the project (kept on the
+  tablet; Export makes a file of it).
+
+On a **Fire HD 10**: install **SQ80-Tablet.apk** from the project's *tablet-latest* release (Settings → Security and
+privacy → apps from unknown sources), then connect the FM-1 to the tablet with a USB-C OTG cable or hub. On a
+computer, the Tablet page works in Chrome or Edge like the other pages.
 

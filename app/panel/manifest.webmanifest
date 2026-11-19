@@ -1,0 +1,10 @@
+{
+  "name": "SQ-80 Tablet",
+  "short_name": "SQ-80",
+  "description": "The SQ-80's control panel and sequencer for the FM-1 running SQ-80",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
