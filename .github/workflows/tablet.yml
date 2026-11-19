@@ -1,0 +1,50 @@
+# SQ-80 Tablet: the tablet page (app/panel) with the editor's engine, as an Android app for the Fire HD 10 (android/,
+# built with the SDK's own tools, no Gradle). Every push that touches it builds SQ80-Tablet.apk (the run's artifact)
+# and puts it in the rolling "tablet-latest" pre-release, where the tablet's browser can download it.
+name: tablet
+
+on:
+  push:
+    paths: ['app/panel/**', 'android/**', 'app/editor/**', 'src/sq80/**', 'tools/build_editor.sh', 'tools/site_theme.py', '.github/workflows/tablet.yml']
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: The sequencer's tests
+        run: node app/panel/test_seqcore.js
+      - uses: mymindstorm/setup-emsdk@v14
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: The page and its engine
+        run: |
+          mkdir -p site/panel
+          sh tools/build_editor.sh site/edit
+          cp app/panel/index.html app/panel/app.js app/panel/seqcore.js app/panel/manifest.webmanifest site/panel/
+          python3 tools/site_theme.py site
+      - name: The APK
+        run: |
+          V="$(grep -o 'const VERSION = "[^"]*"' app/panel/app.js | cut -d'"' -f2)"
+          echo "V=$V" >> "$GITHUB_ENV"
+          sh android/build.sh site "$V" out/SQ80-Tablet.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SQ80-Tablet
+          path: out/SQ80-Tablet.apk
+      - name: The tablet-latest pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="SQ-80 Tablet $V for the Fire HD 10 (any Android 6 or later), from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install: allow apps from unknown sources, open SQ80-Tablet.apk. Connect the FM-1 with a USB-C OTG cable or hub. MULTI needs SQ-80 0.15.0 or later on the FM-1."
+          if gh release view tablet-latest >/dev/null 2>&1; then
+            gh release upload tablet-latest out/SQ80-Tablet.apk --clobber
+            gh release edit tablet-latest --notes "$NOTES" --target "$GITHUB_SHA"
+          else
+            gh release create tablet-latest out/SQ80-Tablet.apk --prerelease --title "SQ-80 Tablet (latest)" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi

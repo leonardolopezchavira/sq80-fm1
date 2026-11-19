@@ -19,7 +19,8 @@ the [cheat sheet](../cheat/) has it all on one page.
 11. MIDI and Bluetooth
 12. The web pages
 13. On the SMK-37
-14. The factory bank
+14. MULTI and the tablet
+15. The factory bank
 
 ---
 
@@ -59,7 +60,7 @@ next install.
 
 ![The boot screen](img/splash.png "Switching on")
 
-There are eight banks of 40 programs (two on an SMK-37). **Bank 1 comes with SQ-80's factory bank**: 40 programs of its own, made from scratch on its 75 waves for dark electronic music (industrial, synth-pop, darkwave, downtempo, trip-hop; listed in [section 14](#s14)). The installer and the [Load page](../load/) put ESQ-1 / SQ-80 SysEx banks into the banks, and SAVE stores what you make; thousands of ESQ-1 and SQ-80 banks are at [Rainer Buchty's Ensoniq archive](https://www.buchty.net/ensoniq/), in the [Ensoniq sounds 2022-07](https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) collection and in [Don Solaris's collection](https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view). A bank loaded into bank 1 takes the factory bank's place; save a program there and the other 39 factory programs are kept with it. Clear bank 1 (the Load page) and the factory bank comes back; it is also on the site as [SQ-80-Factory.syx](../banks/SQ-80-Factory.syx), to load into any bank. In the other banks, a place where nothing was stored plays **INIT**, a plain sound to start from.
+There are eight banks of 40 programs (two on an SMK-37). **Bank 1 comes with SQ-80's factory bank**: 40 programs of its own, made from scratch on its 75 waves for dark electronic music (industrial, synth-pop, darkwave, downtempo, trip-hop; listed in [section 15](#s15)). The installer and the [Load page](../load/) put ESQ-1 / SQ-80 SysEx banks into the banks, and SAVE stores what you make; thousands of ESQ-1 and SQ-80 banks are at [Rainer Buchty's Ensoniq archive](https://www.buchty.net/ensoniq/), in the [Ensoniq sounds 2022-07](https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) collection and in [Don Solaris's collection](https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view). A bank loaded into bank 1 takes the factory bank's place; save a program there and the other 39 factory programs are kept with it. Clear bank 1 (the Load page) and the factory bank comes back; it is also on the site as [SQ-80-Factory.syx](../banks/SQ-80-Factory.syx), to load into any bank. In the other banks, a place where nothing was stored plays **INIT**, a plain sound to start from.
 
 ## 3. Playing
 
@@ -205,7 +206,8 @@ voices and cores. **GLO** again sets the peak to 0. **PLAY** here plays all eigh
 
 ## 11. MIDI and Bluetooth
 
-SQ-80 plays from MIDI over **USB**, the **MIDI in jack** and **Bluetooth**, on any channel: notes with velocity,
+SQ-80 plays from MIDI over **USB**, the **MIDI in jack** and **Bluetooth**, on any channel (with MULTI on: channels
+1–8, each its own program, see section 14): notes with velocity,
 pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock leads the sequencer and the arpeggiator
 (MIDI CLK on). The keys send their notes out over USB and Bluetooth.
 
@@ -225,6 +227,7 @@ pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock lea
 | **ROM pack** | makes your ROM pack from your SQ-80's ROM dumps |
 | **Wave pack** | makes a wave set from your own sounds |
 | **Cheat sheet** | every control and every editor page on one page (also a PDF, one printed sheet) |
+| **Tablet** | the SQ-80's front panel and sequencer on a tablet (section 14) |
 
 Chrome or Edge, with the FM-1 connected by USB. Nothing is uploaded: your files stay on your computer.
 
@@ -248,7 +251,38 @@ where this manual says K1-K4, and its own: 37 keys with velocity, the pads (prog
 four faders in four banks, the wheels and the pedal. It has two banks of 40 programs: bank 1 starts with the factory bank, both take your own. The backup,
 the install and the controls: the [SMK-37 page](../smk37/).
 
-## 14. The factory bank
+## 14. MULTI and the tablet
+
+**MULTI** makes SQ-80 multitimbral, as the SQ-80's sequencer is: MIDI channels 1–8 each play a program of their own,
+and all of them share the eight voices (a ninth note takes the oldest one, from whichever channel). Channel 1 is the
+program on the panel, with its SPLIT/LAYER partners, the arpeggiator and the sequencer; channels 2–8 play their own
+programs, without partners. Channels 9–16 are not heard. The effects are shared. The status bar shows **MULTI** while
+it is on. It is turned on by the tablet (below) and is off again at power-up.
+
+**The tablet** (the Tablet page, and the **SQ-80 Tablet** app for a Fire tablet or any Android tablet) is the SQ-80's
+control panel and sequencer, running on the tablet so the FM-1 only plays:
+
+- **Panel**: the eight tracks' programs, page by page as on the SQ-80 (OSC, DCA, FILTER, DCA 4, MODES, LFO, ENV,
+  SPLIT), as knobs. Turn a knob by dragging up or down; tap one to choose its value. Every change plays at once on
+  the FM-1. **Get** puts a program of the FM-1's banks on the track; **Save** stores the track's sound in a bank.
+- **Seq**: 60 sequences of 8 tracks. Each track keeps a program, a MIDI channel (channels 1–8 are the FM-1's parts),
+  a MIX level and a status: **MIDI** (the FM-1, or the MIDI out chosen in Setup), **TABLET** (the tablet's own copy
+  of the engine) or **BOTH**. Select a track and the FM-1's keys play its sound. Record from the FM-1's keys: ● then
+  ▶ (a count-off first), with auto-correct, replace or add, and punch in; ● during play punches in on the selected
+  track. Step entry, transpose, auto-correct, velocity, remove controllers, copy, merge and erase work on a track;
+  add and delete bars, append, copy and erase on the sequence. MIDI files import and export.
+- **Song**: 20 songs of up to 99 steps; each step plays a sequence, repeated 1–99 times, transposed.
+- **Roll**: the selected track's notes. Tap to add a note, drag it to move it, drag its end to lengthen it, tap twice
+  to delete it; drag the empty grid to scroll.
+- **Library**: the FM-1's banks (read from it) and .syx files; put any program on a track.
+- **Setup**: the connection, MULTI, MIDI out and in, MIDI clock out, the tablet's sound, and the project (kept on the
+  tablet; Export makes a file of it).
+
+On a **Fire HD 10**: install **SQ80-Tablet.apk** from the project's *tablet-latest* release (Settings → Security and
+privacy → apps from unknown sources), then connect the FM-1 to the tablet with a USB-C OTG cable or hub. On a
+computer, the Tablet page works in Chrome or Edge like the other pages.
+
+## 15. The factory bank
 
 Bank 1's 40 programs, until you load or save a bank there. Made for SQ-80's own waves; with your ROM pack loaded they play the original waves in the same slots, and sound a little different. The FM-1's effects are not part of a program: turn up the delay for DUBSTB, the reverb for the pads.
 

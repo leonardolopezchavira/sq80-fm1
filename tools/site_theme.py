@@ -140,7 +140,7 @@ VFD = f"""<style id="sq80-vfd">
 # every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
 BASE = "/sq80-fm1/"
 NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("librarian/", "Librarian"), ("emu/", "Emulator"),
-       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack"), ("backup/", "Backup"), ("smk37/", "SMK-37"), ("cheat/", "Cheat sheet")]
+       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack"), ("backup/", "Backup"), ("smk37/", "SMK-37"), ("panel/", "Tablet"), ("cheat/", "Cheat sheet")]
 NAV_CSS = f"""<style id="sq80-nav">
   nav.sq80-nav {{ display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; padding: 10px 16px;
     border-bottom: 1px solid #2a2a2a; background: {BLACK}; font: 600 13px/1.2 system-ui, -apple-system, sans-serif;
@@ -200,7 +200,7 @@ SUBS = {"install": "for the FM-1 · install", "load": "for the FM-1 · your wave
         "wavepack": "for the FM-1 · your own waves", "backup": "for the FM-1 and the SMK-37 · backup"}
 
 
-PAGES_OF_THEIR_OWN = ("cheat",)   # no menu bar or theme put in: they place the wordmark themselves (<!--SQ80-LOGO-->)
+PAGES_OF_THEIR_OWN = {"cheat": 34, "panel": 22}   # no menu bar or theme: they place the wordmark (<!--SQ80-LOGO-->), this high
 
 
 def main():
@@ -213,8 +213,8 @@ def main():
         rel = p.relative_to(root).parts
         if rel[0] in ("words", "firmware") or (rel[0] == "emu" and rel[-1] != "index.html"):
             continue
-        if rel[0] in PAGES_OF_THEIR_OWN:   # a page laid out whole (the cheat sheet: one printed sheet): only the wordmark
-            p.write_text(p.read_text(encoding="utf-8").replace("<!--SQ80-LOGO-->", logo_svg(34), 1), encoding="utf-8")
+        if rel[0] in PAGES_OF_THEIR_OWN:   # a page laid out whole (the cheat sheet, the tablet): only the wordmark
+            p.write_text(p.read_text(encoding="utf-8").replace("<!--SQ80-LOGO-->", logo_svg(PAGES_OF_THEIR_OWN[rel[0]]), 1), encoding="utf-8")
             print("themed", p.relative_to(root))
             continue
         sub = SUBS.get(rel[0], "for the FM-1") if len(rel) > 1 else "for the FM-1"

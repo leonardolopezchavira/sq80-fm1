@@ -1,0 +1,98 @@
+# MULTI (multitimbral): frame 34 turns it on, frame 33 gives MIDI channel 2 a program of its own; channels 2..8 then
+# play their own programs on the same eight voices, channel 1 the panel's; 9..16 are not heard; off again, every
+# channel is the panel's program as before
+#   python3 fm1/base/tools/build.py app --host && app/build/host/sq80_host app/tests/multi.txt app/build/host
+wait 600
+expect multi 0
+sysex_out
+sysex F0 7D 53 51 34 01 35 00 F7
+wait 20
+expect_sysex F0 7D 53 51 7F 34 00 35 00 F7
+expect multi 1
+# channel 2 has no program yet: silent
+midi 91 3C 64
+wait 50
+expect chvoices1 0
+midi 81 3C 00
+sysex_out
+sysex F0 7D 53 51 33 01 09 04 0E 04 09 04 04 05 00 02 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0E 07 0E 07 0E 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0C 00 0C 00 00 00 00 00 0C 00 0C 00 00 00 00 00 0C 00 0C 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 0E 0F 0F 0F 00 00 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 00 00 0F 0F 00 00 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 00 00 0F 0F 00 00 00 00 0E 07 0F 07 00 00 0F 0F 00 00 00 00 00 00 00 00 0C 03 00 00 00 00 00 00 0F 08 00 00 46 04 F7
+wait 50
+expect_sysex F0 7D 53 51 7F 33 00 46 04 F7
+sysex_out
+sysex F0 7D 53 51 33 09 09 04 0E 04 09 04 04 05 00 02 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0E 07 0E 07 0E 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0C 00 0C 00 00 00 00 00 0C 00 0C 00 00 00 00 00 0C 00 0C 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 0E 0F 0F 0F 00 00 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 00 00 0F 0F 00 00 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 00 00 0F 0F 00 00 00 00 0E 07 0F 07 00 00 0F 0F 00 00 00 00 00 00 00 00 0C 03 00 00 00 00 00 00 0F 08 00 00 4E 04 F7
+wait 20
+expect_sysex F0 7D 53 51 7F 33 01 4E 04 F7
+midi 91 3C 64
+wait 50
+expect chvoices1 1
+midi 90 40 64
+wait 50
+expect chvoices0 1
+expect voices 2
+# channel 10: not heard
+midi 99 3E 64
+wait 50
+expect voices 2
+# channel 2's sustain does not hold channel 1
+midi B1 40 7F
+midi 81 3C 00
+midi 80 40 00
+wait 1500
+expect chvoices0 0
+expect chvoices1 1
+midi B1 40 00
+wait 1500
+expect chvoices1 0
+# eight notes on channel 1 and two on channel 2: ten notes on eight voices, the oldest stolen
+midi 90 30 64
+midi 90 31 64
+midi 90 32 64
+midi 90 33 64
+midi 90 34 64
+midi 90 35 64
+midi 90 36 64
+midi 90 37 64
+wait 50
+midi 91 48 64
+midi 91 49 64
+wait 50
+expect voices 8
+expect chvoices1 2
+expect chvoices0 6
+shot multi_on.png
+# the FM-1's own keys to part 2 (the tablet's selected track), then back to part 1
+midi B0 7B 00
+midi B1 7B 00
+wait 1500
+sysex_out
+sysex F0 7D 53 51 34 01 01 36 00 F7
+wait 20
+expect_sysex F0 7D 53 51 7F 34 00 36 00 F7
+key 0 down
+wait 100
+expect chvoices1 1
+expect chvoices0 0
+key 0 up
+wait 1500
+sysex_out
+sysex F0 7D 53 51 34 01 00 35 00 F7
+wait 20
+expect_sysex F0 7D 53 51 7F 34 00 35 00 F7
+key 0 down
+wait 100
+expect chvoices0 1
+key 0 up
+wait 1500
+# off: channel 2's voices go, and every channel is the panel's program again
+sysex_out
+sysex F0 7D 53 51 34 00 34 00 F7
+wait 20
+expect_sysex F0 7D 53 51 7F 34 00 34 00 F7
+expect multi 0
+expect chvoices1 0
+midi B0 7B 00
+wait 1500
+midi 92 3C 64
+wait 50
+expect chvoices0 1
+midi 82 3C 00
