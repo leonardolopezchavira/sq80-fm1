@@ -189,6 +189,46 @@ int main() {
         for (float v : l) tail = std::max(tail, std::fabs(v));
         CHECK(tail == 0.0f, "not silent after release (%g)", tail);
     }
+    // ---- multitimbral: channels with programs of their own share the eight voices
+    {
+        basicProgram(prog, 1);
+        sq80_decode_patch(prog, &p);
+        static sq80_patch p2;
+        basicProgram(prog, 1);
+        prog[0x3a] = 48;      // OSC1 an octave up on channel 2's program
+        sq80_decode_patch(prog, &p2);
+        static sq80_synth s;
+        sq80_init(&s, &rom, 44100.0f);
+        sq80_set_patch(&s, &p);
+        sq80_note_on_ch(&s, 1, 60, 100);             // no program on channel 1 yet: nothing
+        CHECK(sq80_active_voices(&s) == 0, "a channel without a program sounded");
+        sq80_set_channel_patch(&s, 1, &p2);
+        std::vector<float> l(8820), r(8820);
+        sq80_note_on_ch(&s, 1, 57, 100);             // A3 an octave up: 440 Hz
+        sq80_render(&s, l.data(), r.data(), 8820);
+        double hz = estimateHz(l, 2205, 8820);
+        CHECK(std::fabs(hz - 440.0) < 1.0, "channel 1's own program: %.2f Hz", hz);
+        for (int k = 0; k < 6; ++k) sq80_note_on(&s, 40 + k, 100);
+        sq80_note_on_ch(&s, 1, 70, 100);
+        CHECK(sq80_active_voices(&s) == 8 && sq80_active_voices_ch(&s, 1) == 2 && sq80_active_voices_ch(&s, 0) == 6,
+              "voices %d (ch0 %d, ch1 %d)", sq80_active_voices(&s), sq80_active_voices_ch(&s, 0), sq80_active_voices_ch(&s, 1));
+        sq80_note_on(&s, 80, 100);                   // a ninth note steals the oldest: channel 1's first
+        CHECK(sq80_active_voices_ch(&s, 1) == 1 && sq80_active_voices_ch(&s, 0) == 7, "steal across channels: ch0 %d ch1 %d",
+              sq80_active_voices_ch(&s, 0), sq80_active_voices_ch(&s, 1));
+        sq80_control_change_ch(&s, 1, 64, 127);      // channel 1's sustain holds channel 1 only
+        sq80_note_off_ch(&s, 1, 70);
+        for (int k = 0; k < 6; ++k) sq80_note_off(&s, 40 + k);
+        sq80_note_off(&s, 80);
+        for (int i = 0; i < 40; ++i) sq80_render(&s, l.data(), r.data(), 4410);
+        CHECK(sq80_active_voices_ch(&s, 0) == 0 && sq80_active_voices_ch(&s, 1) == 1, "sustain per channel: ch0 %d ch1 %d",
+              sq80_active_voices_ch(&s, 0), sq80_active_voices_ch(&s, 1));
+        sq80_notes_off_ch(&s, 1);
+        for (int i = 0; i < 40; ++i) sq80_render(&s, l.data(), r.data(), 4410);
+        CHECK(sq80_active_voices(&s) == 0, "%d voices after the channel's notes off", sq80_active_voices(&s));
+        sq80_note_on_ch(&s, 1, 60, 100);
+        sq80_set_channel_patch(&s, 1, 0);            // its program taken away: its voices go
+        CHECK(sq80_active_voices(&s) == 0, "a channel's voice outlived its program");
+    }
     {
         basicProgram(prog, 60);  // one-shot wave: stops at its zero byte
         sq80_decode_patch(prog, &p);

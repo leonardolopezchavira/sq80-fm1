@@ -14,6 +14,8 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
       - name: Engine tests (synthetic ROM pack, no Ensoniq data)
         run: ctest --test-dir build --output-on-failure
+      - name: The tablet's sequencer (app/panel/seqcore.js)
+        run: node app/panel/test_seqcore.js
       - name: Patch codec round trip
         run: python3 -c "import sys; sys.path.insert(0,'tools'); import patchcodec as pc; d=pc.basic(); assert pc.decode(pc.encode(d))['osc'][0]['WAVE']==2; print('ok')"
 
@@ -29,6 +31,7 @@ jobs:
         run: |
           python3 fm1/base/tools/build.py app --host
           app/build/host/sq80_host app/tests/basic.txt app/build/host
+          app/build/host/sq80_host app/tests/multi.txt app/build/host
           python3 tools/fm1_loader.py sim-script app/build/host/loader.txt
           app/build/host/sq80_host app/build/host/loader.txt app/build/host
       - uses: actions/upload-artifact@v4

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the FM-1: the tablet. A control panel for the FM-1's programs laid out after the SQ-80's pages, and the
+     SQ-80's sequencer (8 tracks, 60 sequences, 20 songs), running here so the FM-1 only plays. Made for a 10" tablet
+     held sideways (a Fire HD 10: its app, android/, gives it USB MIDI); it works in Chrome or Edge on a computer too.
+     Over USB MIDI with SysEx: the editor's frames 30..32 and MULTI's 33, 34 (app/app.c "the loader"). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Tablet · SQ-80 for the FM-1</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  @font-face { font-family: "DSEG14 Classic"; src: url("../fonts/DSEG14Classic-Regular.woff2") format("woff2"); font-display: swap; }
+  :root { --bg: #000; --s1: #0b0b0b; --s2: #161616; --s3: #262626; --s4: #3a3a3a; --line: #222; --dim: #8a857a;
+          --fg2: #d6cfbd; --fg: #f2ead6; --hi: #40dce6; --hi2: #0d3236; --bad: #ff6b5e; --rec: #e6463c; --warn: #e6b450;
+          --key-w: #e9e1cc; --vfd: "DSEG14 Classic", ui-monospace, Menlo, monospace; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg2); overflow: hidden;
+               font: 14px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; }
+  button { font: inherit; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg);
+           background: var(--s2); border: 0; border-radius: 3px; padding: 0 12px; min-height: 40px; cursor: pointer; touch-action: manipulation; }
+  button:active:not(:disabled) { background: var(--s4); }
+  button.on, button[aria-pressed=true] { background: var(--hi); color: #001215; }
+  button.pri { background: var(--hi); color: #001215; }
+  button.warn { color: var(--warn); }
+  button.danger { color: var(--bad); }
+  button:disabled { color: #4a4a4a; background: var(--s1); }
+  button.sm { min-height: 32px; padding: 0 8px; font-size: 12px; }
+  select, input[type=text], input[type=number] { font: inherit; font-size: 14px; color: var(--fg); background: var(--s1); border: 1px solid var(--s3);
+           border-radius: 3px; padding: 6px 8px; min-height: 40px; }
+  input[type=range] { width: 100%; accent-color: var(--hi); height: 32px; }
+  label { color: var(--dim); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+  .lbl { color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+  [hidden] { display: none !important; }
+
+  /* the frame: the bar, the view, the keys */
+  #app { display: grid; grid-template-rows: 56px minmax(0, 1fr) auto; height: 100%; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+  header { display: flex; align-items: center; gap: 10px; padding: 0 10px; border-bottom: 1px solid var(--line); min-width: 0; }
+  header .logo { display: flex; align-items: center; height: 56px; padding-right: 4px; }
+  header .logo svg { height: 22px; width: auto; }
+  nav { display: flex; gap: 2px; }
+  nav button { background: none; color: var(--dim); min-height: 56px; padding: 0 12px; border-radius: 0; border-bottom: 3px solid transparent; }
+  nav button[aria-selected=true] { color: var(--fg); border-bottom-color: var(--hi); background: none; }
+  .vfd { font-family: var(--vfd); color: var(--hi); background: #031012; border: 1px solid #0f2a2d; border-radius: 3px; padding: 4px 10px;
+         white-space: pre; font-size: 15px; letter-spacing: .04em; line-height: 1.25; min-width: 0; overflow: hidden; }
+  #lcd { flex: 1; min-width: 160px; text-align: left; }
+  .transport { display: flex; gap: 4px; }
+  .transport button { width: 52px; padding: 0; font-size: 18px; }
+  #recBtn.on { background: var(--rec); color: #fff; }
+  #recBtn.armed { color: var(--rec); }
+  .conn { display: flex; align-items: center; gap: 6px; }
+  .led { width: 10px; height: 10px; background: var(--s4); flex: none; border-radius: 1px; }
+  .led.on { background: var(--hi); box-shadow: 0 0 8px var(--hi); }
+  .led.warn { background: var(--warn); }
+  .led.midi { background: var(--fg); box-shadow: 0 0 6px var(--fg); }
+
+  main { min-height: 0; overflow: hidden; position: relative; }
+  .view { position: absolute; inset: 0; overflow: auto; padding: 12px 14px 16px; -webkit-overflow-scrolling: touch; }
+  .cols { display: grid; gap: 14px; min-height: 100%; }
+  .box { background: var(--s1); border: 1px solid var(--line); border-radius: 4px; padding: 10px; min-width: 0; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 6px; }
+  .grow { flex: 1; }
+  .status { color: var(--dim); font-size: 13px; min-height: 1.4em; }
+  .status.ok { color: var(--hi); } .status.bad { color: var(--bad); }
+  .note { color: var(--dim); font-size: 12px; }
+
+  /* PANEL: the SQ-80's page buttons; the values as knobs */
+  #vPanel .cols { grid-template-columns: minmax(0, 1fr) 270px; }
+  .parts { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 10px; }
+  .parts button { min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0 2px; }
+  .parts button small { font: 10px var(--vfd); letter-spacing: 0; color: inherit; opacity: .85; text-transform: none; white-space: nowrap; overflow: hidden; max-width: 100%; }
+  .pages { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }
+  .pages button { min-height: 42px; padding: 0 2px; font-size: 12px; }
+  .knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px 8px; margin-top: 12px; }
+  .knob { display: flex; flex-direction: column; align-items: center; gap: 2px; touch-action: none; cursor: ns-resize; padding: 4px 0; border-radius: 4px; }
+  .knob.sel { background: var(--hi2); }
+  .knob canvas { width: 72px; height: 72px; }
+  .knob .kl { color: var(--dim); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  .knob .kv { color: var(--fg); font: 13px var(--vfd); letter-spacing: 0; min-height: 18px; text-align: center; max-width: 100%; white-space: nowrap; overflow: hidden; }
+  .knob.sw .kv { color: var(--hi); }
+  canvas.graph { width: 100%; height: 110px; display: block; background: #050505; border: 1px solid var(--line); border-radius: 3px; margin-top: 12px; }
+  .data { display: grid; grid-template-columns: 48px 1fr 48px; gap: 6px; align-items: center; margin-top: 12px; }
+  .data button { font-size: 20px; padding: 0; min-height: 48px; }
+  #pname { width: 100%; font: 22px var(--vfd); letter-spacing: .1em; color: var(--hi); background: #031012; border: 1px solid #0f2a2d; text-transform: uppercase; }
+  .side { display: flex; flex-direction: column; gap: 10px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .stepper { display: grid; grid-template-columns: 36px minmax(36px, 1fr) 36px; gap: 4px; align-items: center; }
+  .stepper button { padding: 0; font-size: 18px; }
+  .stepper .vfd { text-align: center; padding: 4px 2px; overflow: visible; }
+
+  /* SEQ: the sequences, the tracks */
+  #vSeq .cols { grid-template-columns: 200px minmax(0, 1fr); }
+  .list { display: flex; flex-direction: column; gap: 3px; max-height: 100%; overflow: auto; }
+  .list button { text-align: left; display: flex; align-items: center; gap: 8px; min-height: 38px; flex: none; text-transform: none; font-weight: 500; letter-spacing: 0; }
+  .list button .n { color: var(--dim); font: 12px var(--vfd); min-width: 22px; }
+  .list button.on .n { color: #001215; }
+  .list button.empty { color: #555; }
+  .tracks { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .trk { display: grid; grid-template-columns: 50px 120px 78px 64px 120px 44px 44px minmax(120px, 1fr); gap: 4px; align-items: stretch; }
+  .trk > button { padding: 0 4px; min-height: 46px; }
+  .trk .tn { font: 16px var(--vfd); }
+  .trk .tp { text-transform: none; font: 13px var(--vfd); letter-spacing: 0; overflow: hidden; white-space: nowrap; text-align: left; }
+  .trk .mix { display: flex; flex-direction: column; justify-content: center; background: var(--s2); border-radius: 3px; padding: 0 6px; }
+  .trk .mix span { font-size: 10px; color: var(--dim); letter-spacing: .08em; }
+  .trk .mix input { height: 22px; }
+  .trk canvas { width: 100%; height: 46px; background: #050505; border: 1px solid var(--line); border-radius: 3px; display: block; }
+  .trk.sel > .tn { background: var(--hi); color: #001215; }
+  .trk.rec > .tn { background: var(--rec); color: #fff; }
+  .trk .mute.on { background: var(--warn); color: #000; }
+  .ctlbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .ctlbar .stepper { grid-template-columns: 36px 64px 36px; }
+  .field { display: flex; flex-direction: column; gap: 2px; }
+  .field > label { font-size: 10px; }
+  .menu { display: flex; flex-wrap: wrap; gap: 6px; }
+  .menu button { min-height: 40px; }
+
+  /* SONG */
+  #vSong .cols { grid-template-columns: 200px minmax(0, 1fr); }
+  .steps { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .stp { display: grid; grid-template-columns: 54px minmax(140px, 1fr) 150px 170px 44px 44px 44px; gap: 4px; align-items: center; }
+  .stp > .num { font: 14px var(--vfd); color: var(--dim); text-align: center; }
+  .stp.now > .num { color: var(--hi); }
+  .stp select { width: 100%; }
+  .timeline { position: relative; height: 54px; background: #050505; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .timeline div { position: absolute; top: 6px; bottom: 6px; background: var(--hi2); border: 1px solid var(--hi); border-radius: 2px; color: var(--fg);
+                  font: 11px var(--vfd); padding: 3px 4px; overflow: hidden; white-space: nowrap; }
+  .timeline .ph { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); border: 0; padding: 0; }
+
+  /* ROLL */
+  #vRoll { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
+  #roll { width: 100%; height: 100%; display: block; background: #050505; border: 1px solid var(--line); border-radius: 3px; touch-action: none; }
+
+  /* LIBRARY */
+  #vLib .cols { grid-template-columns: 220px minmax(0, 1fr); }
+  .progs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 8px; }
+  .progs button { text-transform: none; font: 14px var(--vfd); letter-spacing: .04em; min-height: 46px; display: flex; gap: 6px; align-items: center; justify-content: flex-start; }
+  .progs button .n { color: var(--dim); font-size: 11px; min-width: 18px; }
+  .progs button.on .n { color: #001215; }
+
+  /* SETUP */
+  #vSetup .cols { grid-template-columns: 1fr 1fr; align-content: start; }
+  #vSetup .box h3, .box h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg); }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--line); }
+  .opt:last-child { border-bottom: 0; }
+  .opt > span { color: var(--fg2); }
+  .opt select { min-width: 200px; max-width: 60%; }
+
+  /* the keys */
+  #keys { border-top: 1px solid var(--line); padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); }
+  .kctl { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .kbd { position: relative; height: 104px; touch-action: none; }
+  .kbd div { position: absolute; top: 0; border: 1px solid #000; border-radius: 0 0 4px 4px; }
+  .kbd .w { background: var(--key-w); height: 104px; z-index: 1; }
+  .kbd .b { background: #1d1d1d; height: 62px; z-index: 2; }
+  .kbd .down { background: var(--hi) !important; }
+
+  /* overlays: the picker, questions */
+  .ov { position: fixed; inset: 0; background: rgba(0, 0, 0, .72); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .dlg { background: var(--s1); border: 1px solid var(--s4); border-radius: 6px; padding: 16px; width: min(760px, 94vw); max-height: 88vh; overflow: auto; }
+  .dlg h3 { margin: 0 0 10px; color: var(--fg); font-size: 14px; letter-spacing: .1em; text-transform: uppercase; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 4px; }
+  .choices button { text-transform: none; font: 13px var(--vfd); letter-spacing: 0; min-height: 42px; text-align: left; padding: 0 8px; }
+  .dlg .big { font: 40px var(--vfd); color: var(--hi); text-align: center; margin: 6px 0; }
+  .toast { position: fixed; left: 50%; bottom: 140px; transform: translateX(-50%); background: var(--s2); color: var(--fg); border: 1px solid var(--s4);
+           padding: 10px 16px; border-radius: 4px; z-index: 60; max-width: 80vw; pointer-events: none; }
+  .toast.bad { border-color: var(--bad); color: var(--bad); }
+
+  @media (max-width: 1100px) {
+    nav button { padding: 0 8px; font-size: 12px; }
+    #vPanel .cols { grid-template-columns: 1fr; }
+    .trk { grid-template-columns: 44px 100px 70px 56px 100px 40px 40px minmax(80px, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo"><!--SQ80-LOGO--></div>
+    <nav id="nav">
+      <button data-v="Panel" aria-selected="true">Panel</button>
+      <button data-v="Seq">Seq</button>
+      <button data-v="Song">Song</button>
+      <button data-v="Roll">Roll</button>
+      <button data-v="Lib">Library</button>
+      <button data-v="Setup">Setup</button>
+    </nav>
+    <div id="lcd" class="vfd">SQ-80</div>
+    <div class="transport">
+      <button id="stopBtn" title="Stop">&#9632;</button>
+      <button id="playBtn" title="Play">&#9654;</button>
+      <button id="recBtn" title="Record">&#9679;</button>
+    </div>
+    <div class="conn"><span class="led" id="led"></span><span class="led" id="midiLed" title="MIDI in"></span></div>
+  </header>
+
+  <main>
+    <!-- PANEL -->
+    <section class="view" id="vPanel">
+      <div class="cols">
+        <div>
+          <div class="parts" id="parts"></div>
+          <div class="pages" id="pages"></div>
+          <canvas class="graph" id="graph" width="1200" height="220"></canvas>
+          <div class="knobs" id="knobs"></div>
+          <div class="data">
+            <button id="dataDn">&minus;</button>
+            <input type="range" id="dataSlider" min="0" max="127" value="0">
+            <button id="dataUp">+</button>
+          </div>
+        </div>
+        <div class="side">
+          <div class="box">
+            <div class="lbl" id="partLbl">part 1</div>
+            <input type="text" id="pname" maxlength="6" spellcheck="false" autocomplete="off">
+            <div class="status" id="partStatus"></div>
+            <div class="grid3" style="margin-top:6px">
+              <button id="undoBtn">Undo</button><button id="initBtn">Init</button><button id="rndBtn">Random</button>
+            </div>
+          </div>
+          <div class="box">
+            <div class="lbl">the FM-1's programs</div>
+            <div class="grid2" style="margin-top:6px;grid-template-columns:1fr 1fr">
+              <div class="field"><label>bank</label><div class="stepper"><button data-s="bank" data-d="-1">&minus;</button><div class="vfd" id="fmBank">1</div><button data-s="bank" data-d="1">+</button></div></div>
+              <div class="field"><label>program</label><div class="stepper"><button data-s="prog" data-d="-1">&minus;</button><div class="vfd" id="fmProg">01</div><button data-s="prog" data-d="1">+</button></div></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <button class="fm" id="getBtn">Get</button>
+              <button class="fm" id="saveBtn">Save…</button>
+            </div>
+            <button class="fm" id="getPlaying" style="width:100%;margin-top:6px">Get what the FM-1 plays</button>
+            <div class="note" style="margin-top:6px">Get puts that program on this track. Save stores this track's sound into the FM-1's bank and place.</div>
+          </div>
+          <div class="box">
+            <div class="lbl">play</div>
+            <div class="grid2" style="margin-top:6px">
+              <button id="keysBtn" aria-pressed="true">Keys</button>
+              <button id="panicBtn">Notes off</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEQ -->
+    <section class="view" id="vSeq" hidden>
+      <div class="cols">
+        <div class="box" style="display:flex;flex-direction:column;min-height:0">
+          <div class="lbl">sequences</div>
+          <div class="list" id="seqList" style="margin-top:6px;flex:1"></div>
+        </div>
+        <div style="min-width:0">
+          <div class="box">
+            <div class="ctlbar">
+              <input type="text" id="seqName" maxlength="6" style="width:110px;font-family:var(--vfd);text-transform:uppercase" spellcheck="false">
+              <div class="field"><label>tempo</label><div class="stepper"><button data-q="tempo" data-d="-1">&minus;</button><div class="vfd" id="qTempo">120</div><button data-q="tempo" data-d="1">+</button></div></div>
+              <div class="field"><label>bars</label><div class="stepper"><button data-q="bars" data-d="-1">&minus;</button><div class="vfd" id="qBars">4</div><button data-q="bars" data-d="1">+</button></div></div>
+              <div class="field"><label>time</label><button id="qSig" class="sm" style="min-width:64px">4/4</button></div>
+              <div class="field"><label>loop</label><button id="qLoop" class="sm">On</button></div>
+              <div class="field"><label>click</label><button id="qClick" class="sm">Off</button></div>
+              <div class="field"><label>count-off</label><button id="qCount" class="sm">1 bar</button></div>
+              <div class="field"><label>auto-correct</label><button id="qGrid" class="sm">1/16</button></div>
+              <div class="field"><label>record</label><button id="qMode" class="sm">Replace</button></div>
+              <div class="field"><label>punch</label><button id="qPunch" class="sm">Off</button></div>
+            </div>
+          </div>
+          <div class="tracks" id="tracks"></div>
+          <div class="box" style="margin-top:8px">
+            <div class="row"><span class="lbl grow">edit · track <span id="edTrk">1</span></span><span class="status" id="seqStatus"></span></div>
+            <div class="menu" style="margin-top:6px">
+              <button data-ed="step">Step entry</button>
+              <button data-ed="transpose">Transpose</button>
+              <button data-ed="quantize">Auto-correct</button>
+              <button data-ed="velocity">Velocity</button>
+              <button data-ed="remctl">Rem ctrls</button>
+              <button data-ed="copy">Copy to…</button>
+              <button data-ed="merge">Merge into…</button>
+              <button data-ed="erase" class="danger">Erase track</button>
+              <span class="grow"></span>
+              <button data-ed="undo">Undo</button>
+            </div>
+            <div class="menu" style="margin-top:6px">
+              <button data-ed="addbars">Add bars</button>
+              <button data-ed="delbars">Delete bars</button>
+              <button data-ed="append">Append seq…</button>
+              <button data-ed="copyseq">Copy seq to…</button>
+              <button data-ed="importmid">Import .mid</button>
+              <button data-ed="exportmid">Export .mid</button>
+              <button data-ed="eraseseq" class="danger">Erase seq</button>
+            </div>
+            <div id="stepBox" class="box" style="margin-top:8px" hidden>
+              <div class="row">
+                <span class="lbl">step entry: play a note or chord on the FM-1 (or the keys below)</span><span class="grow"></span>
+                <span class="vfd" id="stepPos">001.1.00</span>
+              </div>
+              <div class="row" style="margin-top:6px">
+                <button id="stepSize" class="sm">1/16</button>
+                <button id="stepGate" class="sm">gate 90%</button>
+                <button id="stepRest">Rest</button><button id="stepTie">Tie</button><button id="stepBack">Back</button>
+                <span class="grow"></span><button id="stepDone" class="pri">Done</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SONG -->
+    <section class="view" id="vSong" hidden>
+      <div class="cols">
+        <div class="box" style="display:flex;flex-direction:column;min-height:0">
+          <div class="lbl">songs</div>
+          <div class="list" id="songList" style="margin-top:6px;flex:1"></div>
+        </div>
+        <div style="min-width:0">
+          <div class="box">
+            <div class="row">
+              <input type="text" id="songName" maxlength="6" style="width:110px;font-family:var(--vfd);text-transform:uppercase" spellcheck="false">
+              <button id="songLoop" class="sm">Loop off</button>
+              <span class="status grow" id="songStatus"></span>
+              <button id="songPlay" class="pri">Play song</button>
+              <button id="songErase" class="danger sm">Erase song</button>
+            </div>
+            <div class="timeline" id="timeline"></div>
+          </div>
+          <div class="steps" id="steps"></div>
+          <div class="row" style="margin-top:8px"><button id="addStep">+ Step</button><span class="note">Each step plays a sequence, repeated, transposed. Up to 99 steps.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ROLL -->
+    <section class="view" id="vRoll" hidden>
+      <div class="row">
+        <span class="lbl">track</span>
+        <div class="row" id="rollTracks" style="gap:3px"></div>
+        <span class="grow"></span>
+        <button id="rollGrid" class="sm">grid 1/16</button>
+        <button id="rollVel" class="sm">vel 100</button>
+        <button id="rollDel" class="sm danger">Delete</button>
+        <button id="rollZoomOut" class="sm">&minus;</button><button id="rollZoomIn" class="sm">+</button>
+      </div>
+      <canvas id="roll"></canvas>
+    </section>
+
+    <!-- LIBRARY -->
+    <section class="view" id="vLib" hidden>
+      <div class="cols">
+        <div class="box" style="display:flex;flex-direction:column;gap:6px">
+          <div class="lbl">banks</div>
+          <div class="list" id="bankList"></div>
+          <button id="readBank" class="fm">Read FM-1 bank</button>
+          <button id="openSyx">Open .syx…</button>
+          <button id="exportSyx">Export bank .syx</button>
+          <input type="file" id="syxFile" accept=".syx,.SYX" hidden>
+          <div class="status" id="libStatus"></div>
+        </div>
+        <div>
+          <div class="box">
+            <div class="row"><span class="lbl grow" id="libTitle">no bank</span>
+              <span class="lbl">track</span>
+              <div class="stepper" style="grid-template-columns:40px 48px 40px"><button id="libTrkDn">&minus;</button><div class="vfd" id="libTrkN">1</div><button id="libTrkUp">+</button></div>
+              <button id="libUse" class="pri">Use on track</button>
+            </div>
+            <div class="progs" id="progs"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETUP -->
+    <section class="view" id="vSetup" hidden>
+      <div class="cols">
+        <div class="box">
+          <h3>The FM-1</h3>
+          <div class="opt"><span>Connection</span><span class="row"><span class="status" id="connStatus">Not connected</span><button id="connBtn" class="pri">Connect</button></span></div>
+          <div class="opt"><span>MULTI: tracks 1–8 play their own programs on the FM-1</span><button id="multiBtn" aria-pressed="true">On</button></div>
+          <div class="opt"><span>The FM-1's keys play the selected track's part</span><button id="keysFollow" aria-pressed="true">On</button></div>
+          <div class="opt"><span>Send every edit at once</span><button id="liveBtn" aria-pressed="true">On</button></div>
+          <div class="note" style="padding:6px 0">The FM-1 needs SQ-80 0.15.0 or later for MULTI. With an older one, every track plays the FM-1's one program.</div>
+        </div>
+        <div class="box">
+          <h3>MIDI</h3>
+          <div class="opt"><span>Out (tracks with status MIDI)</span><select id="outSel"></select></div>
+          <div class="opt"><span>In (recording, step entry)</span><select id="inSel"></select></div>
+          <div class="opt"><span>Send MIDI clock</span><button id="clockBtn" aria-pressed="false">Off</button></div>
+          <div class="opt"><span>Echo what comes in to the selected track (not the FM-1's own keys)</span><button id="thruBtn" aria-pressed="false">Off</button></div>
+          <div class="opt"><span>Timing lookahead</span><select id="lookSel"><option value="80">80 ms</option><option value="120" selected>120 ms</option><option value="200">200 ms</option></select></div>
+        </div>
+        <div class="box">
+          <h3>Tablet sound (status TABLET)</h3>
+          <div class="opt"><span>Volume</span><input type="range" id="tabVol" min="0" max="100" value="70" style="width:50%"></div>
+          <div class="opt"><span>Waves</span><span class="row"><span class="status" id="wavesStatus">built-in</span><button id="packBtn" class="sm">ROM pack…</button></span></div>
+          <input type="file" id="packFile" accept=".rompack" hidden>
+          <div class="note" style="padding:6px 0">A track set to TABLET plays on this tablet's own SQ-80 engine (8 voices per track). Plug headphones or a mixer into the tablet.</div>
+        </div>
+        <div class="box">
+          <h3>Project</h3>
+          <div class="opt"><span>Kept on this tablet as you work</span><span class="status" id="saveStatus"></span></div>
+          <div class="opt"><span>Back it up</span><span class="row"><button id="expProj" class="sm">Export…</button><button id="impProj" class="sm">Import…</button></span></div>
+          <input type="file" id="projFile" accept=".json,.sq80tab" hidden>
+          <input type="file" id="midFile" accept=".mid,.midi" hidden>
+          <div class="opt"><span>Start over</span><button id="newProj" class="sm danger">New project</button></div>
+          <div class="note" style="padding:6px 0" id="about"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="keys">
+    <div class="kctl">
+      <button id="octDn" class="sm">oct &minus;</button><span class="vfd" id="octShow">C3</span><button id="octUp" class="sm">oct +</button>
+      <span class="note grow" id="keysTo">plays part 1</span>
+      <button id="keysHide" class="sm">Hide keys</button>
+    </div>
+    <div class="kbd" id="kbd"></div>
+  </div>
+</div>
+
+<script src="seqcore.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

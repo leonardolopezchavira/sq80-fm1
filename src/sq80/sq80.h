@@ -170,6 +170,7 @@ typedef struct { float k, G, G2, G3, G4, inv, den, s[4]; } sq80_filter;   /* coe
 typedef struct {
     uint8_t active, released;
     uint8_t part;                   /* 0 the program, 1 its layer, 2 the split program, 3 the split program's layer */
+    uint8_t ch;                     /* the channel (part of a multitimbral set) it plays for: 0 the program's */
     int key, velocity;
     uint32_t age;
     float pitch_key, glide_rate;
@@ -182,6 +183,18 @@ typedef struct {
     float cutoff, cutoff_target, resonance;
 } sq80_voice;
 
+/* A channel: the multitimbral mode's part (MIDI channels 1..SQ80_CHANNELS, as the SQ-80's sequencer tracks).
+ * Channel 0 plays the program (sq80_set_patch, with its SPLIT/LAYER partners); channels 1.. each a program of
+ * their own (sq80_set_channel_patch), without partners. All share the eight voices, the oldest stolen. */
+#define SQ80_CHANNELS 8
+typedef struct {
+    const sq80_patch *patch;        /* channels 1..: the program (0: silent); channel 0 uses sq80_synth.patch */
+    uint8_t wheel, pedal, xctrl, pressure, volume, sustain;
+    uint8_t held_keys[16], held_count;
+    int8_t last_key;
+    float bend_semis;
+} sq80_channel;
+
 typedef struct {
     const sq80_rompack *rom;
     sq80_patch patch;
@@ -190,9 +203,7 @@ typedef struct {
     sq80_voice voices[SQ80_VOICES];
     float sample_rate, doc_step, samples_per_tick, control_countdown, amp_pole;
     uint32_t age_counter;
-    int held_keys[16], held_count, last_key;
-    int wheel, pedal, xctrl, pressure, volume, sustain;
-    float bend_semis;
+    sq80_channel ch[SQ80_CHANNELS];  /* the controllers, held keys and bend of each channel */
     uint8_t lfo_started[3];
     uint32_t filter_counter;
 } sq80_synth;
@@ -217,6 +228,18 @@ void sq80_render(sq80_synth *s, float *left, float *right, int n);
 void sq80_render_part(sq80_synth *s, float *left, float *right, int n, int first, int count);
 void sq80_render_commit(sq80_synth *s, int n);
 int sq80_active_voices(const sq80_synth *s);
+
+/* The multitimbral parts: the calls above act on channel 0; these on channel c (0..SQ80_CHANNELS-1; another is
+ * ignored). A channel's patch is kept by pointer and must stay valid and unchanged while set (0: the channel is
+ * silent, its voices released). */
+void sq80_set_channel_patch(sq80_synth *s, int c, const sq80_patch *p);
+void sq80_note_on_ch(sq80_synth *s, int c, int key, int velocity);
+void sq80_note_off_ch(sq80_synth *s, int c, int key);
+void sq80_control_change_ch(sq80_synth *s, int c, int cc, int value);
+void sq80_pitch_bend_ch(sq80_synth *s, int c, int value14);
+void sq80_channel_pressure_ch(sq80_synth *s, int c, int value);
+void sq80_notes_off_ch(sq80_synth *s, int c);      /* the channel's voices released, its held keys forgotten */
+int sq80_active_voices_ch(const sq80_synth *s, int c);
 
 /* For a picture of the filter (the FM-1's FILTER page, the editor): the cutoff in Hz that FREQ (0..127) and KEYBD
  * (0..63) give a key, as a voice sets it (no modulation); and the 4-pole low-pass's response at hz, in dB, for that

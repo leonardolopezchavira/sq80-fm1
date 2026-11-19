@@ -140,7 +140,7 @@ VFD = f"""<style id="sq80-vfd">
 # every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
 BASE = "/sq80-fm1/"
 NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("librarian/", "Librarian"), ("emu/", "Emulator"),
-       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack"), ("smk37/", "SMK-37")]
+       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack"), ("smk37/", "SMK-37"), ("panel/", "Tablet")]
 NAV_CSS = f"""<style id="sq80-nav">
   nav.sq80-nav {{ display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; padding: 10px 16px;
     border-bottom: 1px solid #2a2a2a; background: {BLACK}; font: 600 13px/1.2 system-ui, -apple-system, sans-serif;
@@ -209,6 +209,10 @@ def main():
     for p in sorted(root.rglob("*.html")):
         rel = p.relative_to(root).parts
         if rel[0] in ("words", "firmware") or (rel[0] == "emu" and rel[-1] != "index.html"):
+            continue
+        if rel[0] == "panel":   # the tablet: a full-screen app of its own, only the wordmark put in
+            p.write_text(p.read_text(encoding="utf-8").replace("<!--SQ80-LOGO-->", logo_svg(22), 1), encoding="utf-8")
+            print("themed", p.relative_to(root))
             continue
         sub = SUBS.get(rel[0], "for the FM-1") if len(rel) > 1 else "for the FM-1"
         p.write_text(theme(p.read_text(encoding="utf-8"), sub, home=len(rel) == 1,

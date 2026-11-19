@@ -18,3 +18,4 @@ app/web/emu/*
 !app/web/emu/app.js
 backup/
 smk37-dump-*.bin
+android/build/

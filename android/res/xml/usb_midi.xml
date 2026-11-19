@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- USB audio class, MIDI streaming: the FM-1, the SMK-37, any class-compliant MIDI device -->
+<resources>
+    <usb-device class="1" subclass="3" />
+</resources>
