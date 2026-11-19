@@ -159,5 +159,6 @@ export function attach(ctx) {
   bar.append(btn, input,
     link("https://www.buchty.net/ensoniq/", "Banks: Buchty's archive", "Rainer Buchty's Ensoniq archive"),
     link("https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7", "Banks: Ensoniq sounds 2022-07", "The Ensoniq sounds 2022-07 collection"),
+    link("https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view", "Banks: Don Solaris", "Don Solaris's collection"),
     note);
 }

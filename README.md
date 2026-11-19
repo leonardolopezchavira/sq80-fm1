@@ -173,8 +173,8 @@ Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills
 
 None come with SQ-80: the firmware and the site carry no one else's sounds. Players load their own ESQ-1 / SQ-80
 SysEx banks (the installer, the Load page, the librarian, the emulator); the pages point to Rainer Buchty's Ensoniq
-archive (https://www.buchty.net/ensoniq/) and the Ensoniq sounds 2022-07 collection
-(https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) for some. A bank place never loaded plays INIT.
+archive (https://www.buchty.net/ensoniq/) the Ensoniq sounds 2022-07 collection
+(https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) and Don Solaris's collection (https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view) for some. A bank place never loaded plays INIT.
 
 ## The front page
 

@@ -12,7 +12,7 @@
   const NB = SMK ? 2 : 8, BASE = 0, DEV = SMK ? "SMK-37" : "FM-1";
   const bankLabel = (i) => String(i + 1);
   const ARCHIVE = `<a href="https://www.buchty.net/ensoniq/" target="_blank" rel="noopener">Rainer Buchty's Ensoniq
-    archive</a> and in the <a href="https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7" target="_blank" rel="noopener">Ensoniq sounds 2022-07</a> collection`;
+    archive</a>, in the <a href="https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7" target="_blank" rel="noopener">Ensoniq sounds 2022-07</a> collection and in <a href="https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view" target="_blank" rel="noopener">Don Solaris's collection</a>`;
   const KEEP_DB = "sq80-setup", KEEP_STORE = "files", KEEP_KEY = "last";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
