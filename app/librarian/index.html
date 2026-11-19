@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- SPDX-License-Identifier: MIT
-     SQ-80 for the FM-1: the librarian. Banks side by side (.syx files, SQ-80's own eight, the FM-1's), every program a
+     SQ-80 for the FM-1: the librarian. Banks side by side (.syx files, the FM-1's), every program a
      click from being heard (the editor's engine, sq80_editor.wasm, and on the FM-1 when it is connected), and a bank
      of your own put together from them: dragged in, reordered, renamed; out as .syx, into any of the FM-1's banks, or
      a program into the editor. Kept in this browser; nothing is uploaded anywhere. -->
@@ -166,7 +166,7 @@ it as a .syx file or send it to the FM-1. Everything stays in this browser.</p>
     <div class="stack">
       <button id="openBtn">open .syx files…</button>
       <input type="file" id="openFile" accept=".syx,.SYX" multiple hidden>
-      <button id="factoryBtn">SQ-80's eight banks</button>
+      <a class="small" href="https://www.buchty.net/ensoniq/" target="_blank" rel="noopener">ESQ-1 / SQ-80 banks to download</a>
     </div>
   </div>
 
@@ -499,17 +499,6 @@ $("openFile").onchange = async () => {
   say("libStatus", n ? `Opened ${n} bank${n > 1 ? "s" : ""}.` : "No ESQ-1 / SQ-80 programs in those files.", n ? "ok" : "bad");
   save(); render();
 };
-$("factoryBtn").onclick = async () => {
-  try {
-    for (let i = 1; i <= 8; i++) {
-      const r = await fetch(`../banks/SQ80-Bank${i}.syx`);
-      if (!r.ok) throw new Error();
-      addBank(`SQ-80 bank ${i}`, programsFrom(new Uint8Array(await r.arrayBuffer())));
-    }
-    say("libStatus", "SQ-80's eight banks are open.", "ok");
-  } catch (_) { say("libStatus", "SQ-80's banks could not be loaded.", "bad"); }
-  save(); render();
-};
 let searchT = 0;
 $("search").oninput = () => { clearTimeout(searchT); searchT = setTimeout(render, 120); };
 
@@ -738,7 +727,7 @@ async function keptFiles() {
   const k = await keptFiles();
   if (k && k.pack) usePack(k.pack.bytes, k.pack.name + " (from the installer)", true);
   render();
-  if (!had) { await $("factoryBtn").onclick(); say("libStatus", "SQ-80's eight banks are open. Open your own .syx files beside them."); }
+  if (!had) say("libStatus", "Open your .syx files, or read the FM-1's banks. No banks? Rainer Buchty's Ensoniq archive (the link at the left) has thousands.");
 })();
 </script>
 </body>

@@ -85,8 +85,7 @@ Measured on the FM-1 (0.2.0): eight voices at 39% audio load on two cores, no un
 SQ-80 also builds for the M-Vave SMK-37 (Pro, also the Donner Starrykey 37 Play; Elite; MKE-P37):
 `BOARD=smk37 MODEL=pro|elite|mke python3 fm1/base/tools/build.py app --release X.Y`, on SQ-80's own copy of fm1-base
 (`fm1/base`, after genkigenki's fm1-to-smk37 kit and SMK-37 layer, GPL-3.0). Pads, faders in four banks (soft
-takeover), wheels, pedal and all 37 keys; banks 1-8 built into the firmware (`tools/gen_factory_banks.py`), U1 and
-U2 in flash; the ROM pack read in pieces over the store window and USRFLASH. The site's web installer installs it
+takeover), wheels, pedal and all 37 keys; two banks in flash; the ROM pack read in pieces over the store window and USRFLASH. The site's web installer installs it
 (`tools/make_smk_install.py`: fm1-base's installer page per model); a full flash backup is optional
 (`smk37-backup.bat`, `docs/SMK37-BACKUP.md`). Tested on a Donner Starrykey 37 Play.
 The site's SMK-37 page has the packages and the steps.
@@ -130,7 +129,7 @@ from the one open, as the FM-1's RANDOM screen does (the same C: `src/sq80/sq80_
 ## The librarian
 
 https://leonardolopezchavira.github.io/sq80-fm1/librarian/ (`app/librarian/`): banks side by side (.syx files,
-SQ-80's own eight, banks read from the FM-1), each program heard with a click (the editor's engine, and on the FM-1
+banks read from the FM-1), each program heard with a click (the editor's engine, and on the FM-1
 when connected: frame 30), and a bank of one's own put together from them: dragged in, reordered, renamed, out as
 .syx or into any of the FM-1's banks (frames 20-22), or a program into the editor. Kept in the browser.
 
@@ -172,9 +171,9 @@ Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills
 
 ## The programs
 
-`app/site/banks/SQ80-Bank1..8.syx`: SQ-80's own 320 programs (Leonardo Lopez Chavira's), on the site as `banks/`.
-The installer loads them after the firmware into every bank the player gives no file of their own for; the emulator
-loads them the first time it runs in a browser.
+None come with SQ-80: the firmware and the site carry no one else's sounds. Players load their own ESQ-1 / SQ-80
+SysEx banks (the installer, the Load page, the librarian, the emulator); the pages point to Rainer Buchty's Ensoniq
+archive (https://www.buchty.net/ensoniq/) for some. A bank place never loaded plays INIT.
 
 ## The front page
 

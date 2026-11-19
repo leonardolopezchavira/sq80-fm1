@@ -10,7 +10,7 @@
   "install": "https://leonardolopezchavira.github.io/sq80-fm1/install/",
   "site": "https://leonardolopezchavira.github.io/sq80-fm1/",
   "source": "https://github.com/leonardolopezchavira/sq80-fm1",
-  "screenshot": "docs/img/sq80.png",
+  "screenshot": "docs/card.png",
   "hardware": {
     "models": ["FM-1"],
     "flash": ["EB6014", "856014", "B36014"],

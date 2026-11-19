@@ -4,33 +4,36 @@
 wait 600
 shot smk_boot.png
 expect fbank 0
-# banks 1..8 are built in (SINPAD first), 9 and 10 (U1, U2) the player's
+# two banks, the player's: nothing stored yet, INIT everywhere
 expect bank 1
-expect name0 83
-expect banksize 40
+expect name0 73
+expect banksize 0
 turn SELECT -1
 wait 30
-expect bank 10
+expect bank 2
 expect banksize 0
 expect name0 73
 turn SELECT 1
 wait 30
 expect bank 1
-# SAVE from a built-in bank: to U1
+# SAVE: into the bank it plays from
 tap SAVE
 wait 30
 expect sec 6
 tap SAVE
 wait 30
-expect bank 9
+expect bank 1
 expect banksize 1
-expect name0 83
+expect name0 73
 expect sec 0
 reboot
 wait 600
-expect bank 9
+expect bank 1
 expect banksize 1
-turn SELECT 2
+turn SELECT 1
+wait 30
+expect bank 2
+turn SELECT 1
 wait 30
 expect bank 1
 # bank A: REVERB DELAY CHORUS DRIVE (the faders start at 64 in the simulator)
@@ -40,14 +43,15 @@ expect fx0 0
 fader 0 127
 wait 30
 expect fx0 127
-# bank B: CUTOFF RESON ATTACK RELEASE; ATTACK's fader is above its value: it takes over only once it reaches it
+# bank B: CUTOFF RESON ATTACK RELEASE; ATTACK's fader (64) is above its value (INIT: 0): it takes over only once it
+# reaches it
 smkbtn FADER
 wait 30
 expect fbank 1
 shot smk_faders_b.png
 fader 2 100
 wait 30
-expect attack 25
+expect attack 0
 fader 2 0
 wait 30
 fader 2 63

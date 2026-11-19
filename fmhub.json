@@ -1,0 +1,18 @@
+{
+  "what": "An unofficial Ensoniq SQ-80, written from scratch: three wavetable oscillators, a resonant 4-pole filter, four envelopes and three LFOs per voice, eight voices, effects, an arpeggiator and a sequencer. 75 waves of its own; load your own SQ-80 ROMs and SysEx banks if you have them.",
+  "author": "Leonardo Lopez Chavira",
+  "kinds": [
+    "synth"
+  ],
+  "play": "https://leonardolopezchavira.github.io/sq80-fm1/emu/",
+  "editor": "https://leonardolopezchavira.github.io/sq80-fm1/edit/",
+  "cheat": "https://leonardolopezchavira.github.io/sq80-fm1/manual/",
+  "image": "docs/card.png",
+  "color": "#41DEE6",
+  "sounds": "own",
+  "smk37": {
+    "what": "An unofficial Ensoniq SQ-80, written from scratch, for the SMK-37 keyboards: wavetable oscillators, a 4-pole filter, four envelopes, three LFOs, eight voices, effects, arpeggiator and sequencer. 75 waves of its own; load your own SQ-80 ROMs and SysEx banks if you have them.",
+    "install": "https://leonardolopezchavira.github.io/sq80-fm1/smk37/install/",
+    "guide": "https://leonardolopezchavira.github.io/sq80-fm1/smk37/"
+  }
+}

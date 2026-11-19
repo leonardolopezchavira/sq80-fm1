@@ -41,10 +41,10 @@
 /* the SMK-37 (plat.h): its store window 0x9D000..0xBAFFF holds the store's three objects (a pool of 3 sectors: app.h),
  * the two banks the player writes (U1, U2) and the ROM pack's first 25 sectors; the pack goes on in USRFLASH
  * (PLAT_XDATA1, 40 sectors): 65 in all, a pack's size. With fm1.toml smk_xdata2 (SMK_XDATA2) the pack may run on into
- * 0xEB000..0xF3FFF (not used: the stock firmware keeps bytes there). Banks 1..8 are built in, read only
- * (waves/sq80_factory_banks.h: tools/gen_factory_banks.py). No gap in the banks */
-#define NBANK_ROM 8u                     /* banks 1..8: built in */
-#define NBANK_USER 2u                    /* banks 9, 10 (U1, U2): in flash, a sector each */
+ * 0xEB000..0xF3FFF (not used: the stock firmware keeps bytes there). Two banks, the player's (no programs are
+ * built in: the firmware carries no one else's sounds). No gap in the banks */
+#define NBANK_ROM 0u                     /* (none built in) */
+#define NBANK_USER 2u                    /* banks 1, 2: in flash, a sector each (where U1, U2 were: kept) */
 #define BANK_LO 0xA0000u
 #define BANK_HI_LO BANK_LO
 #define GAPPED(slot) 0                   /* no gap in the banks */
@@ -54,7 +54,6 @@
 _Static_assert(BANK_LO == 0x9D000u + 3u * SECTOR, "SMK: the banks right above the store's pool (app.h)");
 _Static_assert(0xA2000u == BANK_LO + NBANK_USER * SECTOR && 0xA2000u + 25u * SECTOR == PLAT_DATA_HI,
                "SMK: the pack's first piece fills the store window after the banks");
-#include "sq80_factory_banks.h"
 #else
 #define ROM_LO 0x97000u                  /* the ROM pack: 65 sectors, to BANK_LO */
 #define BANK_LO 0xD8000u                 /* banks 1..4, a sector each, to the store's objects at 0xDC000 */
@@ -141,12 +140,8 @@ static uint32_t bank_base(uint32_t slot)     /* a flash bank's sector (slot NBAN
     slot -= NBANK_ROM;
     return slot < 4u ? BANK_LO + slot * SECTOR : BANK_HI_LO + (slot - 4u) * SECTOR;
 }
-static const uint8_t *bank_ptr(uint32_t slot)   /* the bank's image: built in, or its sector in flash */
+static const uint8_t *bank_ptr(uint32_t slot)   /* the bank's image: its sector in flash */
 {
-#if APP_SMK
-    if (slot < NBANK_ROM)
-        return SQ80_FACTORY_BANKS[slot];
-#endif
     return bank_writable(slot) ? plat_data(bank_base(slot)) : 0;
 }
 static uint32_t prog_at(uint32_t slot, uint32_t pi)   /* where byte 0 of program pi is (before the gap's step) */
@@ -1108,7 +1103,7 @@ void app_say(const char *a, const char *b)
     }
 }
 
-static void bank_name(uint32_t bank, char *t)   /* "1".."8"; the SMK-37's own: "U1", "U2" */
+static void bank_name(uint32_t bank, char *t)   /* "1".."8" ("U1", "U2" after built-in banks, if a board has any) */
 {
     if (bank > NBANK_ROM && NBANK_ROM) {
         t[0] = 'U';

@@ -22,4 +22,4 @@ description = "An unofficial Ensoniq SQ-80 for the FM-1, written from scratch: t
 tags = ["synth"]
 install = "https://leonardolopezchavira.github.io/sq80-fm1/install/"
 site = "https://leonardolopezchavira.github.io/sq80-fm1/"
-screenshot = "docs/img/sq80.png"
+screenshot = "docs/card.png"

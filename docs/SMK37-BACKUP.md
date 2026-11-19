@@ -62,8 +62,8 @@ If anything fails, stop and send what it printed.
 
 Once the check printed **backup OK** (and the two files are kept in two places). SQ-80 on the SMK-37 keeps its ROM
 pack in the store window and USRFLASH (the stock presets there are overwritten; the backup has them) and never
-writes 0xEB000-0xF3FFF, where the stock firmware keeps a few bytes. Banks 1-8 are built into the firmware (the
-project's factory banks, read only); U1 and U2 are yours to load and save into.
+writes 0xEB000-0xF3FFF, where the stock firmware keeps a few bytes. It has two banks of 40 programs, yours to load
+and save into.
 
 1. After the backup's power cycle the keyboard is in update mode. Install SQ-80 with the site's web installer (the
    SMK-37 page: Chrome or Edge, any computer), or from here (the Pro package also for the Donner Starrykey 37 Play):
@@ -71,10 +71,10 @@ project's factory banks, read only); U1 and U2 are yours to load and save into.
        python3 fm1/base/tools/fm1_install.py sq80-smk37-X.Y.fwsc
 
    It restarts into SQ-80 and checks its identity (`SMK-37 Pro_8...`).
-2. Open the site's **Load** page in Chrome or Edge. It finds the keyboard by itself. Send the ROM pack; banks of your
-   own go to **U1** or **U2**.
-3. Play. SELECT (K2) steps through banks 1-8, U1, U2; FADER BANK steps the faders' banks (the screen shows A..D), the
-   pads pick programs (`<` `>`: the next 16), SEQ held: the pads are the steps. SAVE stores into U1 or U2.
+2. Open the site's **Load** page in Chrome or Edge. It finds the keyboard by itself. Send the ROM pack; banks go to **bank 1** or
+   **bank 2**.
+3. Play. SELECT (K2) steps between banks 1 and 2; FADER BANK steps the faders' banks (the screen shows A..D), the
+   pads pick programs (`<` `>`: the next 16), SEQ held: the pads are the steps. SAVE stores into bank 1 or 2.
 
 The way back: M-Vave's updater with the stock package, as in step 6. The calibration and Bluetooth data are never
 written by SQ-80.

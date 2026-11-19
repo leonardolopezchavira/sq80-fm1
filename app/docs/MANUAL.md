@@ -53,7 +53,7 @@ next install.
 
 ![The boot screen](img/splash.png "Switching on")
 
-There are eight banks of 40 programs. The installer fills them with SQ-80's own 320 programs (by Leonardo Lopez Chavira), unless you give it banks of your own; the emulator has them too. A place where nothing was stored plays **INIT**, a plain sound to start from.
+There are eight banks of 40 programs, for your own: the installer and the [Load page](../load/) put ESQ-1 / SQ-80 SysEx banks into them, and SAVE stores what you make. No programs come with SQ-80; thousands of ESQ-1 and SQ-80 banks are at [Rainer Buchty's Ensoniq archive](https://www.buchty.net/ensoniq/). A place where nothing was stored plays **INIT**, a plain sound to start from.
 
 ## 3. Playing
 
@@ -225,6 +225,6 @@ Chrome or Edge, with the FM-1 connected by USB. Nothing is uploaded: your files 
 SQ-80 also runs on the M-Vave SMK-37 and the Donner Starrykey 37 Play: the same screens and buttons (by their FM-1
 names: SCALE is SEL, CHORD is ENV, NOTE REPEAT is LFO, PARA is EDIT, GLOBE is GLO, PATCH is HOME, BT is SAVE), K5-K8
 where this manual says K1-K4, and its own: 37 keys with velocity, the pads (programs; with SEQ held, the steps),
-four faders in four banks, the wheels and the pedal. Banks 1-8 are built in; U1 and U2 take your own. The backup,
+four faders in four banks, the wheels and the pedal. It has two banks of 40 programs, for your own. The backup,
 the install and the controls: the [SMK-37 page](../smk37/).
 

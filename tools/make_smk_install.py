@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """The SMK-37's web installers: fm1-base's installer page (web/installer.html, as tools/make_site.py makes it) for
 each SMK package, its words for the SMK-37, without what is the FM-1's only (its stock firmware's download,
-m-bootloader), and SQ-80's own steps (app/install_app.js) with SMK set: the ROM pack, the player's banks into U1, U2.
+m-bootloader), and SQ-80's own steps (app/install_app.js) with SMK set: the ROM pack, the player's banks into banks 1, 2.
 
     python3 tools/make_smk_install.py PKG_DIR VERSION SITE_DIR
       -> SITE_DIR/smk37/install/ (SMK-37 Pro, Starrykey 37), install-elite/, install-mke/; the packages in smk37/

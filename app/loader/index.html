@@ -62,14 +62,15 @@
   <section>
     <h2>3 · Programs</h2>
     <p>An ESQ-1 or SQ-80 SysEx file (<code>.syx</code>): a 40-program bank, or single programs (the first 40 are
-      taken). It goes into one of the FM-1's eight banks, replacing what was there.</p>
+      taken). It goes into one of the FM-1's eight banks (an SMK-37 has two), replacing what was there. No banks?
+      Thousands of ESQ-1 and SQ-80 banks are at <a href="https://www.buchty.net/ensoniq/" target="_blank"
+      rel="noopener">Rainer Buchty's Ensoniq archive</a>.</p>
     <input type="file" id="syxfile" accept=".syx,.SYX">
     <div class="names" id="names"></div>
     <div class="row" style="margin-top:10px">
       <label>Bank <select id="slot"><option value="0">1</option><option value="1">2</option>
         <option value="2">3</option><option value="3">4</option><option value="4">5</option><option value="5">6</option>
-        <option value="6">7</option><option value="7">8</option>
-        <option value="8">U1 (SMK-37)</option><option value="9">U2 (SMK-37)</option></select></label>
+        <option value="6">7</option><option value="7">8</option></select></label>
       <button id="banksend" disabled>Load the programs</button>
     </div>
     <progress id="bankprog" value="0" max="1" hidden></progress>
@@ -81,11 +82,10 @@
     <p>Empties a bank on the FM-1: its 40 places go back to INIT, ready for your own. It cannot be undone, so export
       anything you want to keep first (the <a href="../edit/">editor</a> reads a whole bank and saves it as .syx).</p>
     <div class="row">
-      <label>Clear <select id="clrslot"><option value="all">all eight banks</option><option value="0">bank 1</option>
+      <label>Clear <select id="clrslot"><option value="all">all banks</option><option value="0">bank 1</option>
         <option value="1">bank 2</option><option value="2">bank 3</option><option value="3">bank 4</option>
         <option value="4">bank 5</option><option value="5">bank 6</option><option value="6">bank 7</option>
-        <option value="7">bank 8</option><option value="8">U1 (SMK-37)</option>
-        <option value="9">U2 (SMK-37)</option></select></label>
+        <option value="7">bank 8</option></select></label>
       <button id="clear" disabled>Clear…</button>
       <button id="clearyes" hidden>Yes, clear them</button>
       <button id="clearno" class="plain" hidden>Keep them</button>
@@ -322,10 +322,9 @@ function programsFrom(d) {   // ESQ-1 / SQ-80 dumps: F0 0F 02 ch 01 (one) or 02 
   }
   return progs.slice(0, 40);
 }
-const bankName = (b) => b >= 8 ? "U" + (b - 7) : String(b + 1);
-// the SMK-37 keeps banks 1-8 built in (read only): it refuses them (status 2)
-const smkHint = (b, err) => b < 8 && /\b2\b|write|flash/i.test(err.message) ?
-  " (On an SMK-37 banks 1–8 are built in: load into U1 or U2.)" : "";
+const bankName = (b) => String(b + 1);
+// the SMK-37 has banks 1 and 2: it refuses the others (status 1)
+const smkHint = (b, err) => b >= 2 ? " (An SMK-37 has banks 1 and 2.)" : "";
 const nameOf = (p) => String.fromCharCode(...p.subarray(0, 6)).replace(/[^\x20-\x7E]/g, " ").trimEnd();
 $("syxfile").onchange = async () => {
   const f = $("syxfile").files[0];
@@ -353,7 +352,7 @@ const clearAsk = (on) => { $("clear").hidden = on; $("clearyes").hidden = $("cle
 $("clear").onclick = () => {
   const v = $("clrslot").value;
   clearAsk(true);
-  say("clrstat", v === "all" ? "All 320 programs on the FM-1 will be gone. Sure?" : `The 40 programs in bank ${bankName(+v)} will be gone. Sure?`, "bad");
+  say("clrstat", v === "all" ? "All the programs on the FM-1 will be gone. Sure?" : `The 40 programs in bank ${bankName(+v)} will be gone. Sure?`, "bad");
 };
 $("clearno").onclick = () => { clearAsk(false); say("clrstat", "Nothing cleared."); };
 $("clrslot").onchange = () => { clearAsk(false); say("clrstat", ""); };
@@ -361,8 +360,14 @@ $("clearyes").onclick = async () => {
   const v = $("clrslot").value, banks = v === "all" ? [0, 1, 2, 3, 4, 5, 6, 7] : [+v];
   clearAsk(false); $("clear").disabled = true;
   try {
-    for (const b of banks) { say("clrstat", `Clearing bank ${bankName(b)}…`); await sendChecked(0x20, [b], 4000); }
-    say("clrstat", (banks.length > 1 ? "All eight banks are" : `Bank ${bankName(banks[0])} is`) +
+    for (const b of banks) {
+      say("clrstat", `Clearing bank ${bankName(b)}…`);
+      try { await sendChecked(0x20, [b], 4000); } catch (err) {
+        if (banks.length > 1 && b >= 2) break;   /* (an SMK-37: its two banks are done) */
+        throw err;
+      }
+    }
+    say("clrstat", (banks.length > 1 ? "All banks are" : `Bank ${bankName(banks[0])} is`) +
       " empty now: every place plays INIT. (The program on the FM-1's screen stays until you pick another.)", "ok");
   } catch (err) { say("clrstat", "Stopped: " + err.message + "." + smkHint(banks[0], err), "bad"); }
   $("clear").disabled = false;

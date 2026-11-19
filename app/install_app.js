@@ -6,11 +6,13 @@
  * The protocol is app/app.c's ("the loader"), as app/loader/index.html and tools/fm1_loader.py speak it. */
 (() => {
   const HEAD = [0x7D, 0x53, 0x51];
-  /* the SMK-37's installer (tools/make_smk_install.py sets it): banks 1-8 are built into its firmware, the player's
-   * own go to U1 and U2 (the loader's banks 8, 9) */
+  /* the SMK-37's installer (tools/make_smk_install.py sets it): two banks, the FM-1 eight. No programs come with
+   * SQ-80 (it carries no one else's sounds): the player's own banks, or ones from the community's archives */
   const SMK = false;
-  const NB = SMK ? 2 : 8, BASE = SMK ? 8 : 0, DEV = SMK ? "SMK-37" : "FM-1";
-  const bankLabel = (i) => SMK ? "U" + (i + 1) : String(i + 1);
+  const NB = SMK ? 2 : 8, BASE = 0, DEV = SMK ? "SMK-37" : "FM-1";
+  const bankLabel = (i) => String(i + 1);
+  const ARCHIVE = `<a href="https://www.buchty.net/ensoniq/" target="_blank" rel="noopener">Rainer Buchty's Ensoniq
+    archive</a>`;
   const KEEP_DB = "sq80-setup", KEEP_STORE = "files", KEEP_KEY = "last";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -73,48 +75,29 @@
     }
     return {pack, banks};
   }
-  /* SQ-80's own eight banks (app/site/banks: Leonardo Lopez Chavira's programs), on the site beside this page: every
-   * bank the player does not give their own file for gets SQ-80's */
-  const FACTORY = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `SQ80-Bank${i}.syx`);
-  async function factory() {
-    try {
-      return await Promise.all(FACTORY.map(async (name) => {
-        const r = await fetch("../banks/" + name);
-        if (!r.ok) throw new Error(name);
-        return {name, bytes: new Uint8Array(await r.arrayBuffer()), factory: true};
-      }));
-    } catch (_) { return null; }
-  }
-  async function withFactory(s) {   // the player's banks first, SQ-80's in the rest
+  function withFactory(s) {   // the player's files (banks kept by an older installer marked "factory": dropped)
     const banks = (s && s.banks ? s.banks : []).filter((b) => !b.factory).slice(0, NB);
-    if (SMK) return {pack: s ? s.pack : null, banks};   /* (SQ-80's are built in) */
-    const f = await factory();
-    if (f) for (let i = banks.length; i < 8; i++) banks.push(f[i]);
     return {pack: s ? s.pack : null, banks};
   }
   const describe = (s) => [
     s.pack ? `ROM pack: <b>${esc(s.pack.name)}</b>` : `no ROM pack (the ${DEV} keeps the one it has)`,
-    ...s.banks.map((b, i) => `bank ${bankLabel(i)}: <b>${esc(b.name)}</b> (${programsFrom(b.bytes).length} programs${b.factory ? ", SQ-80's" : ""})`),
+    ...s.banks.filter((b) => !b.factory).slice(0, NB).map((b, i) =>
+      `bank ${bankLabel(i)}: <b>${esc(b.name)}</b> (${programsFrom(b.bytes).length} programs)`),
   ].join("<br>");
 
-  const PICK = SMK ? `<p>SQ-80 comes with its own waves and its eight banks of programs built in. Optionally, choose
-    your ROM pack (<code>.rompack</code>, for the original waves: <a href="../../rompack/" target="_blank">make it from
-    your ROM dumps</a>) and up to two ESQ-1 / SQ-80 SysEx banks (<code>.syx</code>) of your own together: hold ⌘ (Mac)
-    or Ctrl to pick several. Yours go into U1 and U2 in name order.</p>
+  const PICK = `<p>SQ-80 comes with its own waves. Choose your ROM pack (<code>.rompack</code>, for the original
+    waves: <a href="${SMK ? "../../" : "../"}rompack/" target="_blank">make it from your ROM dumps</a>) and up to
+    ${SMK ? "two" : "eight"} ESQ-1 / SQ-80 SysEx banks (<code>.syx</code>) together: hold ⌘ (Mac) or Ctrl to pick
+    several. They go into banks 1–${NB} in name order; a bank you give no file for keeps what it has.</p>
+    <p>No banks? Thousands of ESQ-1 and SQ-80 banks are at ${ARCHIVE}: download some and choose them here.</p>
     <p><input type="file" id="sq80files" multiple accept=".rompack,.syx,.SYX"></p>
     <p class="small">They stay on this computer, in this browser, so the next install can load them again with one
-    click. Nothing is uploaded anywhere but to your keyboard.</p>` : `<p>SQ-80 comes with its own waves and eight banks of programs, loaded after the firmware. Optionally,
-    choose your ROM pack (<code>.rompack</code>, for the original waves: <a href="../rompack/" target="_blank">make it
-    from your ROM dumps</a>) and up to eight ESQ-1 / SQ-80 SysEx banks (<code>.syx</code>) of your own together: hold
-    ⌘ (Mac) or Ctrl to pick several. Yours go into banks 1–8 in name order; SQ-80's fill the rest.</p>
-    <p><input type="file" id="sq80files" multiple accept=".rompack,.syx,.SYX"></p>
-    <p class="small">They stay on this computer, in this browser, so the next install can load them again with one
-    click. Nothing is uploaded anywhere but to your FM-1.</p>`;
+    click. Nothing is uploaded anywhere but to your ${SMK ? "keyboard" : "FM-1"}.</p>`;
 
   async function before(midi, ui) {
     let saved = await kept();
     for (;;) {
-      if (saved && (saved.pack || saved.banks.length)) {
+      if (saved && (saved.pack || saved.banks.some((b) => !b.factory))) {
         const c = await ui.ask("Your SQ-80 waves and programs",
           `<p>Load these into the ${DEV} after the firmware, as last time?</p><p>${describe(saved)}</p>`,
           [["saved", "Load them too"], ["change", "Other files"], ["skip", "Firmware only"]]);
@@ -124,9 +107,7 @@
         continue;
       }
       const c = await ui.ask("Your SQ-80 waves and programs", PICK,
-        SMK ? [["files", "Use these files"], ["skip", "Firmware only"]] :
-        [["factory", "SQ-80's banks"], ["files", "Use these files"], ["skip", "Firmware only"]]);
-      if (c === "factory") return withFactory(null);
+        [["files", "Use these files"], ["skip", "Firmware only"]]);
       if (c !== "files") return null;
       const el = document.getElementById("sq80files");
       const got = await readFiles(el && el.files ? el.files : []);
@@ -258,7 +239,7 @@
         }
         await link.send(0x22, [b, progs.length]);
       }
-      ui.say(SMK ? "SQ-80 is installed with your waves and programs. K2 picks the bank (1–8, U1, U2), K4 the program." :
+      ui.say(SMK ? "SQ-80 is installed with your waves and programs. K2 picks the bank (1, 2), K4 the program." :
         "SQ-80 is installed with your waves and programs. SELECT picks the bank, PRESET the program.");
     } finally { link.close(); }
   }
