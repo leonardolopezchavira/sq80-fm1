@@ -53,7 +53,7 @@ next install.
 
 ![The boot screen](img/splash.png "Switching on")
 
-There are eight banks of 40 programs, for your own: the installer and the [Load page](../load/) put ESQ-1 / SQ-80 SysEx banks into them, and SAVE stores what you make. No programs come with SQ-80; thousands of ESQ-1 and SQ-80 banks are at [Rainer Buchty's Ensoniq archive](https://www.buchty.net/ensoniq/). A place where nothing was stored plays **INIT**, a plain sound to start from.
+There are eight banks of 40 programs, for your own: the installer and the [Load page](../load/) put ESQ-1 / SQ-80 SysEx banks into them, and SAVE stores what you make. No programs come with SQ-80; thousands of ESQ-1 and SQ-80 banks are at [Rainer Buchty's Ensoniq archive](https://www.buchty.net/ensoniq/) and in the [Ensoniq sounds 2022-07](https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) collection. A place where nothing was stored plays **INIT**, a plain sound to start from.
 
 ## 3. Playing
 

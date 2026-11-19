@@ -147,11 +147,17 @@ export function attach(ctx) {
   btn.textContent = "Your ROM pack and banks…";
   btn.title = "Load your own SQ-80 ROM pack (.rompack) and ESQ-1 / SQ-80 banks (.syx): they stay in this browser";
   btn.addEventListener("click", () => input.click());
-  const arch = document.createElement("a");
-  arch.href = "https://www.buchty.net/ensoniq/";
-  arch.target = "_blank";
-  arch.rel = "noopener";
-  arch.textContent = "ESQ-1 / SQ-80 banks to download";
-  arch.title = "Rainer Buchty's Ensoniq archive: thousands of ESQ-1 and SQ-80 banks; load them with the button beside it";
-  bar.append(btn, input, arch, note);
+  const link = (href, text, title) => {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = text;
+    a.title = title + ": ESQ-1 and SQ-80 banks to download; load them with the button beside it";
+    return a;
+  };
+  bar.append(btn, input,
+    link("https://www.buchty.net/ensoniq/", "Banks: Buchty's archive", "Rainer Buchty's Ensoniq archive"),
+    link("https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7", "Banks: Ensoniq sounds 2022-07", "The Ensoniq sounds 2022-07 collection"),
+    note);
 }
