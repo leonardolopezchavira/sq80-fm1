@@ -245,6 +245,9 @@ control panel and sequencer, running on the tablet so the FM-1 only plays:
 - **Panel**: the eight tracks' programs, page by page as on the SQ-80 (OSC, DCA, FILTER, DCA 4, MODES, LFO, ENV,
   SPLIT), as knobs. Turn a knob by dragging up or down; tap one to choose its value. Every change plays at once on
   the FM-1. **Get** puts a program of the FM-1's banks on the track; **Save** stores the track's sound in a bank.
+  A track with **no program** sends nothing: its part keeps what the FM-1 has (its knobs wait until it has one: get
+  what the FM-1 plays, choose one in the Library, or start from INIT). Track 1 takes the FM-1's program when the
+  tablet connects. **No program on this track** takes a track's program off again.
 - **Seq**: 60 sequences of 8 tracks. Each track keeps a program, a MIDI channel (channels 1–8 are the FM-1's parts),
   a MIX level and a status: **MIDI** (the FM-1, or the MIDI out chosen in Setup), **TABLET** (the tablet's own copy
   of the engine) or **BOTH**. Select a track and the FM-1's keys play its sound. Record from the FM-1's keys: ● then
@@ -252,11 +255,13 @@ control panel and sequencer, running on the tablet so the FM-1 only plays:
   track. Step entry, transpose, auto-correct, velocity, remove controllers, copy, merge and erase work on a track;
   add and delete bars, append, copy and erase on the sequence. MIDI files import and export.
 - **Song**: 20 songs of up to 99 steps; each step plays a sequence, repeated 1–99 times, transposed.
-- **Roll**: the selected track's notes. Tap to add a note, drag it to move it, drag its end to lengthen it, tap twice
+- **Roll**: the selected track's notes; **LOOP** sets the sequence's length in bars (the line marked END is where it
+  loops). Tap to add a note, drag it to move it, drag its end to lengthen it, tap twice
   to delete it; drag the empty grid to scroll.
 - **Library**: the FM-1's banks (read from it) and .syx files; put any program on a track.
-- **Setup**: the connection, MULTI, MIDI out and in, MIDI clock out, the tablet's sound, and the project (kept on the
-  tablet; Export makes a file of it).
+- **Setup**: the connection, MULTI, MIDI out and in, MIDI clock out, the tablet's sound, the project (kept on the
+  tablet; Export makes a file of it), and a **MIDI monitor**: what goes to the FM-1 and comes back, and on the tablet
+  app how Android hands it over (**Test: read a program** tries one read).
 
 On a **Fire HD 10**: install **SQ80-Tablet.apk** from the project's *tablet-latest* release (Settings → Security and
 privacy → apps from unknown sources), then connect the FM-1 to the tablet with a USB-C OTG cable or hub. On a

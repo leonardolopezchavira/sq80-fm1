@@ -79,6 +79,8 @@
   .knob { display: flex; flex-direction: column; align-items: center; gap: 2px; touch-action: none; cursor: ns-resize; padding: 4px 0; border-radius: 4px; }
   .knob.sel { background: var(--hi2); }
   .knob canvas { width: 72px; height: 72px; }
+  .knobs.off, .data.off { opacity: .3; pointer-events: none; }
+  .noprog { margin-top: 12px; border-color: var(--warn); color: var(--fg2); }
   .knob .kl { color: var(--dim); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
   .knob .kv { color: var(--fg); font: 13px var(--vfd); letter-spacing: 0; min-height: 18px; text-align: center; max-width: 100%; white-space: nowrap; overflow: hidden; }
   .knob.sw .kv { color: var(--hi); }
@@ -147,6 +149,8 @@
   #vSetup .box h3, .box h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg); }
   .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--line); }
   .opt:last-child { border-bottom: 0; }
+  pre.mon { margin: 8px 0 0; padding: 8px; background: #050505; border: 1px solid var(--line); border-radius: 3px; color: var(--fg2);
+            font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow: auto; max-height: 220px; user-select: text; -webkit-user-select: text; }
   .opt > span { color: var(--fg2); }
   .opt select { min-width: 200px; max-width: 60%; }
 
@@ -206,8 +210,16 @@
           <div class="parts" id="parts"></div>
           <div class="pages" id="pages"></div>
           <canvas class="graph" id="graph" width="1200" height="220"></canvas>
+          <div class="box noprog" id="noProg" hidden>
+            <div>Track <span id="noProgTrk">1</span> has no program, so nothing is sent to the FM-1 and its part plays whatever it has. Give it one to edit:</div>
+            <div class="row" style="margin-top:8px">
+              <button class="fm pri" id="noProgGet">Get what the FM-1 plays</button>
+              <button id="noProgLib">Choose in the Library</button>
+              <button id="noProgInit">Start from INIT</button>
+            </div>
+          </div>
           <div class="knobs" id="knobs"></div>
-          <div class="data">
+          <div class="data" id="dataRow">
             <button id="dataDn">&minus;</button>
             <input type="range" id="dataSlider" min="0" max="127" value="0">
             <button id="dataUp">+</button>
@@ -221,6 +233,7 @@
             <div class="grid3" style="margin-top:6px">
               <button id="undoBtn">Undo</button><button id="initBtn">Init</button><button id="rndBtn">Random</button>
             </div>
+            <button id="clearProg" class="sm" style="width:100%;margin-top:6px">No program on this track</button>
           </div>
           <div class="box">
             <div class="lbl">the FM-1's programs</div>
@@ -339,6 +352,9 @@
         <span class="lbl">track</span>
         <div class="row" id="rollTracks" style="gap:3px"></div>
         <span class="grow"></span>
+        <span class="lbl">loop</span>
+        <div class="stepper" style="grid-template-columns:36px 44px 36px"><button id="rollBarsDn" class="sm">&minus;</button><div class="vfd" id="rollBars">4</div><button id="rollBarsUp" class="sm">+</button></div>
+        <span class="lbl">bars of</span><button id="rollSig" class="sm">4/4</button>
         <button id="rollGrid" class="sm">grid 1/16</button>
         <button id="rollVel" class="sm">vel 100</button>
         <button id="rollDel" class="sm danger">Delete</button>
@@ -397,6 +413,13 @@
           <div class="opt"><span>Waves</span><span class="row"><span class="status" id="wavesStatus">built-in</span><button id="packBtn" class="sm">ROM pack…</button></span></div>
           <input type="file" id="packFile" accept=".rompack" hidden>
           <div class="note" style="padding:6px 0">A track set to TABLET plays on this tablet's own SQ-80 engine (8 voices per track). Plug headphones or a mixer into the tablet.</div>
+        </div>
+        <div class="box" style="grid-column: 1 / -1">
+          <h3>MIDI monitor</h3>
+          <div class="row"><span class="note grow">What goes to and comes from the FM-1. A program read is a SysEx of 214 bytes in; "cut short" or nothing there shows where it stops.</span>
+            <button id="monTest" class="sm fm">Test: read a program</button><button id="monClear" class="sm">Clear</button></div>
+          <pre id="monHead" class="mon"></pre>
+          <pre id="monLog" class="mon" style="max-height:260px"></pre>
         </div>
         <div class="box">
           <h3>Project</h3>

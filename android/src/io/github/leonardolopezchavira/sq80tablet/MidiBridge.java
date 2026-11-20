@@ -58,6 +58,22 @@ public final class MidiBridge {
     private final AtomicLong seq = new AtomicLong();
     private final StringBuilder pending = new StringBuilder();
     private boolean flushPosted;
+    /* the MIDI monitor (the page's Setup): the last pieces Android handed us, as they came, before any parsing */
+    private final String[] raw = new String[40];
+    private int rawN;
+    private long rawBytes, rawPieces, delivered;
+    private String rawNote(String id, byte[] d, int off, int count, String how) {
+        StringBuilder h = new StringBuilder();
+        for (int i = 0; i < count && i < 24; i++) h.append(String.format("%02X ", d[off + i] & 0xFF));
+        if (count > 24) { h.append("… "); for (int i = Math.max(24, count - 4); i < count; i++) h.append(String.format("%02X ", d[off + i] & 0xFF)); }
+        return (System.currentTimeMillis() % 100000) + " " + id + " " + how + " " + count + " B: " + h.toString().trim();
+    }
+    void rawIn(String id, byte[] d, int off, int count, String how) {
+        synchronized (raw) {
+            rawBytes += count; rawPieces++;
+            raw[rawN++ % raw.length] = rawNote(id, d, off, count, how);
+        }
+    }
 
     /** a device: what it sends us (in), where we send (out) */
     private abstract static class Port {
@@ -156,6 +172,45 @@ public final class MidiBridge {
         queue.add(new Out(due, seq.incrementAndGet(), p, b));
     }
 
+    /** for the MIDI monitor: the way in, the devices, the raw pieces (JSON) */
+    @JavascriptInterface
+    public String debug() {
+        StringBuilder j = new StringBuilder("{\"path\":\"");
+        j.append(mm != null ? "Android MIDI service" : usb != null ? "USB MIDI class, direct (no MIDI service on this device)" : "none");
+        j.append("\",\"devices\":[");
+        boolean first = true;
+        if (usb != null) for (UsbDevice d : usb.getDeviceList().values()) {
+            StringBuilder e = new StringBuilder();
+            e.append(Build.VERSION.SDK_INT >= 21 && d.getProductName() != null ? d.getProductName() : "USB " + d.getDeviceId());
+            for (int i = 0; i < d.getInterfaceCount(); i++) {
+                UsbInterface f = d.getInterface(i);
+                e.append(" | if").append(i).append(" class ").append(f.getInterfaceClass()).append("/").append(f.getInterfaceSubclass());
+                for (int k = 0; k < f.getEndpointCount(); k++) {
+                    UsbEndpoint ep = f.getEndpoint(k);
+                    e.append(ep.getDirection() == UsbConstants.USB_DIR_IN ? " in" : " out").append(ep.getMaxPacketSize());
+                }
+            }
+            j.append(first ? "" : ",").append(q(e.toString())); first = false;
+        }
+        if (mm != null) for (MidiDeviceInfo info : mm.getDevices()) {
+            Bundle p = info.getProperties();
+            String n = p.getString(MidiDeviceInfo.PROPERTY_NAME);
+            j.append(first ? "" : ",").append(q("MIDI service: " + (n != null ? n : "?") + ", " + info.getInputPortCount() + " in / "
+                    + info.getOutputPortCount() + " out ports")); first = false;
+        }
+        j.append("],\"raw\":[");
+        synchronized (raw) {
+            int n = Math.min(rawN, raw.length);
+            for (int i = 0; i < n; i++) j.append(i > 0 ? "," : "").append(q(raw[(rawN - n + i) % raw.length]));
+            j.append("],\"bytes\":").append(rawBytes).append(",\"pieces\":").append(rawPieces).append(",\"messages\":").append(delivered).append("}");
+        }
+        return j.toString();
+    }
+    private static String q(String s) { return "\"" + s.replace("\\", "/").replace("\"", "'") + "\""; }
+
+    @JavascriptInterface
+    public void debugClear() { synchronized (raw) { rawN = 0; rawBytes = rawPieces = delivered = 0; } }
+
     @JavascriptInterface
     public void save(String name, String base64) {
         page.save(name, android.util.Base64.decode(base64, android.util.Base64.DEFAULT));
@@ -189,6 +244,7 @@ public final class MidiBridge {
 
     private void deliver(String id, byte[] m, int n) {
         if (n <= 0 || (m[0] & 0xFF) >= 0xF8) return;
+        synchronized (raw) { delivered++; }
         StringBuilder h = new StringBuilder(n * 2);
         for (int i = 0; i < n; i++) { int v = m[i] & 0xFF; h.append(Character.forDigit(v >> 4, 16)).append(Character.forDigit(v & 15, 16)); }
         synchronized (pending) {
@@ -278,7 +334,10 @@ public final class MidiBridge {
             if (from != null) {
                 final Parser parser = new Parser(id);
                 from.connect(new MidiReceiver() {
-                    @Override public void onSend(byte[] msg, int offset, int count, long timestamp) { parser.feed(msg, offset, count); }
+                    @Override public void onSend(byte[] msg, int offset, int count, long timestamp) {
+                        rawIn(id, msg, offset, count, "service");
+                        parser.feed(msg, offset, count);
+                    }
                 });
             }
             return to != null;
@@ -339,6 +398,7 @@ public final class MidiBridge {
                 byte[] m = new byte[3];
                 while (running) {
                     int n = conn.bulkTransfer(epIn, b, b.length, 250);
+                    if (n > 0) br.rawIn(id, b, 0, n, "usb");
                     for (int i = 0; i + 3 < n; i += 4) {
                         int cin = b[i] & 15, len = CIN_LEN[cin];
                         if (len == 0) continue;
