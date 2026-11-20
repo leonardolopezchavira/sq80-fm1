@@ -12,7 +12,7 @@ const NOTE = (k) => ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
 const nib = (prog) => { const o = []; for (const x of prog) o.push(x & 15, x >> 4); return o; };
 const unnib = (d, p) => { const r = new Uint8Array(102); for (let j = 0; j < 102; j++) r[j] = (d[p + 2 * j] & 15) | ((d[p + 2 * j + 1] & 15) << 4); return r; };
 const nameOf = (prog) => String.fromCharCode(...prog.slice(0, 6)).replace(/[^\x20-\x7e]/g, " ");
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 /* ================================================================== USB MIDI on the Fire tablet (android/) */
 /* The tablet's app has no Web MIDI in its web view: it gives SQ80Android (android/.../MidiBridge.java) and calls
@@ -72,7 +72,7 @@ const Store = {
 };
 
 /* ================================================================== the engine (sq80_editor.wasm) */
-let wasmMod = null, E = null, userPack = null;
+let wasmMod = null, wasmBytes = null, E = null, userPack = null;
 const PARAM = {};                             // parameter ids (src/sq80/sq80_params.h)
 const ENV = (n, p) => n * 11 + p, LFO = (n, p) => 44 + n * 8 + p, OSC = (n, p) => 68 + n * 14 + p, PRG = (p) => 110 + p;
 const EF = { L1: 0, L2: 1, L3: 2, LV: 3, T1: 4, T2: 5, T3: 6, T4: 7, T1V: 8, TK: 9, R2: 10 };
@@ -89,7 +89,8 @@ async function instance() {
 async function loadEngine() {
   const r = await fetch("../edit/sq80_editor.wasm");
   if (!r.ok) throw new Error("sq80_editor.wasm: " + r.status);
-  wasmMod = await WebAssembly.compile(await r.arrayBuffer());
+  wasmBytes = await r.arrayBuffer();
+  wasmMod = await WebAssembly.compile(wasmBytes);
   E = await instance();
   E.init(48000);
 }
@@ -102,37 +103,79 @@ function usePackIn(X, bytes) {
 }
 
 /* ------------------------------------------------------------------ the tablet's sound: one engine per track */
+/* On the audio thread (tablet-worklet.js) where the browser has audio worklets: the page's drawing cannot hold the
+ * sound up there. Else (an old web view) the main-thread way, below, which crackles while the screen is busy. */
 const Tab = {
-  ac: null, node: null, eng: [], q: [], vol: 0.7, clickBuf: null,
+  ac: null, node: null, worklet: false, ready: null, has: [], vol: 0.7,
   start() {
-    if (this.ac) { if (this.ac.state !== "running") this.ac.resume(); return; }
+    if (this.ac) { if (this.ac.state !== "running") this.ac.resume(); return this.ready; }
     this.ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
-    this.node = this.ac.createScriptProcessor(512, 0, 2);
-    this.node.onaudioprocess = (ev) => this.render(ev);
-    this.node.connect(this.ac.destination);
+    this.ready = (async () => {
+      if (this.ac.audioWorklet && window.AudioWorkletNode) {
+        try {
+          await this.ac.audioWorklet.addModule("tablet-worklet.js");
+          this.node = new AudioWorkletNode(this.ac, "sq80-tablet", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
+                                                                      processorOptions: { wasm: wasmBytes } });
+          this.node.connect(this.ac.destination);
+          this.worklet = true;
+          this.post({ k: "vol", v: this.vol });
+          if (userPack) this.post({ k: "pack", bytes: userPack.bytes });
+          return;
+        } catch (e) { console.warn("audio worklet: " + e.message); }
+      }
+      Old.start(this.ac);
+    })();
+    return this.ready;
   },
-  async engine(tr) {                          // the track's engine, made when first wanted
+  post(m) { if (this.worklet) this.node.port.postMessage(m); },
+  /* performance time (ms) -> the context's time (s) at which it is heard */
+  ctxTime(t) {
+    if (!t) return 0;
+    const ts = this.ac.getOutputTimestamp ? this.ac.getOutputTimestamp() : null;
+    if (ts && ts.performanceTime) return ts.contextTime + (t - ts.performanceTime) / 1000;
+    return this.ac.currentTime + (this.ac.outputLatency || this.ac.baseLatency || 0) + (t - performance.now()) / 1000;
+  },
+  program(tr, data) { this.has[tr] = true; this.start().then(() => this.worklet ? this.post({ k: "prog", tr, data: Array.from(data) }) : Old.program(tr, data)); },
+  edit(tr, data) { if (!this.has[tr]) return; this.worklet ? this.post({ k: "edit", tr, data: Array.from(data) }) : Old.edit(tr, data); },
+  at(t, tr, kind, a, b) {
+    if (!this.ac) return;
+    if (this.worklet) this.post({ k: "ev", t: this.ctxTime(t), tr, kind, a, b });
+    else if (Old.node) Old.at(t, tr, kind, a, b);   // (neither yet: the worklet still loading)
+  },
+  now(tr, kind, a, b) { this.at(0, tr, kind, a, b); },
+  allOff() { if (this.worklet) this.post({ k: "alloff" }); else Old.allOff(); },
+  setVol(v) { this.vol = v; this.post({ k: "vol", v }); Old.vol = v; },
+  setPack(bytes) { this.post({ k: "pack", bytes }); for (const X of Old.eng) if (X) usePackIn(X, bytes); },
+  get eng() { return this.has; },
+  click(t, accent) {                          // the metronome, a short blip at performance time t
+    if (!this.ac) return;
+    const at = Math.max(this.ac.currentTime, this.ctxTime(t) - (this.ac.outputLatency || this.ac.baseLatency || 0));
+    const o = this.ac.createOscillator(), g = this.ac.createGain();
+    o.frequency.value = accent ? 1600 : 1000;
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.35, at + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
+    o.connect(g).connect(this.ac.destination); o.start(at); o.stop(at + 0.05);
+  },
+};
+/* the main-thread way (no audio worklet) */
+const Old = {
+  ac: null, node: null, eng: [], q: [], vol: 0.7,
+  start(ac) {
+    this.ac = ac;
+    this.node = ac.createScriptProcessor(1024, 0, 2);
+    this.node.onaudioprocess = (ev) => this.render(ev);
+    this.node.connect(ac.destination);
+  },
+  async engine(tr) {
     if (this.eng[tr]) return this.eng[tr];
-    this.start();
     const X = await instance();
     X.init(this.ac.sampleRate);
     if (userPack) usePackIn(X, userPack.bytes);
     this.eng[tr] = X;
     return X;
   },
-  program(tr, data) {
-    this.engine(tr).then((X) => { new Uint8Array(X.memory.buffer, X.prog(), 102).set(data); X.apply(1); });
-  },
-  edit(tr, data) {                            // (a change while notes play on)
-    const X = this.eng[tr];
-    if (X) { new Uint8Array(X.memory.buffer, X.prog(), 102).set(data); X.apply(0); }
-  },
-  /* an event at performance time t: [kind, a, b] */
-  at(t, tr, kind, a, b) {
-    if (!this.eng[tr]) { this.engine(tr); if (kind !== "on") return; }
-    this.q.push({ t, tr, kind, a, b });
-  },
-  now(tr, kind, a, b) { this.at(0, tr, kind, a, b); },
+  program(tr, data) { this.engine(tr).then((X) => { new Uint8Array(X.memory.buffer, X.prog(), 102).set(data); X.apply(1); }); },
+  edit(tr, data) { const X = this.eng[tr]; if (X) { new Uint8Array(X.memory.buffer, X.prog(), 102).set(data); X.apply(0); } },
+  at(t, tr, kind, a, b) { if (!this.eng[tr]) { this.engine(tr); if (kind !== "on") return; } this.q.push({ t, tr, kind, a, b }); },
   allOff() { for (const X of this.eng) if (X) X.all_off(); this.q = []; },
   render(ev) {
     const n = ev.outputBuffer.length, ol = ev.outputBuffer.getChannelData(0), or = ev.outputBuffer.getChannelData(1);
@@ -140,17 +183,15 @@ const Tab = {
     const sr = this.ac.sampleRate, lat = ((this.ac.outputLatency || this.ac.baseLatency || 0) * 1000) + n / sr * 1000;
     const t0 = performance.now() + lat, msPer = 1000 / sr;
     this.q.sort((a, b) => a.t - b.t);
-    let done = 0;
+    let done = 0, pos = 0;
     const apply = (e) => {
       const X = this.eng[e.tr]; if (!X) return;
       if (e.kind === "on") X.note_on(e.a, e.b); else if (e.kind === "off") X.note_off(e.a);
-      else if (e.kind === "cc") X.cc(e.a, e.b); else if (e.kind === "bend") X.bend(e.a); else if (e.kind === "alloff") X.all_off();
+      else if (e.kind === "cc") X.cc(e.a, e.b); else if (e.kind === "bend") X.bend(e.a);
     };
-    let pos = 0;
     while (pos < n) {
       while (done < this.q.length && this.q[done].t <= t0 + pos * msPer) apply(this.q[done++]);
-      const next = done < this.q.length ? Math.ceil((this.q[done].t - t0) / msPer) : n;
-      const m = clamp(next - pos, 1, n - pos);
+      const next = done < this.q.length ? Math.ceil((this.q[done].t - t0) / msPer) : n, m = clamp(next - pos, 1, n - pos);
       for (const X of this.eng) {
         if (!X || !X.voices()) continue;
         X.render(m);
@@ -162,14 +203,6 @@ const Tab = {
     this.q.splice(0, done);
     const g = this.vol * 0.45;
     for (let i = 0; i < n; i++) { ol[i] = Math.tanh(ol[i] * g); or[i] = Math.tanh(or[i] * g); }
-  },
-  click(t, accent) {                          // the metronome, a short blip at performance time t
-    if (!this.ac) return;
-    const at = this.ac.currentTime + Math.max(0, (t - performance.now()) / 1000);
-    const o = this.ac.createOscillator(), g = this.ac.createGain();
-    o.frequency.value = accent ? 1600 : 1000;
-    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.35, at + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
-    o.connect(g).connect(this.ac.destination); o.start(at); o.stop(at + 0.05);
   },
 };
 
@@ -191,7 +224,9 @@ class Link {                                  // the loader's frames, one at a t
       let f = [cmd, ...body];
       if (CHECKED(cmd)) { const s = f.reduce((a, b) => a + b, 0); f = [...f, s & 0x7F, (s >> 7) & 0x7F]; }
       this.waiting = { cmd, resolve, timer: setTimeout(() => { this.waiting = null; reject(new Error("no answer from the FM-1")); }, ms) };
-      this.o.send([0xF0, ...HEAD, ...f, 0xF7]);
+      const frame = [0xF0, ...HEAD, ...f, 0xF7];
+      Mon.add("out", frame);
+      this.o.send(frame);
     });
   }
   async tries(cmd, body, ms) {
@@ -264,7 +299,19 @@ async function connect(quiet) {
   setConn();
   say("connStatus", `Connected: ${link.o.name}` + (link.multi ? (st.multi ? ", MULTI on" : "") : " (no MULTI: SQ-80 is older than 0.15.0)"), "ok");
   sent.fill(null);
+  await adoptPlaying();
   sendAllParts();
+}
+/* track 1 without a program takes the one the FM-1 plays (and sends nothing: the FM-1 has it) */
+async function adoptPlaying() {
+  const tr = curSeq().tracks[0];
+  if (tr.prog || tr.ch !== 0) return;
+  try {
+    const r = await readProgram(0x7F, 0);
+    setTrackProg(0, r.prog, { b: r.b, p: r.p }, true);
+    if (st.track === 0) loadPart();
+    refreshKnobs(); buildParts(); buildTracks();
+  } catch (e) { toast("Could not read the FM-1's program: " + e.message + " (Setup's MIDI monitor shows what came back)", true); }
 }
 function disconnect(why) {
   link = null;
@@ -290,9 +337,40 @@ function followKeys() {
   lastKeysPart = k;
   link.send(0x34, [st.multi ? 1 : 0, k], 800).catch(() => {});
 }
+/* the MIDI monitor (Setup): what went out and came in, the last 80 */
+const Mon = {
+  log: [], counts: { in: 0, out: 0, sxIn: 0, sxOut: 0 },
+  add(dir, d) {
+    const st = d[0];
+    if (st >= 0xF8) return;                     // (the clock: too many to show)
+    const sx = st === 0xF0, n = d.length, show = Array.from(d.slice(0, 12), (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+    const end = sx ? (d[n - 1] === 0xF7 ? " … F7, whole" : " …, NO F7: cut short") : "";
+    this.counts[dir]++; if (sx) this.counts[dir === "in" ? "sxIn" : "sxOut"]++;
+    this.log.push(`${(performance.now() / 1000).toFixed(2).padStart(8)} ${dir === "in" ? "IN " : "OUT"} ${String(n).padStart(4)} B  ${show}${n > 12 ? end || " …" : ""}`);
+    if (this.log.length > 80) this.log.shift();
+    this.dirty = true;
+  },
+};
+function monShow() {
+  if (st.view !== "Setup") return;
+  const A = window.SQ80Android;
+  let head = A ? "" : "Web MIDI (this browser's own)";
+  if (A && A.debug) {
+    try {
+      const d = JSON.parse(A.debug());
+      head = `${d.path}\n${d.devices.map((x) => "  " + x).join("\n") || "  (no USB devices)"}\nfrom Android: ${d.bytes} bytes in ${d.pieces} pieces, ${d.messages} whole messages\n` +
+             (d.raw.length ? "last pieces as Android gave them:\n" + d.raw.slice(-12).map((x) => "  " + x).join("\n") : "");
+    } catch (e) { head = "the app's MIDI bridge: " + e.message; }
+  }
+  const c = Mon.counts;
+  $("monHead").textContent = head;
+  $("monLog").textContent = `in ${c.in} (SysEx ${c.sxIn}), out ${c.out} (SysEx ${c.sxOut})\n` + Mon.log.slice().reverse().join("\n");
+}
+setInterval(() => { if (Mon.dirty || st.view === "Setup") { Mon.dirty = false; monShow(); } }, 700);
 /* send raw MIDI to the out port, at performance time t (0: now) */
 function midiOut(bytes, t) {
   if (!out) return;
+  Mon.add("out", bytes);
   try { out.send(bytes, t && t > performance.now() ? t : undefined); } catch (_) { /* (gone) */ }
 }
 
@@ -342,11 +420,12 @@ function partData(t) {                        // the track's program (INIT when 
   E.init_program();
   return new Uint8Array(eprog());
 }
-function setTrackProg(t, data, from) {        // a program for track t: kept in it, sent where it plays
-  const tr = curSeq().tracks[t];
+function setTrackProg(t, data, from, quiet) { // a program for track t: kept in it, sent where it plays (quiet: the
+  const tr = curSeq().tracks[t];               // FM-1 plays it already)
   tr.prog = { name: nameOf(data).trim(), data: Array.from(data) };
   if (from) { tr.prog.b = from.b; tr.prog.p = from.p; }
-  sendPart(t, true);
+  if (quiet) { if (tr.ch < 8) sent[tr.ch] = tr.prog.data.join(); if (tr.status !== "MIDI") Tab.program(t, tr.prog.data); }
+  else sendPart(t, true);
   dirty();
 }
 let livePend = new Set(), liveBusy = false;
@@ -504,6 +583,7 @@ function lcd() {
 /* ================================================================== MIDI in: recording, step entry, the keys' echo */
 let midiBlink = 0;
 function onMidiIn(d, t) {
+  Mon.add("in", d);
   if (d[0] === 0xF0) { if (link) link.take(d); return; }
   if (d[0] >= 0xF8) return;
   $("midiLed").classList.add("midi"); clearTimeout(midiBlink); midiBlink = setTimeout(() => $("midiLed").classList.remove("midi"), 80);
@@ -528,7 +608,7 @@ function noteOn(k, v) {
   if (player && player.step) { player.input([0x90, k, v], performance.now()); stepUi(); }
   else if (player && player.playing && player.rec) player.input([0x90, k, v], performance.now());
   if (tr.status !== "TABLET") midiOut([0x90 | (tr.ch & 15), k, v]);
-  if (tr.status !== "MIDI") { if (tr.prog && !Tab.eng[t]) Tab.program(t, tr.prog.data); Tab.now(t, "on", k, v); }
+  if (tr.status !== "MIDI") { if (tr.prog && !Tab.has[t]) Tab.program(t, tr.prog.data); Tab.now(t, "on", k, v); }
   markKey(k, true);
 }
 function noteOff(k) {
@@ -672,7 +752,7 @@ function loadPart() {
 function pget(id) { return E.param_get(id); }
 function pset(id, v) {
   const tr = curTrack();
-  if (!tr.prog) setTrackProg(st.track, eprog());      // (a track without a program gets one as it is edited)
+  if (!tr.prog) return;                       // (a track without a program: nothing to change, nothing sent)
   E.param_set(id, v);
   tr.prog.data = Array.from(eprog());
   tr.prog.name = nameOf(tr.prog.data).trim();
@@ -780,6 +860,10 @@ function drawKnob(kn) {
   kn.v.textContent = valueText(id, v);
 }
 function refreshKnobs() {
+  const none = !curTrack().prog;
+  $("noProg").hidden = !none;
+  $("knobs").classList.toggle("off", none); $("dataRow").classList.toggle("off", none); $("pname").disabled = none;
+  $("noProgTrk").textContent = st.track + 1;
   for (const kn of knobs) { kn.el.classList.toggle("sel", kn.id === st.knob); drawKnob(kn); }
   const id = st.knob;
   if (id !== null && id !== undefined) {
@@ -799,20 +883,32 @@ $("pname").oninput = () => {
   buildParts();
 };
 const partUndos = [];
-function partUndo() { partUndos.push({ t: st.track, s: st.seq, d: Array.from(eprog()) }); if (partUndos.length > 60) partUndos.shift(); }
+function partUndo() { const tr = curTrack(); partUndos.push({ t: st.track, s: st.seq, d: tr.prog ? Array.from(eprog()) : null }); if (partUndos.length > 60) partUndos.shift(); }
 $("undoBtn").onclick = () => {
   for (let i = partUndos.length - 1; i >= 0; i--) {
     if (partUndos[i].t !== st.track || partUndos[i].s !== st.seq) continue;
     const u = partUndos.splice(i, 1)[0];
-    setTrackProg(st.track, Uint8Array.from(u.d)); loadPart(); refreshKnobs(); buildParts(); return;
+    if (u.d) setTrackProg(st.track, Uint8Array.from(u.d)); else { curTrack().prog = null; dirty(); }
+    loadPart(); refreshKnobs(); buildParts(); buildTracks(); return;
   }
   toast("Nothing to undo on this track.");
 };
 $("initBtn").onclick = () => { partUndo(); E.init_program(); setTrackProg(st.track, eprog()); loadPart(); refreshKnobs(); buildParts(); };
+$("noProgGet").onclick = () => $("getPlaying").click();
+$("noProgLib").onclick = () => showView("Lib");
+$("noProgInit").onclick = () => $("initBtn").click();
+$("clearProg").onclick = async () => {
+  const tr = curTrack();
+  if (!tr.prog) return;
+  if (!await confirmBox("No program", `Take the program off track ${st.track + 1}? The track then plays whatever its part of the FM-1 has; nothing is sent to it.`, "Take it off")) return;
+  partUndo();
+  tr.prog = null; tr.ev = tr.ev;               // (its notes stay)
+  dirty(); loadPart(); refreshKnobs(); buildParts(); buildTracks();
+};
 $("rndBtn").onclick = () => { partUndo(); E.randomize(40, 0, (Math.random() * 4294967295) >>> 0, 1 + (Math.random() * 998 | 0));
   setTrackProg(st.track, eprog()); loadPart(); refreshKnobs(); buildParts(); };
 /* pointer-down on a knob remembers the program for Undo */
-$("knobs").addEventListener("pointerdown", () => partUndo(), true);
+$("knobs").addEventListener("pointerdown", () => { if (curTrack().prog) partUndo(); }, true);
 
 /* the page's picture: the wave, the envelope, the LFO, the filter */
 function drawGraph() {
@@ -879,7 +975,7 @@ $("getBtn").onclick = async () => {
   catch (e) { say("partStatus", "Not read: " + e.message, "bad"); }
 };
 $("getPlaying").onclick = async () => {
-  try { const r = await readProgram(0x7F, 0); partUndo(); setTrackProg(st.track, r.prog, { b: r.b, p: r.p }); loadPart(); refreshKnobs(); buildParts();
+  try { const r = await readProgram(0x7F, 0); partUndo(); setTrackProg(st.track, r.prog, { b: r.b, p: r.p }, curTrack().ch === 0); loadPart(); refreshKnobs(); buildParts(); buildTracks();
         say("partStatus", `The FM-1's program (bank ${r.b + 1} #${r.p + 1}${r.edited ? ", edited" : ""}) on track ${st.track + 1}.`, "ok"); }
   catch (e) { say("partStatus", "Not read: " + e.message, "bad"); }
 };
@@ -1197,11 +1293,13 @@ function buildRollTracks() {
     box.append(b);
   }
   $("rollGrid").textContent = "grid " + S.GRIDS[st.rollGrid][0];
+  const q = curSeq();
+  $("rollBars").textContent = q.bars; $("rollSig").textContent = q.num + "/" + q.den;
   $("rollVel").textContent = "vel " + (roll.sel ? roll.sel.v : st.rollVel);
 }
 function rollGeom() {
   const c = $("roll"), q = curSeq(), len = S.seqLength(q);
-  const W = c.width, H = c.height, ppt = (W - roll.keyW) / (len / st.rollZoom);
+  const W = c.width, H = c.height, ppt = (W - roll.keyW) / (len / st.rollZoom * 1.06);   /* (a little room after the end) */
   return { c, q, len, W, H, ppt, rows: Math.ceil(H / roll.rowH) };
 }
 function drawRoll(pos) {
@@ -1223,7 +1321,13 @@ function drawRoll(pos) {
     const px = xOf(t); if (px < roll.keyW) continue; if (px > W) break;
     x.fillStyle = t % bt === 0 ? "#3a3a3a" : t % beatT === 0 ? "#222" : "#171717"; x.fillRect(px, 0, t % bt === 0 ? 2 : 1, H);
   }
-  x.fillStyle = "#2a0d0d"; x.fillRect(xOf(len), 0, W, H);
+  /* the loop: its end a line, what lies past it dim; the bars numbered along the top */
+  x.fillStyle = "rgba(0,0,0,.6)"; x.fillRect(xOf(len), 0, W, H);
+  x.fillStyle = "#f2ead6"; x.fillRect(xOf(len) - dpr, 0, 3 * dpr, H);
+  x.font = `600 ${Math.round(11 * dpr)}px system-ui`;
+  x.fillText("END · " + q.bars + " bar" + (q.bars > 1 ? "s" : ""), xOf(len) + 6 * dpr, 14 * dpr);
+  x.fillStyle = "#8a857a";
+  for (let b = 0; b < q.bars; b++) { const px = xOf(b * bt); if (px >= roll.keyW && px < W - 20 * dpr) x.fillText(String(b + 1), px + 4 * dpr, 14 * dpr); }
   q.tracks.forEach((tr, ti) => {                // the other tracks, faint
     if (ti === st.track) return;
     x.fillStyle = "#1e3a3c";
@@ -1301,6 +1405,16 @@ $("rollVel").onclick = async () => {
   buildRollTracks(); drawRoll(); dirty();
 };
 $("rollDel").onclick = () => { if (!roll.sel) return; pushUndo("delete note"); const ev = curTrack().ev; ev.splice(ev.indexOf(roll.sel), 1); roll.sel = null; drawRoll(); drawLane(st.track); dirty(); };
+function rollLen(d) {                        // the loop's length from the Roll page (the Seq page's BARS)
+  const q = curSeq();
+  if (q.bars + d < 1) return;
+  pushUndo("length"); S.Edit.setLength(q, q.bars + d);
+  roll.x0 = Math.min(roll.x0, Math.max(0, S.seqLength(q) * (1 - 1 / st.rollZoom)));
+  buildRollTracks(); drawRoll(); buildSeqCtl(); lcd(); dirty();
+}
+$("rollBarsDn").onclick = () => rollLen(-1);
+$("rollBarsUp").onclick = () => rollLen(1);
+$("rollSig").onclick = async () => { await $("qSig").onclick(); buildRollTracks(); drawRoll(); };
 $("rollZoomIn").onclick = () => { st.rollZoom = Math.min(16, st.rollZoom * 2); drawRoll(); };
 $("rollZoomOut").onclick = () => { st.rollZoom = Math.max(1, st.rollZoom / 2); roll.x0 = Math.min(roll.x0, S.seqLength(curSeq()) * (1 - 1 / st.rollZoom)); drawRoll(); };
 addEventListener("resize", () => drawRoll());
@@ -1387,14 +1501,22 @@ const setupShows = [
   toggle("thruBtn", "thru"),
 ];
 $("connBtn").onclick = () => { if (link) disconnect(); else connect(); };
+$("monClear").onclick = () => { Mon.log = []; Mon.counts = { in: 0, out: 0, sxIn: 0, sxOut: 0 }; if (window.SQ80Android && SQ80Android.debugClear) SQ80Android.debugClear(); monShow(); };
+$("monTest").onclick = async () => {
+  if (!link) { toast("Connect the FM-1 first.", true); return; }
+  Mon.log.push("— test: read the FM-1's program (frame 31) —");
+  try { const r = await readProgram(0x7F, 0); toast(`Read "${nameOf(r.prog).trim()}" (bank ${r.b + 1} #${r.p + 1}): reading works.`); }
+  catch (e) { toast("No answer: " + e.message + ". The monitor shows what came in.", true); }
+  monShow();
+};
 $("outSel").onchange = () => { out = midi && midi.outputs.get($("outSel").value) || null; if (out) out.open(); dirty(); };
 $("inSel").onchange = () => { const i = midi && midi.inputs.get($("inSel").value); if (i) { i.open(); listen(i); } else listen(null); dirty(); };
 $("lookSel").onchange = () => { st.look = +$("lookSel").value; dirty(); };
-$("tabVol").oninput = () => { st.vol = +$("tabVol").value; Tab.vol = st.vol / 100; dirty(); };
+$("tabVol").oninput = () => { st.vol = +$("tabVol").value; Tab.setVol(st.vol / 100); dirty(); };
 $("packBtn").onclick = async () => {
   const f = await pickFile($("packFile")); if (!f) return;
   if (!usePackIn(E, f.bytes)) { toast("That is not a ROM pack.", true); return; }
-  userPack = f; for (const X of Tab.eng) if (X) usePackIn(X, f.bytes);
+  userPack = f; Tab.setPack(f.bytes);
   await Store.set("pack", { name: f.name, bytes: Array.from(f.bytes) });
   $("wavesStatus").textContent = f.name; refreshKnobs();
 };
@@ -1475,7 +1597,7 @@ window.__sq80back = () => {                   // (the tablet app's back key: a d
   if (kept) for (const b of kept) libs.push({ name: b.name, fm: b.fm, progs: b.progs.map((p) => p ? Uint8Array.from(p) : null) });
   const pack = await Store.get("pack");
   if (pack && usePackIn(E, Uint8Array.from(pack.bytes))) { userPack = { name: pack.name, bytes: Uint8Array.from(pack.bytes) }; $("wavesStatus").textContent = pack.name; }
-  Tab.vol = st.vol / 100; $("tabVol").value = st.vol; $("lookSel").value = String(st.look);
+  Tab.setVol(st.vol / 100); $("tabVol").value = st.vol; $("lookSel").value = String(st.look);
   setupShows.forEach((f) => f());
   $("fmBank").textContent = st.bank + 1; $("fmProg").textContent = String(st.prog + 1).padStart(2, "0");
   $("about").textContent = `SQ-80 Tablet ${VERSION}${window.SQ80Android ? " (app)" : ""}. Sequences and songs stay on this tablet; Export makes a file of them.`;

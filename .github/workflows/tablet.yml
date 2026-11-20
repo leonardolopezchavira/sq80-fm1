@@ -26,7 +26,7 @@ jobs:
         run: |
           mkdir -p site/panel
           sh tools/build_editor.sh site/edit
-          cp app/panel/index.html app/panel/app.js app/panel/seqcore.js app/panel/manifest.webmanifest site/panel/
+          cp app/panel/index.html app/panel/app.js app/panel/seqcore.js app/panel/tablet-worklet.js app/panel/manifest.webmanifest site/panel/
           python3 tools/site_theme.py site
       - name: The APK
         run: |

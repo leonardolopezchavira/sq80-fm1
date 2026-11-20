@@ -77,7 +77,7 @@ jobs:
           mkdir -p app/build/site/rompack && cp app/rompack/index.html app/build/site/rompack/
           mkdir -p app/build/site/librarian && cp app/librarian/index.html app/build/site/librarian/
           mkdir -p app/build/site/wavepack && cp app/wavepack/index.html app/build/site/wavepack/
-          mkdir -p app/build/site/panel && cp app/panel/index.html app/panel/app.js app/panel/seqcore.js app/panel/manifest.webmanifest app/build/site/panel/
+          mkdir -p app/build/site/panel && cp app/panel/index.html app/panel/app.js app/panel/seqcore.js app/panel/tablet-worklet.js app/panel/manifest.webmanifest app/build/site/panel/
           python3 tools/waves_pack.py app/waves/sq80_waves.h app/build/site/wavepack/builtin.rompack
           mkdir -p app/build/site/banks && python3 tools/originals.py app/build/site/banks/SQ-80-Factory.syx
           mkdir -p app/build/site/cheat && sed "s/{{VERSION}}/$V/g" app/cheat/index.html > app/build/site/cheat/index.html
