@@ -1,7 +1,7 @@
 # Licensing
 
 - **The SQ-80 engine and the tools** (`src/sq80/`, `tools/` but `tools/gen_fx_tables.py`, `tests/`, the desktop
-  renderer, `app/loader/`, `app/install_app.js`, `app/app.c`): MIT (`LICENSE`), our own code.
+  renderer, `app/loader/`, `app/install_app.js`, `app/app.c`): MIT (`LICENSES/MIT.txt`), our own code.
 - **The effects** (`app/fx/`, `tools/gen_fx_tables.py`): GPL-3.0-only (`LICENSES/GPL-3.0.txt`). They are FMini-1's
   (https://github.com/ruppert/fmini-1, by Ruppert), whose `firmware/src/fx.c` is Felucca's
   (https://github.com/hugelton/Felucca, Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments) with
@@ -24,7 +24,9 @@
 - **fm1-base** (`fm1/base`, a submodule): MPL-2.0, its own terms (its `LICENSING.md`).
 
 **The FM-1 firmware as a whole** (what `app/` builds: the engine, the app, the effects, the sequencer and fm1-base together) is
-therefore **GPL-3.0-only**. If you share the firmware, share its complete source with it under the same licence
+therefore **GPL-3.0-only**, and so is the repository's root `LICENSE` (the GPL-3.0's text, as `LICENSES/GPL-3.0.txt`):
+it is what the firmware you install is under. The files listed as MIT above stay MIT (`LICENSES/MIT.txt`), on their
+own or in other projects. If you share the firmware, share its complete source with it under the same licence
 (this repository, with its submodule, is that source).
 
 No Ensoniq ROM data and no programs (Ensoniq's or anyone else's) are in this repository, on the site or in the

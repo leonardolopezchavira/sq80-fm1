@@ -215,3 +215,9 @@ The SysEx byte map and the DOC/envelope/LFO behaviour follow the MIT-licensed do
 the SQ8L 64-bit port (`docs/modules/*.md` there). The SQ-80 wave directory was decoded from the
 OS ROM in this project. SQ8L is by Siegfried Kullmann; Ensoniq, ESQ-1 and SQ-80 are trademarks
 of their owners.
+
+## Licence
+
+The firmware is **GPL-3.0-only** ([LICENSE](LICENSE)): it includes GPL-3.0 code (the effects, the arpeggiator and
+sequencer). The engine, the tools and the web pages written for this project are MIT ([LICENSES/MIT.txt](LICENSES/MIT.txt))
+and can be used on their own under it. File by file: [LICENSING.md](LICENSING.md).
