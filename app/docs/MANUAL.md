@@ -1,7 +1,8 @@
 # SQ80
 
 SQ-80 turns the M-VAVE FM-1 into an Ensoniq SQ-80: three oscillators, a resonant filter, four envelopes and three
-LFOs per voice, eight voices, effects, an arpeggiator and a step sequencer. This manual walks through every screen.
+LFOs per voice, eight voices, effects, an arpeggiator and a step sequencer. This manual walks through every screen;
+the [cheat sheet](../cheat/) has it all on one page.
 
 ## Contents
 
@@ -45,6 +46,10 @@ LFOs per voice, eight voices, effects, an arpeggiator and a step sequencer. This
 The keys light softly when idle and fully while you play them.
 
 ## 2. Getting started
+
+**Back up first** if another firmware has saved projects or presets on your FM-1: SQ-80 keeps its ROM pack, banks
+and settings in the same flash and overwrites them, and it cannot read other firmwares' saves (The Firmware Hub's
+[Backups](https://thefirmwarehub.com/kb/#data)). Going back to M-VAVE's firmware or another one works at any time.
 
 Install SQ-80 from the **Install** page in Chrome or Edge, with the FM-1 connected by USB. It plays at once with its
 own set of 75 waves. If you own an SQ-80's ROMs, the installer can also load your **ROM pack** (the original
@@ -217,6 +222,7 @@ pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock lea
 | **Emulator** | SQ-80 in the browser: the same firmware |
 | **ROM pack** | makes your ROM pack from your SQ-80's ROM dumps |
 | **Wave pack** | makes a wave set from your own sounds |
+| **Cheat sheet** | every control and every editor page on one page (also a PDF, one printed sheet) |
 
 Chrome or Edge, with the FM-1 connected by USB. Nothing is uploaded: your files stay on your computer.
 

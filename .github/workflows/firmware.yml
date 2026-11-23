@@ -72,7 +72,12 @@ jobs:
           mkdir -p app/build/site/librarian && cp app/librarian/index.html app/build/site/librarian/
           mkdir -p app/build/site/wavepack && cp app/wavepack/index.html app/build/site/wavepack/
           python3 tools/waves_pack.py app/waves/sq80_waves.h app/build/site/wavepack/builtin.rompack
+          mkdir -p app/build/site/cheat && sed "s/{{VERSION}}/$V/g" app/cheat/index.html > app/build/site/cheat/index.html
           python3 tools/site_theme.py app/build/site
+          # the cheat sheet as a PDF too (one landscape A4 sheet), from the themed page
+          google-chrome --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer --virtual-time-budget=8000 \
+            --print-to-pdf="$PWD/app/build/site/cheat/sq80-cheat-sheet.pdf" "file://$PWD/app/build/site/cheat/index.html"
+          test -s app/build/site/cheat/sq80-cheat-sheet.pdf
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app/build/site

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT
+     SQ-80 for the FM-1: the cheat sheet (The Firmware Hub's sheet key, fmhub.json "cheat"). One page: every control,
+     every editor page and its four knobs, the effects, the arpeggiator, the sequencer. On screen black, cream and cyan;
+     printed (or as the PDF beside it, sq80-cheat-sheet.pdf) on white, one landscape sheet. The words follow the
+     firmware's own (app/app.c's page tables), as of SQ-80 {{VERSION}}. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheat sheet · SQ-80 for the FM-1</title>
+<style>
+  @font-face { font-family: "DSEG14 Classic"; src: url("../fonts/DSEG14Classic-Regular.woff2") format("woff2"); font-display: swap; }
+  :root { --bg: #000; --card: #0d0d0d; --line: #262626; --fg: #f2ead6; --fg2: #d6cfbd; --dim: #8f8a7f; --hi: #40dce6; --key: #1c1c1c; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg2); font: 12.5px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1320px; margin: 0 auto; padding: 18px 20px 28px; }
+  header { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; border-bottom: 2px solid var(--hi); padding-bottom: 10px; margin-bottom: 14px; }
+  header .logo svg { height: 34px; width: auto; display: block; }
+  header h1 { margin: 0; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg); font-weight: 700; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header .grow { flex: 1; }
+  header a { color: var(--hi); font-size: 12px; text-decoration: none; margin-left: 12px; }
+  .cols { display: grid; grid-template-columns: 1.05fr 1.15fr 1fr; gap: 14px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 9px 11px 10px; margin-bottom: 12px; break-inside: avoid; }
+  h2 { margin: 0 0 6px; font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--hi); font-weight: 700; }
+  p { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; vertical-align: top; padding: 2.5px 6px 2.5px 0; border-top: 1px solid var(--line); }
+  tr:first-child td, tr:first-child th { border-top: 0; }
+  th { color: var(--dim); font-weight: 600; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+  b, .k { color: var(--fg); font-weight: 650; }
+  .k { white-space: nowrap; }
+  kbd { font: 600 10.5px/1 system-ui, sans-serif; letter-spacing: .04em; color: var(--fg); background: var(--key); border: 1px solid #3a3a3a;
+        border-bottom-width: 2px; border-radius: 3px; padding: 2px 4px; white-space: nowrap; }
+  .knobs td:not(:first-child) { color: var(--fg); font-weight: 600; font-size: 11.5px; letter-spacing: .03em; }
+  .knobs td:first-child { color: var(--dim); white-space: nowrap; width: 1%; padding-right: 10px; }
+  .grp td { padding-top: 6px; color: var(--hi); font-weight: 700; letter-spacing: .08em; font-size: 11px; text-transform: uppercase; }
+  .vfd { font-family: "DSEG14 Classic", ui-monospace, monospace; color: var(--hi); letter-spacing: .04em; }
+  img.panel { width: 100%; height: auto; display: block; border-radius: 3px; margin-bottom: 6px; }
+  .note { color: var(--dim); font-size: 11.5px; }
+  ul { margin: 4px 0; padding-left: 16px; } li { margin: 1px 0; }
+  footer { color: var(--dim); font-size: 11px; display: flex; gap: 14px; flex-wrap: wrap; }
+  footer a { color: var(--hi); }
+  @media (max-width: 1000px) { .cols { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 680px) { .cols { grid-template-columns: 1fr; } }
+
+  /* printed: white paper, one landscape sheet */
+  @page { size: A4 landscape; margin: 6mm; }
+  @media print {
+    :root { --bg: #fff; --card: #fff; --line: #d8d8d8; --fg: #000; --fg2: #222; --dim: #666; --hi: #00727a; --key: #f2f2f2; }
+    html, body { font-size: 7.1pt; line-height: 1.24; }
+    main { max-width: none; padding: 0; }
+    header { padding-bottom: 4px; margin-bottom: 6px; }
+    header .logo svg { height: 20px; }
+    header .logo svg rect[fill="#f2ead6"] { fill: #000; }
+    header a, .noprint, nav.sq80-nav { display: none !important; }
+    .cols { grid-template-columns: 1.05fr 1.15fr 1fr; gap: 6px; }
+    section { padding: 4px 6px 5px; margin-bottom: 5px; border-radius: 2px; }
+    h2 { font-size: 7.6pt; margin-bottom: 3px; }
+    td, th { padding: 1px 4px 1px 0; }
+    th { font-size: 6.6pt; } .knobs td:not(:first-child) { font-size: 7.2pt; } .grp td { font-size: 7pt; padding-top: 3px; }
+    kbd { font-size: 6.8pt; padding: 0 3px; border-bottom-width: 1px; }
+    .note, footer { font-size: 6.8pt; }
+    img.panel { max-height: 36mm; width: auto; margin: 0 auto 3px; }
+  }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="logo"><!--SQ80-LOGO--></div>
+  <div>
+    <h1>Cheat sheet</h1>
+    <div class="sub">SQ-80 {{VERSION}} for the M-VAVE FM-1 · the controls, the editor's pages and their four knobs</div>
+  </div>
+  <span class="grow"></span>
+  <span class="noprint"><a href="sq80-cheat-sheet.pdf">PDF</a><a href="../manual/">Manual</a><a href="../install/">Install</a><a href="../">Home</a></span>
+</header>
+
+<div class="cols">
+<!-- ================================================================ column 1 -->
+<div>
+  <section>
+    <h2>The panel</h2>
+    <img class="panel" src="../manual/img/panel.svg" alt="The FM-1 running SQ-80: the knobs on the left, the screen, the buttons, the keys">
+    <table>
+      <tr><td class="k">PRESETS</td><td>next / previous program</td></tr>
+      <tr><td class="k">SELECT</td><td>next / previous bank (1–8)</td></tr>
+      <tr><td class="k">ALGORITHM</td><td>next / previous page of the screen you are on</td></tr>
+      <tr><td class="k">KNOB 1–4</td><td>the four values along the middle of the screen</td></tr>
+      <tr><td class="k">MASTER</td><td>volume</td></tr>
+      <tr><td><kbd>OCT−</kbd> <kbd>OCT+</kbd></td><td>the keys' octave</td></tr>
+      <tr><td><kbd>HOME</kbd></td><td>back to playing · on the playing screen: the scope, then RANDOM</td></tr>
+      <tr><td><kbd>SEL</kbd> <kbd>ENV</kbd> <kbd>LFO</kbd> <kbd>EDIT</kbd></td><td>edit the sound (right)</td></tr>
+      <tr><td><kbd>FX</kbd></td><td>the effects</td></tr>
+      <tr><td><kbd>SAVE</kbd></td><td>store the program</td></tr>
+      <tr><td><kbd>ARP</kbd></td><td>tap: on / off · hold: its pages</td></tr>
+      <tr><td><kbd>SEQ</kbd></td><td>the step sequencer · hold: the keys are steps</td></tr>
+      <tr><td><kbd>PLAY</kbd> <kbd>REC</kbd></td><td>start / stop · record</td></tr>
+      <tr><td><kbd>GLO</kbd></td><td>settings and the CPU load</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Playing</h2>
+    <table class="knobs">
+      <tr><td>K1–K4</td><td>CUTOFF</td><td>RESON</td><td>ATTACK</td><td>RELEASE</td></tr>
+    </table>
+    <p class="note">The program's own filter, and ENV 4's attack (T1) and release (T4). A <span class="vfd">CYAN</span> name has unsaved changes.
+    The last note played shows top right.</p>
+  </section>
+
+  <section>
+    <h2>HOME: scope · RANDOM</h2>
+    <p><kbd>HOME</kbd> on the playing screen: the <b>scope</b> (the waveform, large), again: <b>RANDOM</b>, again: back.</p>
+    <table class="knobs">
+      <tr><td>RANDOM</td><td>AMOUNT</td><td>PARTS</td><td>NEW</td><td>STORED</td></tr>
+    </table>
+    <p class="note">AMOUNT 5–100 % (how far values move) · PARTS: ALL, OSC, FILTER, ENV, LFO, MOD · NEW: right a new
+    program, left the one before (8 kept) · STORED: back to the program as stored. Named RND001…; keep one with <kbd>SAVE</kbd>.</p>
+  </section>
+
+</div>
+
+<!-- ================================================================ column 2 -->
+<div>
+  <section>
+    <h2>Editing: four buttons, ALGORITHM turns the pages</h2>
+    <table class="knobs">
+      <tr><th>Page</th><th>K1</th><th>K2</th><th>K3</th><th>K4</th></tr>
+      <tr class="grp"><td colspan="5">SEL · OSC 1 → 2 → 3 (press again)</td></tr>
+      <tr><td>PITCH</td><td>OCT</td><td>SEMI</td><td>FINE</td><td>WAVE</td></tr>
+      <tr><td>PITCH MOD</td><td>MOD 1</td><td>DEPTH 1</td><td>MOD 2</td><td>DEPTH 2</td></tr>
+      <tr><td>DCA</td><td>LEVEL</td><td>OUTPUT</td><td>MOD 1</td><td>DEPTH 1</td></tr>
+      <tr><td>DCA MOD 2</td><td>MOD 2</td><td>DEPTH 2</td><td></td><td></td></tr>
+      <tr class="grp"><td colspan="5">ENV · ENV 1 → 4 (ENV 4 is the volume)</td></tr>
+      <tr><td>LEVELS</td><td>L1</td><td>L2</td><td>L3</td><td>LV</td></tr>
+      <tr><td>TIMES</td><td>T1</td><td>T2</td><td>T3</td><td>T4</td></tr>
+      <tr><td>KEY</td><td>T1V</td><td>TK</td><td>R2</td><td></td></tr>
+      <tr class="grp"><td colspan="5">LFO · LFO 1 → 3</td></tr>
+      <tr><td>WAVE</td><td>FREQ</td><td>WAVE</td><td>L1</td><td>L2</td></tr>
+      <tr><td>MORE</td><td>DELAY</td><td>MOD</td><td>HUMAN</td><td>RESET</td></tr>
+      <tr class="grp"><td colspan="5">EDIT · the program</td></tr>
+      <tr><td>FILTER</td><td>FREQ</td><td>RES</td><td>KEYBD</td><td></td></tr>
+      <tr><td>FILTER MOD</td><td>MOD 1</td><td>DEPTH 1</td><td>MOD 2</td><td>DEPTH 2</td></tr>
+      <tr><td>OUTPUT</td><td>FINAL</td><td>PAN</td><td>PAN MOD</td><td>DEPTH</td></tr>
+      <tr><td>MODES</td><td>SYNC</td><td>AM</td><td>MONO</td><td>GLIDE</td></tr>
+      <tr><td>RESTART</td><td>VC</td><td>ENV RS</td><td>OSC RS</td><td>CYC</td></tr>
+      <tr><td>NAME 1–4 · 5–6</td><td colspan="4">one letter per knob</td></tr>
+      <tr><td>SPLIT/LAYER</td><td>LAYER</td><td>SPLIT</td><td>SPL LYR</td><td>SPL KEY</td></tr>
+    </table>
+    <p class="note">Modulation sources: LFO1–3, ENV1–4, VEL, VELX, KBD, KBD2, WHEEL, PEDAL, XCTRL, PRESS, OFF. LV / T1V: velocity
+    on levels / attack · TK: keys shorten times · R2: second release. SPLIT/LAYER partners are programs of the same bank, by place
+    (OFF: none); all share the eight voices. <kbd>HOME</kbd> leaves with the changes kept, not saved.</p>
+  </section>
+
+  <section>
+    <h2>Effects: <kbd>FX</kbd>, again or ALGORITHM for each</h2>
+    <table class="knobs">
+      <tr><th>Page</th><th>K1</th><th>K2</th><th>K3</th><th>K4</th></tr>
+      <tr><td>LEVELS</td><td>REVERB</td><td>DELAY</td><td>CHORUS</td><td>DRIVE</td></tr>
+      <tr><td>REVERB</td><td>TYPE</td><td>DECAY</td><td>TONE</td><td>MIX</td></tr>
+      <tr><td>DELAY</td><td>TYPE</td><td>TIME</td><td>FEEDBK</td><td>MIX</td></tr>
+      <tr><td>CHORUS</td><td>TYPE</td><td>DEPTH</td><td>RATE</td><td>MIX</td></tr>
+      <tr><td>DRIVE</td><td>TYPE</td><td>TONE</td><td>OUTPUT</td><td>GAIN</td></tr>
+    </table>
+    <p class="note">Reverb: ROOM, HALL, PLATE, SPRING, CLOUD · Delay: ANALOG, DIGITAL, TAPE, P-PONG, MULTI, SLAP, REVERSE, A-SYNC
+    (in time with the tempo) · Chorus: STEREO, JUNO, MULTI · Drive: SOFT, TUBE.</p>
+  </section>
+  <section>
+    <h2>Saving</h2>
+    <p><kbd>SAVE</kbd> from any screen · <b>SELECT</b> or <b>K1</b>: the bank · <b>PRESETS</b> or <b>K2</b>: the place
+    (the screen shows what you would replace) · <kbd>SAVE</kbd> again stores · <kbd>HOME</kbd> cancels.</p>
+    <p class="note">The bank, program, octave, effects, arpeggiator and sequencer remember themselves a few seconds after a change.</p>
+  </section>
+</div>
+
+<!-- ================================================================ column 3 -->
+<div>
+  <section>
+    <h2>Arpeggiator</h2>
+    <p><kbd>ARP</kbd> tap: on / off · hold the keys to arpeggiate · <b>hold</b> <kbd>ARP</kbd>: its pages.</p>
+    <table class="knobs">
+      <tr><td>PATTERN</td><td>MODE</td><td>RATE</td><td>OCTAVES</td><td>GATE</td></tr>
+      <tr><td>FEEL</td><td>SWING</td><td>HOLD</td><td>ORDER</td><td>CHANCE</td></tr>
+      <tr><td>TEMPO</td><td>TEMPO</td><td>MIDI CLK</td><td>ARP</td><td></td></tr>
+    </table>
+    <p class="note">MODE: UP, DOWN, UP/DN, RANDOM, ORDER, REPEAT, DN/UP, UP+8, CONV, DIVG, PINKY, THUMB, WALK, CHORD · RATE 1/4…1/32,
+    triplets · OCTAVES 1–4. It follows the sequencer's beat; recording takes its notes.</p>
+  </section>
+
+  <section>
+    <h2>Sequencer: up to 64 steps</h2>
+    <table class="knobs">
+      <tr><td>STEP</td><td>STEP</td><td>NOTE</td><td>TIME</td><td>FLAG</td></tr>
+      <tr><td>PATTERN</td><td>LENGTH</td><td>DIV</td><td>GATE</td><td>SWING</td></tr>
+      <tr><td>TEMPO</td><td>TEMPO</td><td>MIDI CLK</td><td></td><td></td></tr>
+      <tr><td>step held</td><td>NOTE</td><td>VELOCITY</td><td>RATCHET</td><td>TYPE</td></tr>
+    </table>
+    <ul>
+      <li><kbd>SEQ</kbd>: <b>STEP</b> entry: play a note or chord (up to 4) into the marked step; let go, the mark moves on. K3: NOTE, TIE, REST · K4: accent, slide.</li>
+      <li><b>Hold</b> <kbd>SEQ</kbd> (or tap it again): the <b>16 white keys are steps</b> 1–16; the first 4 black keys (or OCT−/+) choose the page of 16. Press an empty step: the last note · press a full one and let go: clear · hold it and turn K1–K4.</li>
+      <li><kbd>PLAY</kbd> start / stop (it flashes on the beat) · <kbd>REC</kbd> while playing: record, layer on layer · <kbd>REC</kbd> stopped: armed, your first note starts.</li>
+      <li><b>Hold</b> <kbd>REC</kbd> 2 s: clear · <kbd>EDIT</kbd>+<kbd>OCT−</kbd> undo · <kbd>EDIT</kbd>+<kbd>OCT+</kbd> redo.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>GLO</h2>
+    <p>CPU now and <b>PEAK</b>, <b>XRUN</b> (should stay 0), voices, cores · <kbd>GLO</kbd> again: peak to 0 · <kbd>PLAY</kbd> here: all 8 voices, a test.</p>
+    <table class="knobs"><tr><td>GLO</td><td>CLICK</td><td>MIN VEL</td><td></td><td></td></tr></table>
+    <p class="note">CLICK: OFF, REC, ON · MIN VEL: the softest the keys play (0–127).</p>
+  </section>
+
+  <section>
+    <h2>MIDI · the web pages</h2>
+    <p>In over <b>USB</b>, the <b>MIDI jack</b> and <b>Bluetooth</b>, any channel: notes, velocity, bend, aftertouch, mod wheel, sustain,
+    program changes, clock. The keys send over USB and Bluetooth.</p>
+    <p><b>Install</b> · <b>Load</b> (ROM pack, banks) · <b>Editor</b> (every value, live) · <b>Librarian</b> · <b>Emulator</b> · <b>ROM pack</b> ·
+    <b>Wave pack</b>: Chrome or Edge, FM-1 on USB. 8 banks × 40 programs for your own .syx banks; an empty place plays INIT.</p>
+  </section>
+
+</div>
+</div>
+
+<footer>
+  <span><b>On the SMK-37:</b> SCALE = SEL · CHORD = ENV · NOTE REPEAT = LFO · PARA = EDIT · GLOBE = GLO · PATCH = HOME · BT = SAVE ·
+  K5–K8 = K1–K4 · pads: programs (SEQ held: steps) · 4 faders × 4 banks · 2 banks of 40.</span>
+  <span>SQ-80 for the FM-1 is unofficial: not affiliated with M-VAVE or Ensoniq. GPL-3.0.</span>
+  <a class="noprint" href="https://github.com/leonardolopezchavira/sq80-fm1">Source</a>
+  <span class="noprint">leonardolopezchavira.github.io/sq80-fm1</span>
+</footer>
+</main>
+</body>
+</html>

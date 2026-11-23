@@ -7,15 +7,29 @@ waveforms, read from **your** ROM dumps.
 > **Unofficial.** Not affiliated with M-VAVE, Ensoniq or the SQ8L authors. **No Ensoniq ROM
 > data is in this repository**; you build a ROM pack from your own dumps (see below).
 
+**Install:** https://leonardolopezchavira.github.io/sq80-fm1/install/ (Chrome or Edge, the FM-1 on USB), or from
+[The Firmware Hub](https://thefirmwarehub.com/). **Manual:** https://leonardolopezchavira.github.io/sq80-fm1/manual/ ·
+**Cheat sheet** (one page, prints on one sheet): https://leonardolopezchavira.github.io/sq80-fm1/cheat/ ·
+**Try it in the browser:** https://leonardolopezchavira.github.io/sq80-fm1/emu/
+
+## Your saved data: back up first
+
+SQ-80 keeps its ROM pack, its eight banks and its settings in the FM-1's data flash. Installing SQ-80, and loading
+a ROM pack or banks into it, **overwrites what another firmware saved in the same places** (its projects, kits,
+presets), and SQ-80 cannot read other firmwares' saves. Back up before you install (The Firmware Hub's
+[Backups](https://thefirmwarehub.com/kb/#data)); going back to M-VAVE's official firmware or to another one works
+at any time from the hub. On the SMK-37, `smk37-backup.bat` makes a full backup (`docs/SMK37-BACKUP.md`).
+SQ-80 accepts both FM-1 flash chips (the original and the UC25HQ80 of units sold since autumn 2026).
+
 ## Status
 
 | Step | State |
 |---|---|
 | 1. Engine on the desktop, compared against SQ8L | **done** (calibrated, see below) |
-| 2. Move to the FM-1 (fm1-base on felucca-bsp), front-panel UI | in progress: SQ-80 0.3 (ROM pack and banks from flash) |
-| 3. Test on hardware | not started |
+| 2. On the FM-1 (fm1-base on felucca-bsp), front-panel UI | **done**: releases on GitHub, signed by the fm1-build workflow; listed on The Firmware Hub |
+| 3. On hardware | runs on an FM-1 and on a Donner Starrykey 37 Play (the SMK-37 build); reports welcome in the issues |
 
-What works now (desktop):
+The engine (also on the desktop):
 
 - **ROM pack** built from your SQ-80 OS ROM and wave ROMs: 75 waves, 151 raw samples, 16 pitch
   zones each (`tools/make_rompack.py`, 264 KB, it fits the FM-1's flash data area).
@@ -71,7 +85,8 @@ it). They stand in for the originals: the plain shapes are the same shapes, the 
 our own sounds of the same kind. Your own ROM pack, when loaded, replaces them. The browser emulator loads yours
 too ("Your ROM pack and banks…" in its bar: kept in the browser).
 
-- Install: https://leonardolopezchavira.github.io/sq80-fm1/install/ (Chrome or Edge).
+- Install: https://leonardolopezchavira.github.io/sq80-fm1/install/ (Chrome or Edge). Its controls on one page:
+  https://leonardolopezchavira.github.io/sq80-fm1/cheat/ (`app/cheat/`, also as a PDF there).
 - Simulator: `git submodule update --init --recursive`, `python3 fm1/base/tools/build.py app --host`,
   then `app/build/host/sq80_host app/tests/basic.txt app/build/host`; the loader:
   `python3 tools/fm1_loader.py sim-script /tmp/l.txt && app/build/host/sq80_host /tmp/l.txt app/build/host`.
@@ -173,7 +188,7 @@ Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills
 
 None come with SQ-80: the firmware and the site carry no one else's sounds. Players load their own ESQ-1 / SQ-80
 SysEx banks (the installer, the Load page, the librarian, the emulator); the pages point to Rainer Buchty's Ensoniq
-archive (https://www.buchty.net/ensoniq/) the Ensoniq sounds 2022-07 collection
+archive (https://www.buchty.net/ensoniq/), the Ensoniq sounds 2022-07 collection
 (https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) and Don Solaris's collection (https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view) for some. A bank place never loaded plays INIT.
 
 ## The front page
