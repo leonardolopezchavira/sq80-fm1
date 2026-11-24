@@ -140,7 +140,7 @@ VFD = f"""<style id="sq80-vfd">
 # every page: a menu across the top (the page's own item marked), and the wordmark a link to the installer
 BASE = "/sq80-fm1/"
 NAV = [("", "Home"), ("install/", "Install"), ("manual/", "Manual"), ("load/", "Load"), ("edit/", "Editor"), ("librarian/", "Librarian"), ("emu/", "Emulator"),
-       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack"), ("smk37/", "SMK-37"), ("cheat/", "Cheat sheet")]
+       ("rompack/", "ROM pack"), ("wavepack/", "Wave pack"), ("backup/", "Backup"), ("smk37/", "SMK-37"), ("cheat/", "Cheat sheet")]
 NAV_CSS = f"""<style id="sq80-nav">
   nav.sq80-nav {{ display: flex; flex-wrap: wrap; gap: 4px 2px; align-items: center; padding: 10px 16px;
     border-bottom: 1px solid #2a2a2a; background: {BLACK}; font: 600 13px/1.2 system-ui, -apple-system, sans-serif;
@@ -197,7 +197,7 @@ def theme(html, sub, home=False, extra="", current=""):
 SUBS = {"install": "for the FM-1 · install", "load": "for the FM-1 · your waves and programs",
         "manual": "for the FM-1 · manual", "emu": "for the FM-1 · in the browser",
         "edit": "for the FM-1 · program editor", "librarian": "for the FM-1 · librarian", "rompack": "for the FM-1 · your ROM pack",
-        "wavepack": "for the FM-1 · your own waves"}
+        "wavepack": "for the FM-1 · your own waves", "backup": "for the FM-1 and the SMK-37 · backup"}
 
 
 PAGES_OF_THEIR_OWN = ("cheat",)   # no menu bar or theme put in: they place the wordmark themselves (<!--SQ80-LOGO-->)

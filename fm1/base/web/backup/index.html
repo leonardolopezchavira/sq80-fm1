@@ -137,7 +137,8 @@ const PB = (() => {
   const NAME = FW.name, MAGIC = [...FW.magic].map((c) => c.charCodeAt(0)), VERSION = FW.version;   // app.h's
   const HEAD = 16, REC = 8, PAYLOAD_MAX = 3840, MAXDATA = 512;
   const PLAYING = 10, DECLINED = 11;
-  const ID = FW.id;                                                // the firmware's package identity (its prefix)
+  const ID = FW.id;                                                // the firmware's package identity (its prefix;
+                                                                   // SQ-80: several, "|" between, for the SMK-37s)
   const DELAY = { poll: 500, idle: 10000, ask: 75000, first: 3000, hs: 1000, hsFull: 600 };   // ms, as fm1_backup.py
   const ERRORS = {
     1: "the file's size", 2: "the transfer (a piece of the file did not arrive)", 3: "the file's head",
@@ -337,7 +338,7 @@ const PB = (() => {
         try { await input.open(); await output.open(); } catch (_) { continue; }
         const link = makeLink(input, output);
         const id = await handshake(link);
-        if (id && id.startsWith(ID)) return { link, id, name: input.name };
+        if (id && ID.split("|").some((p) => id.startsWith(p))) return { link, id, name: input.name };
         if (id) other = other || id;
         link.close();
       }

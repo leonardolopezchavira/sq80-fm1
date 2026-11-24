@@ -1,0 +1,72 @@
+# Backup and restore (fm1.toml backup = true: the settings object, with the pattern) and the pattern frames 35-38
+#   python3 fm1/base/tools/build.py app --host && app/build/host/sq80_host app/tests/backup.txt app/build/host
+wait 600
+# a pattern: step 1 and 3 set with the last note played (F3, 53), the length 8; the effects' first level 100
+tap SEQ
+wait 30
+turn ALGO 1
+wait 30
+key 0 down
+wait 30
+key 0 up
+wait 30
+press SEQ
+wait 30
+key 0 down
+wait 30
+key 0 up
+key 4 down
+wait 30
+key 4 up
+wait 30
+release SEQ
+wait 30
+expect step0 53
+expect step2 53
+tap FX
+wait 30
+turn K1 100
+wait 30
+expect fx0 100
+tap HOME
+wait 3500
+expect dirty 0
+backup out:a.sq80bak
+# changed: step 1 cleared, the level 50
+tap SEQ
+wait 30
+turn ALGO 1
+wait 30
+press SEQ
+wait 30
+key 0 down
+wait 30
+key 0 up
+wait 30
+release SEQ
+wait 30
+expect step0 0
+tap FX
+wait 30
+turn K1 -50
+wait 30
+expect fx0 50
+tap HOME
+wait 3500
+restore out:a.sq80bak
+wait 300
+expect restore_rc 0
+expect step0 53
+expect step2 53
+expect fx0 100
+reboot
+wait 600
+expect step0 53
+expect fx0 100
+# refused while the sequencer plays
+tap PLAY
+wait 100
+restore out:a.sq80bak
+expect restore_rc 10
+tap PLAY
+wait 100

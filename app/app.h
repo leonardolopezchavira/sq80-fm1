@@ -15,6 +15,16 @@ void app_splash(void);
 int app_sysex(const uint8_t *p, uint32_t n);
 
 enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
+/* backup and restore over USB (fm1.toml backup = true: the site's Backup page, tools/fm1_backup.py): the settings
+ * object (with the pattern); the banks are the Backup page's own section (app/backup_extras.js) */
+#define APP_BACKUP_OBJS {OBJ_SETTINGS}
+#define APP_BACKUP_MAGIC 0x42385153u     /* "SQ8B" */
+#define APP_BACKUP_VERSION 1u
+#define APP_BACKUP_WHAT "replaces the pattern"
+int app_backup_playing(void);
+void app_backup_flush(void);
+void app_backup_hold(int on);
+void app_backup_restored(void);
 #if defined(BOARD_SMK37) && BOARD_SMK37
 /* the SMK-37: the three objects share a pool of three sectors at the start of its store window (0xFC000 is its stock
  * firmware's): the settings and Bluetooth's always find a free one; the panel's table is not saved there (its

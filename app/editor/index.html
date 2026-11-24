@@ -83,6 +83,9 @@
   .vol { display: flex; flex-direction: column; gap: 4px; }
   #vol { width: 100%; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .steps { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; margin: 2px 0 2px; }
+  .steps span { height: 9px; background: var(--line, #2a2a2a); border-radius: 1px; }
+  .steps span.n { background: var(--hi); } .steps span.t { background: var(--dim); } .steps span.off { opacity: .25; }
   .two > button { padding-left: 8px; padding-right: 8px; }
 
   /* tabs: words, the chosen one underlined */
@@ -182,6 +185,23 @@ when it is connected (Chrome or Edge). Nothing is uploaded anywhere.</p>
       <button class="fm pri" id="saveBtn" disabled>Save to the FM-1</button>
     </div>
     <div class="status" id="connStatus" style="margin-top:8px">Not connected. The page plays the sound itself.</div>
+  </div>
+
+  <div title="The sequencer's pattern (SQ-80 0.14.2 or later): its 64 steps with the arpeggiator's and the sequencer's settings. It goes into the .syx with the bank (export bank), or alone (save pattern), and to an FM-1 or an SMK-37.">
+    <div class="lbl">the pattern</div>
+    <div class="steps" id="patSteps" aria-hidden="true"></div>
+    <div class="status" id="patStatus">No pattern open. Get it from the FM-1, or open a .syx that holds one.</div>
+    <div class="stack">
+      <div class="two">
+        <button class="fm" id="getPat" disabled title="The FM-1's pattern and its settings">get the pattern</button>
+        <button class="fm" id="sendPat" disabled title="This pattern onto the FM-1: it replaces the one there, and is kept">send the pattern</button>
+      </div>
+      <div class="two">
+        <button id="openPat" title="A .syx with a pattern in it (one saved here, or a bank exported with one)">open pattern…</button>
+        <button id="savePat" disabled>save pattern</button>
+      </div>
+      <input type="file" id="openPatFile" accept=".syx,.SYX" hidden>
+    </div>
   </div>
 
   <div>
@@ -358,8 +378,10 @@ $("openFile").onchange = async () => {
   const f = $("openFile").files[0];
   $("openFile").value = "";
   if (!f) return;
-  const progs = programsFrom(new Uint8Array(await f.arrayBuffer()));
-  if (!progs.length) { say("progStatus", "No ESQ-1 / SQ-80 programs in that file.", "bad"); return; }
+  const d = new Uint8Array(await f.arrayBuffer()), progs = programsFrom(d);
+  const pat = patternFrom(d);
+  if (pat) usePattern(pat, f.name);
+  if (!progs.length) { if (!pat) say("progStatus", "No ESQ-1 / SQ-80 programs in that file.", "bad"); return; }
   bank = progs; bankName = f.name; sel = 0;
   showBank();
   loadProgram(bank[0], `${f.name} #1`);
@@ -378,7 +400,9 @@ $("expBank").onclick = () => {
     all.push(...nib(p));
   }
   if (sel >= 0) progBytes().set(bank[sel]);
-  download(new Uint8Array([0xF0, 0x0F, 0x02, 0x00, 0x02, ...all, 0xF7]), fileName(bankName.replace(/\.syx$/i, "")) + ".syx");
+  download(new Uint8Array([0xF0, 0x0F, 0x02, 0x00, 0x02, ...all, 0xF7, ...(pattern ? patternMessage(pattern) : [])]),
+           fileName(bankName.replace(/\.syx$/i, "")) + ".syx");
+  if (pattern) say("patStatus", `${patternSummary(pattern)}: in the bank's .syx too.`, "ok");
 };
 
 /* ------------------------------------------------------------------ the program being edited */
@@ -675,7 +699,8 @@ class Link {
   once(cmd, body, ms) {
     return new Promise((resolve, reject) => {
       let f = [cmd, ...body];
-      if ((cmd >= 0x10 && cmd <= 0x12) || (cmd >= 0x20 && cmd <= 0x22) || (cmd >= 0x30 && cmd <= 0x32)) {
+      if ((cmd >= 0x10 && cmd <= 0x12) || (cmd >= 0x20 && cmd <= 0x22) || (cmd >= 0x30 && cmd <= 0x32) ||
+          (cmd >= 0x35 && cmd <= 0x38)) {
         const s = f.reduce((a, b) => a + b, 0);
         f = [...f, s & 0x7F, (s >> 7) & 0x7F];
       }
@@ -691,6 +716,9 @@ class Link {
         if (a[4] === 0x7F && a[6] === 7) { last = new Error("a damaged frame"); continue; }
         if (a[4] === 0x7F && a[6] === 1 && cmd >= 0x30 && cmd <= 0x32)
           throw new Error("the SQ-80 on your FM-1 is older than 0.13.0 and does not know the editor yet: install the latest from the Install page, then connect again");
+        if (a[4] === 0x7F && a[6] === 1 && cmd >= 0x35 && cmd <= 0x38)
+          throw new Error("the SQ-80 on your FM-1 is older than 0.14.2 and does not know patterns yet, or the pattern is from another version: install the latest from the Install page");
+        if (a[4] === 0x7F && a[6] === 4) throw new Error("these settings are from another version of SQ-80");
         if (a[4] === 0x7F && a[6] !== 0) throw new Error("the FM-1 refused it (" + a[6] + ")");
         return a;
       } catch (e) { last = e; await sleep(100); }
@@ -784,6 +812,90 @@ $("saveBtn").onclick = async () => {
 $("live").onchange = () => { if ($("live").checked) sendLive(); };
 for (let b = 0; b < 8; b++) $("fmBank").append(new Option(String(b + 1), b));
 for (let p = 0; p < 40; p++) $("fmProg").append(new Option(String(p + 1), p));
+
+/* ------------------------------------------------------------------ the sequencer's pattern (SQ-80 0.14.2 and later)
+   app/app.c's frames 35 (read a piece), 36 (write a piece into a staging copy), 37 (it takes effect, kept), area 1:
+   the sequencer's settings and its 64 steps (seq/sloop_seq.h sl_song: 16 settings, then 10 bytes a step: 4 notes,
+   their count, NOTE / TIE / REST, flags, velocity, levels, ratchets), the same on the FM-1 and the SMK-37. In a .syx
+   file: F0 7D 53 51 3F 01 Z0 Z1 NIBBLES F7, after the bank's programs or alone (the FM-1 ignores it if sent). */
+const PAT_AREA = 1, SL_SLEN = 9, SL_BPM = 13, SL_NP = 16;
+let pattern = null, patFrom = "";
+function patternSummary(p) {
+  const len = p[SL_SLEN], used = [...Array(len).keys()].filter((i) => p[SL_NP + 10 * i + 5] === 0 && p[SL_NP + 10 * i + 4]).length;
+  return `${len} steps at ${p[SL_BPM]} BPM, ${used} with notes`;
+}
+function showPattern() {
+  const s = $("patSteps");
+  s.replaceChildren();
+  if (pattern) for (let i = 0; i < 64; i++) {
+    const at = SL_NP + 10 * i, c = document.createElement("span"), names = [];
+    for (let k = 0; k < Math.min(pattern[at + 4], 4); k++) names.push(noteName(pattern[at + k]));
+    c.className = (pattern[at + 5] === 0 && pattern[at + 4] ? "n" : pattern[at + 5] === 1 ? "t" : "") + (i >= pattern[SL_SLEN] ? " off" : "");
+    c.title = `step ${i + 1}: ${pattern[at + 5] === 1 ? "tie" : names.length && pattern[at + 5] === 0 ? names.join(" ") : "rest"}`;
+    s.append(c);
+  }
+  $("savePat").disabled = !pattern;
+}
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const noteName = (n) => NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1);
+function usePattern(p, from) {
+  pattern = p; patFrom = from;
+  showPattern();
+  say("patStatus", `${patternSummary(p)} (${from}).`, "ok");
+}
+const patternMessage = (p) => [0xF0, ...HEAD, 0x3F, PAT_AREA, p.length & 0x7F, (p.length >> 7) & 0x7F, ...nib(p), 0xF7];
+function patternFrom(d) {   // the first pattern message in a file, or null
+  for (let i = 0; i + 9 <= d.length; i++) {
+    if (d[i] !== 0xF0 || d[i + 1] !== 0x7D || d[i + 2] !== 0x53 || d[i + 3] !== 0x51 || d[i + 4] !== 0x3F || d[i + 5] !== PAT_AREA) continue;
+    const z = d[i + 6] | d[i + 7] << 7;
+    if (i + 8 + 2 * z >= d.length || d[i + 8 + 2 * z] !== 0xF7) continue;
+    const p = new Uint8Array(z);
+    for (let j = 0; j < z; j++) p[j] = (d[i + 8 + 2 * j] & 15) | ((d[i + 9 + 2 * j] & 15) << 4);
+    return p;
+  }
+  return null;
+}
+$("getPat").onclick = async () => {
+  try {
+    say("patStatus", "Reading the FM-1's pattern…");
+    let p = null;
+    for (let o = 0; !p || o < p.length; ) {
+      const n = p ? Math.min(96, p.length - o) : 96;
+      const a = await link.send(0x35, [PAT_AREA, o & 0x7F, o >> 7, n], 1500);
+      if (a[4] !== 0x7E) throw new Error("no pattern came back");
+      if (!p) p = new Uint8Array(a[9] | a[10] << 7);
+      for (let j = 0; j < n && o + j < p.length; j++) p[o + j] = (a[11 + 2 * j] & 15) | ((a[12 + 2 * j] & 15) << 4);
+      o += n;
+    }
+    usePattern(p, "the FM-1");
+  } catch (e) { say("patStatus", "Not read: " + e.message, "bad"); }
+};
+$("sendPat").onclick = async () => {
+  if (!pattern) { say("patStatus", "No pattern open: get one or open a file first.", "bad"); return; }
+  if (!confirm(`Send this pattern (${patternSummary(pattern)}) to the FM-1? It replaces the one there, with its arpeggiator and sequencer settings. Stop the sequencer first.`)) return;
+  try {
+    for (let o = 0; o < pattern.length; o += 64) {
+      say("patStatus", `Sending the pattern: ${Math.round(100 * o / pattern.length)}%…`);
+      await link.send(0x36, [PAT_AREA, o & 0x7F, o >> 7, ...nib(pattern.subarray(o, o + 64))], 1500);
+    }
+    await link.send(0x37, [PAT_AREA, pattern.length & 0x7F, pattern.length >> 7], 4000);
+    say("patStatus", `Sent: the FM-1 plays ${patternSummary(pattern)}, and keeps it.`, "ok");
+  } catch (e) { say("patStatus", "Not sent: " + e.message, "bad"); }
+};
+$("openPat").onclick = () => $("openPatFile").click();
+$("openPatFile").onchange = async () => {
+  const f = $("openPatFile").files[0];
+  $("openPatFile").value = "";
+  if (!f) return;
+  const p = patternFrom(new Uint8Array(await f.arrayBuffer()));
+  if (!p) { say("patStatus", `No SQ-80 pattern in ${f.name}.`, "bad"); return; }
+  usePattern(p, f.name);
+};
+$("savePat").onclick = () => {
+  if (!pattern) return;
+  download(new Uint8Array(patternMessage(pattern)), `SQ-80 pattern ${new Date().toISOString().slice(0, 10)}.syx`);
+};
+showPattern();
 
 /* ------------------------------------------------------------------ playing: keys, the computer's keyboard, a MIDI keyboard */
 let base = 48;

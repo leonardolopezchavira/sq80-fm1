@@ -19,6 +19,7 @@ a ROM pack or banks into it, **overwrites what another firmware saved in the sam
 presets), and SQ-80 cannot read other firmwares' saves. Back up before you install (The Firmware Hub's
 [Backups](https://thefirmwarehub.com/kb/#data)); going back to M-VAVE's official firmware or to another one works
 at any time from the hub. On the SMK-37, `smk37-backup.bat` makes a full backup (`docs/SMK37-BACKUP.md`).
+Once SQ-80 is on it, the site's **Backup** page (below) saves SQ-80's own data to a file and puts it back.
 SQ-80 accepts both FM-1 flash chips (the original and the UC25HQ80 of units sold since autumn 2026).
 
 ## Status
@@ -140,6 +141,25 @@ name), heard as you change it: in the page (the engine in WebAssembly, `app/edit
 back to the FM-1 (any bank and place) or out as `.syx` (a program or a whole bank). An on-screen keyboard, the
 computer's keys and a MIDI keyboard play it. Your ROM pack, if you have one, gives the page the original waves. **Randomize** makes a new program
 from the one open, as the FM-1's RANDOM screen does (the same C: `src/sq80/sq80_random.h`); from Init at 100 %, one from scratch.
+
+## Backup
+
+https://leonardolopezchavira.github.io/sq80-fm1/backup/: fm1-base's backup page (`fm1.toml backup = true`,
+`fm1/base/device/backup.c`) with SQ-80's own section. fm1-base's part holds the settings object (bank, program,
+octave, effects, the arpeggiator's and the sequencer's settings and the pattern: magic `SQ8B`, version 1), checked
+whole and confirmed on the screen before it is restored; the page's own section `BNKS` (`app/backup_extras.js`) holds
+the banks, read over frames 38 (the programs stored in each bank) and 31, written back over 20-22 (a bank never
+loaded is cleared: bank 1 shows the factory bank again). `tools/make_backup_page.py` fills the page in (the FM-1's
+and the SMK-37s' identities); `app/tests/backup.txt` and `app/tests/backup_extras_test.mjs` test both parts. The ROM
+pack is left out. In fm1-base's copy, the page's identity may be several prefixes (`|`).
+
+## The pattern frames
+
+Frames 35-37 (`app/app.c` frame_area) read and write the sequencer's pattern (area 1: `sl_song`, 656 bytes: 16
+settings, then 64 steps of 10) and the whole settings object (area 0): 35 a piece (up to 96 bytes), 36 a piece into a
+staging copy, 37 it takes effect (checked, the arpeggiator off, kept); 38 the banks' counts. The editor's **the
+pattern** box uses area 1; in a `.syx` a pattern is `F0 7D 53 51 3F 01 Z0 Z1 NIBBLES F7`, after a bank's programs or
+alone. `app/tests/pattern.txt` tests them.
 
 ## The librarian
 

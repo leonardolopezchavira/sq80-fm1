@@ -921,6 +921,8 @@ void sl_init(sl_song *s)
     T.last[0] = 60;
     T.last_vel = 100;
     playing = recording = armed = 0;
+    undo.valid = 0;                      /* (a pattern restored: no undo into the one before) */
+    changes++;
 }
 
 /* ------------------------------------------------------------ commands --- */

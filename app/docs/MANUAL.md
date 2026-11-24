@@ -219,13 +219,26 @@ pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock lea
 | **Install** | installs SQ-80, with your ROM pack and banks if you have them |
 | **Load** | loads a ROM pack or banks on their own, or clears banks (bank 1 back to the factory bank, the others to INIT) |
 | **Librarian** | banks side by side: hear any program with a click, put your own bank together, export it or send it to the FM-1 |
-| **Editor** | every value of a program at once, heard as you change it, live on the FM-1; **Randomize** for new ones |
+| **Editor** | every value of a program at once, heard as you change it, live on the FM-1; **Randomize** for new ones; the sequencer's **pattern**: get it, send it, save it in a .syx with the bank or alone |
+| **Backup** | everything SQ-80 keeps, to one file on your computer: the programs in every bank, the pattern and the settings; and back again |
 | **Emulator** | SQ-80 in the browser: the same firmware |
 | **ROM pack** | makes your ROM pack from your SQ-80's ROM dumps |
 | **Wave pack** | makes a wave set from your own sounds |
 | **Cheat sheet** | every control and every editor page on one page (also a PDF, one printed sheet) |
 
 Chrome or Edge, with the FM-1 connected by USB. Nothing is uploaded: your files stay on your computer.
+
+**Backup.** Press **Back up** and SQ-80 saves everything it keeps to a `.sq80bak` file: the programs in every bank
+(a bank never loaded stays so: bank 1, the factory bank), the sequencer's pattern with the arpeggiator's and the
+sequencer's settings, the effects, the octave and the program playing. It can keep playing. **Restore** checks the
+whole file, then the screen asks **RESTORE FROM USB?**: **SEL** yes, **HOME** no (on an SMK-37: **SCALE** and
+**PATCH**); stop the sequencer first. A backup goes from an FM-1 to an SMK-37 and back: an SMK-37 takes banks 1
+and 2. The ROM pack is not in it (it is your own ROMs: make it again on the ROM pack page).
+
+**The pattern in the editor.** The Editor's **the pattern** box reads the sequencer's pattern from the FM-1 (with its
+length, division, tempo and the arpeggiator's settings), shows its steps, saves it as a `.syx` (alone, or with the
+bank when you export the bank) and sends it back: to the same unit, another FM-1 or an SMK-37. Sending replaces the
+pattern there and keeps it.
 
 ## 13. On the SMK-37
 

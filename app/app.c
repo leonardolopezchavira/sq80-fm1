@@ -570,41 +570,47 @@ static void settings_defaults(void)          /* (the flash is mapped from app_in
     sl_defaults(&set.sl);
 }
 
+static void settings_load(void)             /* the settings from flash (older versions' brought up to date), made safe */
+{
+    int got = plat_store_load(OBJ_SETTINGS, &set, sizeof set), i;
+    if (got == 8 && set.magic == SET_MAGIC_0) {   /* 0.3 .. 0.6's: bank, program, octave kept, the effects new */
+        set.magic = SET_MAGIC;
+        fx_defaults(set.fx);
+        sl_defaults(&set.sl);
+    } else if (got == (int)(8 + FXP_N) && set.magic == SET_MAGIC_1) {   /* 0.7's: the arpeggiator new */
+        set.magic = SET_MAGIC;
+        sl_defaults(&set.sl);
+    } else if (got == (int)(8 + FXP_N + SET_ARP_08) && set.magic == SET_MAGIC_2) {   /* 0.8's: its tempo kept */
+        uint32_t bpm = ((const uint8_t *)&set)[8 + FXP_N + 5] + 40u;
+        set.magic = SET_MAGIC;
+        sl_defaults(&set.sl);
+        if (bpm >= 40u && bpm <= 240u)
+            set.sl.p[SL_BPM] = (uint8_t)bpm;
+    } else if (got != (int)sizeof set || set.magic != SET_MAGIC) {
+        settings_defaults();
+    }
+    if (set.minvel > 127u)
+        set.minvel = 0;
+    if (set.octave < -2 || set.octave > 2)
+        set.octave = 0;
+    if (set.bank == 0 || set.bank > NBANK || set.prog >= NPROG) {   /* (0.9.3 and before: no bank loaded; or a backup
+                                                                     * of the FM-1's bank 5 on an SMK-37) */
+        set.bank = (uint8_t)first_bank();
+        set.prog = 0;
+    }
+    for (i = 0; i < FXP_N; i++)
+        if (set.fx[i] > fx_param(i)->max)
+            set.fx[i] = fx_param(i)->def;
+    sl_clamp(&set.sl);
+    set.sl.p[SL_AON] = 0;                /* (it starts off: the keys play notes at power-on) */
+}
+
 void app_init(void)
 {
     rom_attach();
     sq80_init(&syn, &rom, 44100.0f);
     two_cores = plat_cpu2_set(1) == 0;
-    {
-        int got = plat_store_load(OBJ_SETTINGS, &set, sizeof set), i;
-        if (got == 8 && set.magic == SET_MAGIC_0) {   /* 0.3 .. 0.6's: bank, program, octave kept, the effects new */
-            set.magic = SET_MAGIC;
-            fx_defaults(set.fx);
-            sl_defaults(&set.sl);
-        } else if (got == (int)(8 + FXP_N) && set.magic == SET_MAGIC_1) {   /* 0.7's: the arpeggiator new */
-            set.magic = SET_MAGIC;
-            sl_defaults(&set.sl);
-        } else if (got == (int)(8 + FXP_N + SET_ARP_08) && set.magic == SET_MAGIC_2) {   /* 0.8's: its tempo kept */
-            uint32_t bpm = ((const uint8_t *)&set)[8 + FXP_N + 5] + 40u;
-            set.magic = SET_MAGIC;
-            sl_defaults(&set.sl);
-            if (bpm >= 40u && bpm <= 240u)
-                set.sl.p[SL_BPM] = (uint8_t)bpm;
-        } else if (got != (int)sizeof set || set.magic != SET_MAGIC) {
-            settings_defaults();
-        }
-        if (set.minvel > 127u)
-            set.minvel = 0;
-        if (set.octave < -2 || set.octave > 2 || set.bank > NBANK || set.prog >= NPROG)
-            settings_defaults();
-        if (set.bank == 0)                   /* (0.9.3 and before: no bank loaded) */
-            set.bank = (uint8_t)first_bank();
-        for (i = 0; i < FXP_N; i++)
-            if (set.fx[i] > fx_param(i)->max)
-                set.fx[i] = fx_param(i)->def;
-        sl_clamp(&set.sl);
-        set.sl.p[SL_AON] = 0;                /* (it starts off: the keys play notes at power-on) */
-    }
+    settings_load();
     sl_init(&set.sl);
     fx_init();
     fx_tempo((int32_t)set.sl.p[SL_BPM]);
@@ -871,6 +877,86 @@ static int frame_bank(const uint8_t *p, uint32_t n)
 
 static int program_store(uint32_t bank, uint32_t pi);
 static uint8_t redraw_req;                   /* the editor changed the program: the screen shows it */
+
+/* the backup page and the editor's pattern: the settings and the pattern as bytes, read and written in pieces.
+ * Area 0: the settings as stored (settings_t: magic, octave, bank, program, effects, MIN VEL, the arpeggiator's and
+ * the sequencer's settings and the pattern); area 1: the pattern alone with its settings (sl_song: the
+ * arpeggiator's, the sequencer's and the 64 steps). Both are the same on the FM-1 and the SMK-37.
+ *   35 A O0 O1 N        -> 7E 35 A O0 O1 Z0 Z1 NIBBLES (N bytes from O, N <= 96; Z the area's size), or 7F 35 1
+ *   36 A O0 O1 NIBBLES  -> 7F 36 0: bytes into a staging copy (nothing changes yet)
+ *   37 A Z0 Z1          -> 7F 37 0: the staged area takes effect, checked and kept (status 1: wrong area or size,
+ *                          4: the settings of another version, their magic not this one's)
+ *   38                  -> 7E 38 NBANK NPROG COUNT x NBANK: the programs stored in each bank (0: never loaded) */
+static uint8_t stage_buf[sizeof(settings_t)] PLAT_POOL;
+static uint8_t restored_req;                 /* settings or a pattern came in: the screen shows them */
+static uint8_t backup_held;                  /* a backup streams: no saving (app_backup_hold) */
+static const uint32_t AREA_SIZE[2] = {sizeof(settings_t), sizeof(sl_song)};
+static uint8_t *area_ptr(uint32_t a) { return a == 0u ? (uint8_t *)&set : (uint8_t *)&set.sl; }
+static void settings_check(void)             /* what came from flash or a backup, made safe (as app_init does) */
+{
+    uint32_t i, k;
+    if (set.minvel > 127u)
+        set.minvel = 0;
+    if (set.octave < -2 || set.octave > 2)
+        set.octave = 0;
+    if (set.bank == 0 || set.bank > NBANK || set.prog >= NPROG) {   /* (a backup of the FM-1's bank 5 on an SMK-37) */
+        set.bank = (uint8_t)first_bank();
+        set.prog = 0;
+    }
+    for (i = 0; i < FXP_N; i++)
+        if (set.fx[i] > fx_param(i)->max)
+            set.fx[i] = fx_param(i)->def;
+    sl_clamp(&set.sl);
+    for (i = 0; i < SL_NSTEP; i++) {
+        sl_step *st = &set.sl.step[i];
+        for (k = 0; k < 4u; k++)
+            st->note[k] &= 0x7Fu;
+        if (st->vel > 127u)
+            st->vel = 100;
+    }
+}
+static int frame_area(const uint8_t *p, uint32_t n)   /* 36, 37 (35 and 38 answer with their data) */
+{
+    uint32_t a = n > 4u ? p[4] : 0xFFu, i;
+    if (a > 1u)
+        return 1;
+    if (p[3] == 0x36u) {
+        uint32_t o = n > 6u ? (uint32_t)p[5] | (uint32_t)p[6] << 7 : 0xFFFFu, cnt = n > 7u ? (n - 7u) / 2u : 0u;
+        if (o + cnt > AREA_SIZE[a])
+            return 1;
+        for (i = 0; i < cnt; i++)
+            stage_buf[o + i] = (uint8_t)((p[7 + 2 * i] & 15u) | (p[8 + 2 * i] & 15u) << 4);
+        return 0;
+    }
+    {   /* 37: the staged area takes effect */
+        uint32_t z = n > 6u ? (uint32_t)p[5] | (uint32_t)p[6] << 7 : 0u, magic;
+        uint8_t bank = set.bank, prog = set.prog;
+        if (z != AREA_SIZE[a])
+            return 1;
+        magic = (uint32_t)stage_buf[0] | (uint32_t)stage_buf[1] << 8 | (uint32_t)stage_buf[2] << 16 |
+                (uint32_t)stage_buf[3] << 24;
+        if (a == 0u && magic != SET_MAGIC)
+            return 4;
+        engine_on = 0;                       /* (the audio interrupt keeps off the pattern while it is rewritten) */
+        app_panic();
+        for (i = 0; i < z; i++)
+            area_ptr(a)[i] = stage_buf[i];
+        settings_check();
+        set.sl.p[SL_AON] = 0;                /* (the arpeggiator off, as at power-on: the keys play notes) */
+        sl_init(&set.sl);
+        fx_tempo((int32_t)set.sl.p[SL_BPM]);
+        fx_set(set.fx);
+        ev_r = ev_w;                         /* (anything posted meanwhile: dropped) */
+        if (a == 0u && (set.bank != bank || set.prog != prog))
+            program_load(1);
+        events();
+        engine_on = 1;
+        if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0)
+            set_dirty = 0;
+        restored_req = 1;
+        return 0;
+    }
+}
 int app_sysex(const uint8_t *p, uint32_t n)
 {
     int st;
@@ -888,7 +974,7 @@ int app_sysex(const uint8_t *p, uint32_t n)
     loads++;
     echo[0] = echo[1] = 0;
     if ((p[3] >= 0x10u && p[3] <= 0x12u) || (p[3] >= 0x20u && p[3] <= 0x22u) ||
-        (p[3] >= 0x30u && p[3] <= 0x32u)) {   /* their last 2 bytes: a check */
+        (p[3] >= 0x30u && p[3] <= 0x32u) || (p[3] >= 0x35u && p[3] <= 0x38u)) {   /* their last 2 bytes: a check */
         uint32_t sum = 0, i;
         if (n < 6u) {
             reply(p[3], 1);
@@ -1014,6 +1100,41 @@ int app_sysex(const uint8_t *p, uint32_t n)
         plat_sysex_send(f, k);
         return 1;
     }
+    case 0x35u: {                        /* a piece of the settings (0) or the pattern (1): see frame_area */
+        uint8_t f[12 + 2u * 96u];
+        uint32_t a = n > 4u ? p[4] : 0xFFu, o = n > 6u ? (uint32_t)p[5] | (uint32_t)p[6] << 7 : 0u,
+                 cnt = n > 7u ? p[7] : 0u, i, k = 0;
+        if (a > 1u || cnt == 0 || cnt > 96u || o + cnt > AREA_SIZE[a]) {
+            reply(0x35, 1);
+            return 1;
+        }
+        f[k++] = 0xF0; f[k++] = 0x7D; f[k++] = 0x53; f[k++] = 0x51; f[k++] = 0x7E; f[k++] = 0x35;
+        f[k++] = (uint8_t)a; f[k++] = (uint8_t)(o & 0x7Fu); f[k++] = (uint8_t)(o >> 7 & 0x7Fu);
+        f[k++] = (uint8_t)(AREA_SIZE[a] & 0x7Fu); f[k++] = (uint8_t)(AREA_SIZE[a] >> 7 & 0x7Fu);
+        for (i = 0; i < cnt; i++) {
+            f[k++] = area_ptr(a)[o + i] & 15u;
+            f[k++] = area_ptr(a)[o + i] >> 4;
+        }
+        f[k++] = 0xF7;
+        plat_sysex_send(f, k);
+        return 1;
+    }
+    case 0x38u: {                        /* the banks: how many programs each holds */
+        uint8_t f[10 + NBANK];
+        uint32_t b, k = 0;
+        f[k++] = 0xF0; f[k++] = 0x7D; f[k++] = 0x53; f[k++] = 0x51; f[k++] = 0x7E; f[k++] = 0x38;
+        f[k++] = (uint8_t)NBANK; f[k++] = (uint8_t)NPROG;
+        for (b = 1; b <= NBANK; b++)
+            f[k++] = (uint8_t)bank_stored(b);
+        f[k++] = 0xF7;
+        plat_sysex_send(f, k);
+        return 1;
+    }
+    case 0x36u: case 0x37u:
+        st = frame_area(p, n);
+        if (p[3] == 0x37u)
+            app_say(p[4] == 0u ? "SETTINGS" : "PATTERN", st == 0 ? "RESTORED" : "FAILED");
+        break;
     case 0x10u: case 0x11u: case 0x12u:
         st = frame_rom(p, n);
         if (p[3] == 0x12u) {
@@ -3050,6 +3171,13 @@ void app_frame(void)
         redraw_req = 0;
         ui.redraw = 1;
     }
+    if (restored_req) {                      /* (settings or a pattern restored: the effects' and the sequencer's
+                                              * screens show them; kept already) */
+        restored_req = 0;
+        ui.chg_saved = sl_changes();
+        ui.bpm_sent = set.sl.p[SL_BPM];
+        ui.redraw = 1;
+    }
     if (ui.msg_until && now >= ui.msg_until) {
         ui.msg_until = 0;
         ui.redraw = 1;
@@ -3074,6 +3202,7 @@ void app_frame(void)
             fx_tempo((int32_t)ui.bpm_sent);
         }
         if ((chg != ui.chg_saved || ui.autosave || set_dirty) && !(st & (SL_S_PLAY | SL_S_REC)) && !ui.step_held &&
+            !backup_held &&
             ed.sec != ED_SAVE && now - ui.touched >= 3000u) {   /* (and the settings: bank, program, octave, effects) */
             ui.chg_saved = chg;              /* (stopped, nothing touched for 3 s: the pattern to flash) */
             ui.autosave = 0;
@@ -3183,3 +3312,37 @@ int app_expect(const char *what, int *got)
     return 1;
 }
 #endif
+
+/* ------------------------------------------------------------ backup (fm1.toml backup = true) --- */
+/* fm1-base's backup and restore over USB (device/backup.c, the site's Backup page, tools/fm1_backup.py): the settings
+ * object (bank, program, octave, effects, the arpeggiator's and the sequencer's settings and the pattern). The banks
+ * are not store objects: the Backup page reads and writes them as its own section ("BNKS", app/backup_extras.js)
+ * over the loader's frames (38, 31; 20, 21, 22). */
+static uint8_t backup_held;
+int app_backup_playing(void) { return (sl_state() & (SL_S_PLAY | SL_S_REC)) != 0; }
+void app_backup_flush(void)                  /* a backup starts: what is not saved yet, saved */
+{
+    if (set_dirty || sl_changes() != ui.chg_saved) {
+        ui.chg_saved = sl_changes();
+        if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0)
+            set_dirty = 0;
+    }
+}
+void app_backup_hold(int on) { backup_held = (uint8_t)(on != 0); }
+void app_backup_restored(void)               /* a restore went in: the settings from flash again */
+{
+    engine_on = 0;
+    app_panic();
+    settings_load();
+    sl_init(&set.sl);
+    fx_tempo((int32_t)set.sl.p[SL_BPM]);
+    fx_set(set.fx);
+    ev_r = ev_w;
+    program_load(1);
+    events();
+    engine_on = 1;
+    set_dirty = 0;
+    ui.chg_saved = sl_changes();
+    ui.bpm_sent = set.sl.p[SL_BPM];
+    ui.redraw = 1;
+}

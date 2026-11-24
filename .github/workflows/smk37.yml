@@ -28,4 +28,5 @@ jobs:
         app/build/host/sq80_host app/tests/basic.txt app/build/host
         BOARD=smk37 python3 fm1/base/tools/build.py app --host
         app/build/host/sq80-smk37_host app/tests/smk37.txt app/build/host
+        app/build/host/sq80-smk37_host app/tests/backup.txt app/build/host
       tests-block: false

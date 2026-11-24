@@ -29,6 +29,9 @@ jobs:
         run: |
           python3 fm1/base/tools/build.py app --host
           app/build/host/sq80_host app/tests/basic.txt app/build/host
+          app/build/host/sq80_host app/tests/backup.txt app/build/host
+          app/build/host/sq80_host app/tests/pattern.txt app/build/host
+          node app/tests/backup_extras_test.mjs
           python3 tools/fm1_loader.py sim-script app/build/host/loader.txt
           app/build/host/sq80_host app/build/host/loader.txt app/build/host
       - uses: actions/upload-artifact@v4
