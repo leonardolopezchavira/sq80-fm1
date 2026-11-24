@@ -49,11 +49,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="$(cat app/VERSION)"
-          ls -l pkg
+          find pkg -name "*.fwsc"
           NOTES="TEST BUILD, not a release: SQ-80 $V rendering 128-frame audio blocks (2.9 ms at 44.1 kHz) in place of 256 (5.8 ms), from branch buffer128 at ${GITHUB_SHA::7}; otherwise the same as 0.14.1. Install: python3 fm1/base/tools/fm1_install.py sq80-$V.fwsc (from the repository folder; pip3 install mido python-rtmidi). Measure: GLO, PLAY (the 8-voice load test), read CPU, PEAK and XRUN. Back to the release: the site's installer."
           if gh release view buffer128-test >/dev/null 2>&1; then
-            gh release upload buffer128-test pkg/*.fwsc --clobber
+            gh release upload buffer128-test $(find pkg -name "*.fwsc") --clobber
             gh release edit buffer128-test --notes "$NOTES" --target "$GITHUB_SHA"
           else
-            gh release create buffer128-test pkg/*.fwsc --prerelease --title "SQ-80 buffer128 test ($V)" --notes "$NOTES" --target "$GITHUB_SHA"
+            gh release create buffer128-test $(find pkg -name "*.fwsc") --prerelease --title "SQ-80 buffer128 test ($V)" --notes "$NOTES" --target "$GITHUB_SHA"
           fi
