@@ -259,8 +259,9 @@ key 7 up
 key 11 up
 wait 800
 expect voices 0
-key 7 down
+# (the top key first: with 2.9 ms blocks two keys pressed together may reach the arpeggiator a block apart)
 key 11 down
+key 7 down
 wait 40
 expect note 76
 wait 125

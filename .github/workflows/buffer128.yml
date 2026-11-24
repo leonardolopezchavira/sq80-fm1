@@ -1,0 +1,59 @@
+# The buffer128 test (branch buffer128 only): SQ-80 rendering 128-frame audio blocks (2.9 ms) in place of 256, to
+# measure on the hardware. Builds the FM-1's package and the SMK-37's three with the shared fm1-build workflow, runs
+# the simulator tests, and puts the packages in the "buffer128-test" pre-release. Never published to the site.
+name: buffer128
+
+on:
+  push:
+    branches: [buffer128]
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      build: |
+        git submodule update --init --recursive
+        python3 fm1/base/tools/build.py app --release "$(cat app/VERSION)"
+        for m in pro elite mke; do
+          BOARD=smk37 MODEL=$m python3 fm1/base/tools/build.py app --release "$(cat app/VERSION)"
+        done
+      packages: app/build/*.fwsc
+      test: |
+        python3 fm1/base/tools/build.py app --host
+        app/build/host/sq80_host app/tests/basic.txt app/build/host
+        app/build/host/sq80_host app/tests/splitlayer.txt app/build/host
+        python3 tools/fm1_loader.py sim-script app/build/host/loader.txt
+        app/build/host/sq80_host app/build/host/loader.txt app/build/host
+        BOARD=smk37 python3 fm1/base/tools/build.py app --host
+        app/build/host/sq80-smk37_host app/tests/smk37.txt app/build/host
+      tests-block: false
+
+  prerelease:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: pkg
+      - name: The buffer128-test pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(cat app/VERSION)"
+          ls -l pkg
+          NOTES="TEST BUILD, not a release: SQ-80 $V rendering 128-frame audio blocks (2.9 ms at 44.1 kHz) in place of 256 (5.8 ms), from branch buffer128 at ${GITHUB_SHA::7}; otherwise the same as 0.14.1. Install: python3 fm1/base/tools/fm1_install.py sq80-$V.fwsc (from the repository folder; pip3 install mido python-rtmidi). Measure: GLO, PLAY (the 8-voice load test), read CPU, PEAK and XRUN. Back to the release: the site's installer."
+          if gh release view buffer128-test >/dev/null 2>&1; then
+            gh release upload buffer128-test pkg/*.fwsc --clobber
+            gh release edit buffer128-test --notes "$NOTES" --target "$GITHUB_SHA"
+          else
+            gh release create buffer128-test pkg/*.fwsc --prerelease --title "SQ-80 buffer128 test ($V)" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi
