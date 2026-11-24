@@ -186,10 +186,16 @@ Not ported (yet): SLOOP's other tracks and drums, nudges, parameter locks, fills
 
 ## The programs
 
-None come with SQ-80: the firmware and the site carry no one else's sounds. Players load their own ESQ-1 / SQ-80
+SQ-80 comes with one bank of its own: the **factory bank**, 40 programs made from scratch on the built-in waves for
+dark electronic music (industrial, synth-pop, darkwave, downtempo, trip-hop), by `tools/originals.py` (34 programs)
+and `tools/demo_programs.py` (the demo video's six). It is built into the firmware as `app/waves/sq80_programs.h`
+(`python3 tools/originals.py OUT.syx --list LIST.md --header app/waves/sq80_programs.h` remakes it; CI checks the
+header matches) and the site serves it as `banks/SQ-80-Factory.syx`. Bank 1 plays it until a bank is stored there
+(on the FM-1, the SMK-37 and the emulator alike); saving a program into it stores the whole factory bank with that
+program, and clearing bank 1 brings it back. No one else's programs are carried. Players load their own ESQ-1 / SQ-80
 SysEx banks (the installer, the Load page, the librarian, the emulator); the pages point to Rainer Buchty's Ensoniq
 archive (https://www.buchty.net/ensoniq/), the Ensoniq sounds 2022-07 collection
-(https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) and Don Solaris's collection (https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view) for some. A bank place never loaded plays INIT.
+(https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) and Don Solaris's collection (https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view) for some. Outside the factory bank, a bank place never loaded plays INIT.
 
 ## The front page
 

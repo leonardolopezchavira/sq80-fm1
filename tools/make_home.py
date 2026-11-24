@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """The site's front page from app/site/home.html, in place of the one tools/make_site.py makes from landing.md:
-{{VERSION}} and {{PKG}} (the package's file name in firmware/) filled in. (No program banks are published with SQ-80:
-players load their own, or ones from the community's archives.)
+{{VERSION}} and {{PKG}} (the package's file name in firmware/) filled in. (The one program bank published with SQ-80 is its
+own factory bank, banks/SQ-80-Factory.syx, written by the workflow from tools/originals.py.)
 
     python3 tools/make_home.py SITE_DIR VERSION
 """

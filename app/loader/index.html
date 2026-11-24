@@ -62,7 +62,8 @@
   <section>
     <h2>3 · Programs</h2>
     <p>An ESQ-1 or SQ-80 SysEx file (<code>.syx</code>): a 40-program bank, or single programs (the first 40 are
-      taken). It goes into one of the FM-1's eight banks (an SMK-37 has two), replacing what was there. No banks?
+      taken). It goes into one of the FM-1's eight banks (an SMK-37 has two), replacing what was there. SQ-80's own
+      factory bank is <a href="../banks/SQ-80-Factory.syx" download>SQ-80-Factory.syx</a>. No banks?
       Thousands of ESQ-1 and SQ-80 banks are at <a href="https://www.buchty.net/ensoniq/" target="_blank"
       rel="noopener">Rainer Buchty's Ensoniq archive</a>, in the <a href="https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7" target="_blank" rel="noopener">Ensoniq sounds 2022-07</a> collection and in <a href="https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view" target="_blank" rel="noopener">Don Solaris's collection</a>.</p>
     <input type="file" id="syxfile" accept=".syx,.SYX">
@@ -79,7 +80,8 @@
 
   <section>
     <h2>4 · Clear programs</h2>
-    <p>Empties a bank on the FM-1: its 40 places go back to INIT, ready for your own. It cannot be undone, so export
+    <p>Empties a bank on the FM-1: its 40 places go back to INIT, ready for your own (bank 1 goes back to the
+      factory bank). It cannot be undone, so export
       anything you want to keep first (the <a href="../edit/">editor</a> reads a whole bank and saves it as .syx).</p>
     <div class="row">
       <label>Clear <select id="clrslot"><option value="all">all banks</option><option value="0">bank 1</option>
@@ -368,7 +370,9 @@ $("clearyes").onclick = async () => {
       }
     }
     say("clrstat", (banks.length > 1 ? "All banks are" : `Bank ${bankName(banks[0])} is`) +
-      " empty now: every place plays INIT. (The program on the FM-1's screen stays until you pick another.)", "ok");
+      (banks.includes(0) ? (banks.length > 1 ? " empty now: bank 1 plays the factory bank again, the others INIT." :
+      " empty now: it plays the factory bank again.") : " empty now: every place plays INIT.") +
+      " (The program on the FM-1's screen stays until you pick another.)", "ok");
   } catch (err) { say("clrstat", "Stopped: " + err.message + "." + smkHint(banks[0], err), "bad"); }
   $("clear").disabled = false;
 };

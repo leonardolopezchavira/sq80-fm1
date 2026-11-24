@@ -19,6 +19,7 @@ the [cheat sheet](../cheat/) has it all on one page.
 11. MIDI and Bluetooth
 12. The web pages
 13. On the SMK-37
+14. The factory bank
 
 ---
 
@@ -58,7 +59,7 @@ next install.
 
 ![The boot screen](img/splash.png "Switching on")
 
-There are eight banks of 40 programs, for your own: the installer and the [Load page](../load/) put ESQ-1 / SQ-80 SysEx banks into them, and SAVE stores what you make. No programs come with SQ-80; thousands of ESQ-1 and SQ-80 banks are at [Rainer Buchty's Ensoniq archive](https://www.buchty.net/ensoniq/), in the [Ensoniq sounds 2022-07](https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) collection and in [Don Solaris's collection](https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view). A place where nothing was stored plays **INIT**, a plain sound to start from.
+There are eight banks of 40 programs (two on an SMK-37). **Bank 1 comes with SQ-80's factory bank**: 40 programs of its own, made from scratch on its 75 waves for dark electronic music (industrial, synth-pop, darkwave, downtempo, trip-hop; listed in [section 14](#s14)). The installer and the [Load page](../load/) put ESQ-1 / SQ-80 SysEx banks into the banks, and SAVE stores what you make; thousands of ESQ-1 and SQ-80 banks are at [Rainer Buchty's Ensoniq archive](https://www.buchty.net/ensoniq/), in the [Ensoniq sounds 2022-07](https://app.box.com/s/odqcbczbs8xjhgw9k2v2bna0tcxyx1v7) collection and in [Don Solaris's collection](https://drive.google.com/file/d/1IsZ5jcFobwecKbeWYDD4kdpPb557iK6O/view). A bank loaded into bank 1 takes the factory bank's place; save a program there and the other 39 factory programs are kept with it. Clear bank 1 (the Load page) and the factory bank comes back; it is also on the site as [SQ-80-Factory.syx](../banks/SQ-80-Factory.syx), to load into any bank. In the other banks, a place where nothing was stored plays **INIT**, a plain sound to start from.
 
 ## 3. Playing
 
@@ -216,7 +217,7 @@ pitch bend, aftertouch, mod wheel, sustain and program changes. A MIDI clock lea
 | Page | |
 |---|---|
 | **Install** | installs SQ-80, with your ROM pack and banks if you have them |
-| **Load** | loads a ROM pack or banks on their own, or clears banks back to INIT |
+| **Load** | loads a ROM pack or banks on their own, or clears banks (bank 1 back to the factory bank, the others to INIT) |
 | **Librarian** | banks side by side: hear any program with a click, put your own bank together, export it or send it to the FM-1 |
 | **Editor** | every value of a program at once, heard as you change it, live on the FM-1; **Randomize** for new ones |
 | **Emulator** | SQ-80 in the browser: the same firmware |
@@ -231,6 +232,52 @@ Chrome or Edge, with the FM-1 connected by USB. Nothing is uploaded: your files 
 SQ-80 also runs on the M-Vave SMK-37 and the Donner Starrykey 37 Play: the same screens and buttons (by their FM-1
 names: SCALE is SEL, CHORD is ENV, NOTE REPEAT is LFO, PARA is EDIT, GLOBE is GLO, PATCH is HOME, BT is SAVE), K5-K8
 where this manual says K1-K4, and its own: 37 keys with velocity, the pads (programs; with SEQ held, the steps),
-four faders in four banks, the wheels and the pedal. It has two banks of 40 programs, for your own. The backup,
+four faders in four banks, the wheels and the pedal. It has two banks of 40 programs: bank 1 starts with the factory bank, both take your own. The backup,
 the install and the controls: the [SMK-37 page](../smk37/).
 
+## 14. The factory bank
+
+Bank 1's 40 programs, until you load or save a bank there. Made for SQ-80's own waves; with your ROM pack loaded they play the original waves in the same slots, and sound a little different. The FM-1's effects are not part of a program: turn up the delay for DUBSTB, the reverb for the pads.
+
+| # | Name | Style | What it is |
+|---|---|---|---|
+| 1 | SQPAD | demo | a wide pad: two detuned saws and strings an octave up, the filter opening slowly |
+| 2 | BELLS | demo | bells: a bell and a chime an octave and a fifth up, struck, ringing out |
+| 3 | PLUCKS | demo | plucked: a pluck over a short saw, for the arpeggiator |
+| 4 | SQBASS | demo | a sequencer bass: bass and square, a snappy filter |
+| 5 | GLIDER | demo | a mono lead: square and detuned saw, glide, a delayed vibrato |
+| 6 | VOXPAD | demo | voices: two vocal waves, slow in |
+| 7 | GRINDR | industrial | a grinding bass: saw and grit, the filter slammed open by velocity |
+| 8 | SCREAM | industrial | a screaming sync lead: OSC 2 synced to OSC 1, its pitch swept by ENV 2; the wheel adds more |
+| 9 | ANVIL | industrial | a struck metal hit, ringing and clangy, for percussion on the high keys |
+| 10 | RUSTED | industrial | rusted machinery: grit and noise drifting under a slow, uneven filter |
+| 11 | STATIC | industrial | static and shortwave: noise through a resonant filter that a fast random LFO jumps around |
+| 12 | ASHES | industrial | a soft, sad piano on its own: the piano wave, dull and close, with a long ring |
+| 13 | HAMMER | industrial | a hammer hit: a thumping kick, metal and a burst of noise, for beats on the low keys |
+| 14 | POPBAS | synth-pop | a tight sequencer bass: pulse and saw, a clicky filter envelope, made for 1/16 lines |
+| 15 | STABS | synth-pop | brass stabs: two detuned saws, the filter's attack a little slower than the sound's |
+| 16 | MALLET | synth-pop | a mallet line: marimba-like wood and a sine an octave up, short |
+| 17 | CHOIRS | synth-pop | a sampled-choir pad: two vocal waves, slow in, gently moving |
+| 18 | PULSER | synth-pop | a bright pulse lead with vibrato on the wheel |
+| 19 | ORCHIT | synth-pop | a big orchestral hit: strings and brass together, cut short |
+| 20 | GLASS | synth-pop | a glassy bell pad: bells struck, a string held under them |
+| 21 | NOCTRN | synth-pop | a dark string section: two strings an octave apart, a slow swell |
+| 22 | NAUSEA | darkwave | a sick, seasick pad: detuned saws drifting against each other, random pitch wobble |
+| 23 | GLITCH | darkwave | glitches: a fast random LFO throws the pitch about; hold a note and play with the wheel |
+| 24 | GROWL | darkwave | a growling formant bass: vowel waves opening with the filter envelope |
+| 25 | SIREN | darkwave | an air-raid siren: a slow, wide pitch swing over a hard square |
+| 26 | COLDPD | darkwave | a cold digital pad: digital waves an octave apart, the brightness breathing slowly |
+| 27 | DRONE | darkwave | a low drone: two octave waves a fifth apart, slowly beating, for underneath everything |
+| 28 | STRMAC | downtempo | a string machine: detuned saws with a fast, shallow chorus-like vibrato, soft attack |
+| 29 | WARMEP | downtempo | a warm electric piano with a slow tremolo |
+| 30 | ROUNDB | downtempo | a round mono bass: triangle and sine, glide between notes |
+| 31 | SOFTLD | downtempo | a soft sine-like lead, vibrato fading in, glide |
+| 32 | ROBOVX | downtempo | a robot voice: formant waves sawn through a resonant filter, for chords and lines |
+| 33 | DREAMS | downtempo | a dreamy sweep pad: the filter rises over seconds as you hold the chord |
+| 34 | VOCODR | downtempo | a vocoder-like choir: vowel and breath waves, a slow swell, the wheel opening it up |
+| 35 | SUBBAS | trip-hop | a deep sub bass: a sine and a quiet triangle, nothing above the low end |
+| 36 | DUBSTB | trip-hop | a dub chord stab: a muted saw chord with a quick filter blip, for echoes (turn up the delay) |
+| 37 | HARPSY | trip-hop | a plucked harp-like tone: pick and bell, gentle, for arpeggios |
+| 38 | DARKKY | trip-hop | dark keys: a muffled piano and an organ under it, slow and heavy |
+| 39 | DUSTY | trip-hop | dusty vinyl air: filtered noise with a low sine, a bed under the beat |
+| 40 | LONELY | trip-hop | a lonely bell lead: a chime and sine, long tail, a little vibrato |

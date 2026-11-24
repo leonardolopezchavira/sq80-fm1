@@ -1,12 +1,23 @@
 # SQ-80 in the host simulator: python3 fm1/base/tools/build.py app --host, then
 #   app/build/host/sq80_host app/tests/basic.txt app/build/host
-# (no ROM pack, no banks: the test waves and an INIT program; tools/fm1_loader.py sim-script makes a script that
-# loads a ROM pack and banks)
+# (no ROM pack, no banks: the test waves; bank 1 the factory bank, then a bank of one INIT; tools/fm1_loader.py
+# sim-script makes a script that loads a ROM pack and banks)
 wait 600
 shot boot.png
 expect rom 0
 expect bank 1
 expect banksize 0
+expect name0 83
+# bank 1 plays the factory bank until a bank is stored there; these tests start from INIT, so bank 1 is given
+# a bank of one INIT (frames 20, 21, 22: clear, the program, the count): its other places play INIT too
+sysex F0 7D 53 51 20 00 20 00 F7
+wait 100
+sysex F0 7D 53 51 21 00 00 09 04 0E 04 09 04 04 05 00 02 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0E 07 0E 07 0E 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0C 00 0C 00 00 00 00 00 0C 00 0C 00 00 00 00 00 0C 00 0C 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 0E 0F 0F 0F 00 00 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 00 00 0F 0F 00 00 00 00 04 02 00 00 0F 0F 00 00 00 00 00 00 00 00 0F 0F 00 00 00 00 0E 07 0F 07 00 00 0F 0F 00 00 00 00 00 00 00 00 0C 03 00 00 00 00 00 00 0F 08 00 00 33 04 F7
+wait 100
+sysex F0 7D 53 51 22 00 01 23 00 F7
+wait 200
+expect bank 1
+expect banksize 1
 expect name0 73
 expect cores 2
 wav keys.wav

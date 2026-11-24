@@ -8,7 +8,9 @@
  * Both come in over USB SysEx from the loader page (web/load/index.html) in this app's own framing (below); a
  * single-program ESQ-1/SQ-80 dump (F0 0F 02 ch 01 ...) from any librarian plays at once, unsaved. Without a ROM
  * pack the engine plays its built-in waves: an original set of 75 in the same slots (tools/gen_waves.py, built into
- * the image as waves/sq80_waves.h: no Ensoniq data); where no bank is stored, INIT programs.
+ * the image as waves/sq80_waves.h: no Ensoniq data). Bank 1, until a bank is stored there, plays the factory bank:
+ * 40 programs of SQ-80's own on those waves (tools/originals.py, built in as waves/sq80_programs.h); in the other
+ * banks a place where nothing was stored plays INIT.
  *
  * The panel: PRESET picks the program, SELECT the bank, K1..K4 change the playing program's cutoff, resonance,
  * attack and release (HOME puts them back), OCT- / OCT+ the octave (bank, program, octave and the instrument's
@@ -26,6 +28,7 @@
 #include "fmini_fx.h"
 #include "sloop_seq.h"
 #include "sq80_waves.h"                 /* the built-in waves (tools/gen_waves.py: no Ensoniq data) */
+#include "sq80_programs.h"              /* the factory bank (tools/originals.py: programs of our own) */
 #include "seg_font.h"                   /* the program name's letters (tools/gen_seg_font.py) */
 #if defined(BOARD_SMK37) && BOARD_SMK37
 #define APP_SMK 1                       /* the M-Vave SMK-37 (fm1-base BOARD=smk37): pads, faders, wheels, pedal */
@@ -167,7 +170,9 @@ static uint32_t bank_stored(uint32_t bank)   /* programs stored in bank 1..8 (0 
     return bank >= 1u && bank <= NBANK ? bank_count_slot(bank - 1u) : 0u;
 }
 /* every bank shows 40 programs: those stored, then INIT in the places nothing was stored yet (a bank never loaded:
- * 40 INITs); saving into one of them stores it */
+ * 40 INITs; bank 1 never loaded: the factory bank); saving into one of them stores it */
+#define FACTORY_BANK 1u                  /* the bank that shows the factory programs while nothing is stored in it */
+static int factory_shown(uint32_t bank) { return bank == FACTORY_BANK && !bank_stored(bank); }
 static uint32_t bank_count(uint32_t bank) { return bank >= 1u && bank <= NBANK ? NPROG : 0u; }
 static int bank_read(uint32_t slot, uint32_t pi, uint8_t out[102])
 {
@@ -203,8 +208,14 @@ static uint32_t first_bank(void)             /* the first loaded bank, else 1 */
 }
 static int prog_read(uint32_t bank, uint32_t pi, uint8_t out[102])   /* program pi of bank 1..8, INIT where none */
 {
+    uint32_t i;
     if (pi < bank_stored(bank))
         return bank_read(bank - 1u, pi, out);
+    if (factory_shown(bank) && pi < SQ80_FACTORY_N) {
+        for (i = 0; i < 102u; i++)
+            out[i] = SQ80_FACTORY[pi][i];
+        return 0;
+    }
     sq80_init_program(out);
     return 0;
 }
@@ -1539,6 +1550,13 @@ static int program_store(uint32_t bank, uint32_t pi)   /* prog_raw into bank (1.
     bank_gen++;
     for (i = 0; i < SECTOR; i++)             /* the sector as it is (a bank never loaded: erased) */
         sector_buf[i] = n ? f[i] : 0xFFu;
+    if (factory_shown(bank)) {               /* the factory bank becomes the stored one, this program in it */
+        uint32_t k, j;
+        for (k = 0; k < SQ80_FACTORY_N && k < NPROG; k++)
+            for (j = 0; j < 102u; j++)
+                sector_buf[phys(slot, prog_at(slot, k) + j)] = SQ80_FACTORY[k][j];
+        n = SQ80_FACTORY_N;
+    }
     sq80_init_program(init);
     if (pi >= n) {                           /* the bank grows to this program: INIT in the places between */
         uint32_t k, j;

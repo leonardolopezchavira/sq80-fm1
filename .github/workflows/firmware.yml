@@ -7,7 +7,7 @@ name: firmware
 on:
   push:
     branches: [main]
-    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml', 'tools/site_theme.py', 'tools/build_editor.sh', 'tools/waves_pack.py', 'tools/make_home.py', 'tools/make_smk_install.py']
+    paths: ['app/**', 'src/sq80/**', 'fm1/**', '.gitmodules', '.github/workflows/firmware.yml', 'tools/site_theme.py', 'tools/build_editor.sh', 'tools/waves_pack.py', 'tools/make_home.py', 'tools/make_smk_install.py', 'tools/originals.py', 'tools/demo_programs.py', 'tools/patchcodec.py']
     tags: ['v*']
   workflow_dispatch:
 
@@ -27,6 +27,8 @@ jobs:
         done
       packages: app/build/*.fwsc
       test: |
+        python3 tools/originals.py /tmp/factory.syx --header /tmp/sq80_programs.h
+        cmp /tmp/sq80_programs.h app/waves/sq80_programs.h   # the factory bank built in is the one the tools make
         python3 fm1/base/tools/build.py app --host
         app/build/host/sq80_host app/tests/basic.txt app/build/host
         app/build/host/sq80_host app/tests/splitlayer.txt app/build/host
@@ -72,6 +74,7 @@ jobs:
           mkdir -p app/build/site/librarian && cp app/librarian/index.html app/build/site/librarian/
           mkdir -p app/build/site/wavepack && cp app/wavepack/index.html app/build/site/wavepack/
           python3 tools/waves_pack.py app/waves/sq80_waves.h app/build/site/wavepack/builtin.rompack
+          mkdir -p app/build/site/banks && python3 tools/originals.py app/build/site/banks/SQ-80-Factory.syx
           mkdir -p app/build/site/cheat && sed "s/{{VERSION}}/$V/g" app/cheat/index.html > app/build/site/cheat/index.html
           python3 tools/site_theme.py app/build/site
           # the cheat sheet as a PDF too (one landscape A4 sheet), from the themed page

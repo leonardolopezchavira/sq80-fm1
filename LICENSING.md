@@ -29,5 +29,7 @@ it is what the firmware you install is under. The files listed as MIT above stay
 own or in other projects. If you share the firmware, share its complete source with it under the same licence
 (this repository, with its submodule, is that source).
 
-No Ensoniq ROM data and no programs (Ensoniq's or anyone else's) are in this repository, on the site or in the
-firmware: you load your own. The only sounds SQ-80 carries are its 75 waves, made for this project.
+No Ensoniq ROM data and no programs of Ensoniq's or anyone else's are in this repository, on the site or in the
+firmware: you load your own. The only sounds SQ-80 carries are its own, made for this project: its 75 waves and its
+factory bank of 40 programs (`tools/originals.py`, `tools/demo_programs.py`, the `app/waves/sq80_programs.h` and
+`SQ-80-Factory.syx` they make: MIT).

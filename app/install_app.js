@@ -6,8 +6,8 @@
  * The protocol is app/app.c's ("the loader"), as app/loader/index.html and tools/fm1_loader.py speak it. */
 (() => {
   const HEAD = [0x7D, 0x53, 0x51];
-  /* the SMK-37's installer (tools/make_smk_install.py sets it): two banks, the FM-1 eight. No programs come with
-   * SQ-80 (it carries no one else's sounds): the player's own banks, or ones from the community's archives */
+  /* the SMK-37's installer (tools/make_smk_install.py sets it): two banks, the FM-1 eight. The firmware carries its own
+   * factory bank (bank 1 until one is stored there); the player's banks, or ones from the community's archives */
   const SMK = false;
   const NB = SMK ? 2 : 8, BASE = 0, DEV = SMK ? "SMK-37" : "FM-1";
   const bankLabel = (i) => String(i + 1);
@@ -88,8 +88,9 @@
   const PICK = `<p>SQ-80 comes with its own waves. Choose your ROM pack (<code>.rompack</code>, for the original
     waves: <a href="${SMK ? "../../" : "../"}rompack/" target="_blank">make it from your ROM dumps</a>) and up to
     ${SMK ? "two" : "eight"} ESQ-1 / SQ-80 SysEx banks (<code>.syx</code>) together: hold ⌘ (Mac) or Ctrl to pick
-    several. They go into banks 1–${NB} in name order; a bank you give no file for keeps what it has.</p>
-    <p>No banks? Thousands of ESQ-1 and SQ-80 banks are at ${ARCHIVE}: download some and choose them here.</p>
+    several. They go into banks 1–${NB} in name order; a bank you give no file for keeps what it has (bank 1, never
+    loaded: SQ-80's factory bank, 40 programs of its own).</p>
+    <p>More banks? Thousands of ESQ-1 and SQ-80 banks are at ${ARCHIVE}: download some and choose them here.</p>
     <p><input type="file" id="sq80files" multiple accept=".rompack,.syx,.SYX"></p>
     <p class="small">They stay on this computer, in this browser, so the next install can load them again with one
     click. Nothing is uploaded anywhere but to your ${SMK ? "keyboard" : "FM-1"}.</p>`;
