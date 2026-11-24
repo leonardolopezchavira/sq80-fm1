@@ -1610,7 +1610,7 @@ static void section(uint32_t sec, uint32_t ninst)   /* SEL, ENV, LFO, EDIT: the 
 enum { RP_ALL = SQ80_RP_ALL, RP_N = SQ80_RP_N };   /* (src/sq80/sq80_random.h: the editor page's Randomize too) */
 static const char *const RP_NAME[RP_N] = {"ALL", "OSC", "FILTER", "ENV", "LFO", "MOD"};
 #define RND_HIST 8u
-static uint8_t rnd_hist[RND_HIST][102];
+static uint8_t rnd_hist[RND_HIST][102] PLAT_POOL;   /* (the main loop's only: the pool, the RAM kept for the audio) */
 static uint32_t rnd_state = 0x2545F491u;
 
 static void randomize(void)
@@ -2744,7 +2744,7 @@ static void seq_draw(void)
 /* the scope: the last samples from a rising zero crossing (the trace stands still on a steady note), 232 points of
  * two samples each (~10 ms), its height following the recent peak */
 #define SCOPE_W 232u
-static int16_t scope_pt[SCOPE_W];            /* -1000 .. 1000 */
+static int16_t scope_pt[SCOPE_W] PLAT_POOL;   /* -1000 .. 1000 (the main loop's: the pool) */
 static void scope_prepare(void)
 {
     static int16_t sm[SCOPE_N];
@@ -3318,7 +3318,6 @@ int app_expect(const char *what, int *got)
  * object (bank, program, octave, effects, the arpeggiator's and the sequencer's settings and the pattern). The banks
  * are not store objects: the Backup page reads and writes them as its own section ("BNKS", app/backup_extras.js)
  * over the loader's frames (38, 31; 20, 21, 22). */
-static uint8_t backup_held;
 int app_backup_playing(void) { return (sl_state() & (SL_S_PLAY | SL_S_REC)) != 0; }
 void app_backup_flush(void)                  /* a backup starts: what is not saved yet, saved */
 {
